@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "44854741850",
+    "project_id": "dbarbi-4c494",
+    "storage_bucket": "dbarbi-4c494.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:44854741850:android:acfd13df564f7265c34163",
+        "android_client_info": {
+          "package_name": "com.arbi.rnpos"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBtcCbBOLmqsGZ_IPYIz0fhqYXTcWtlWJU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

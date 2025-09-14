@@ -1,0 +1,44 @@
+warning: in the working copy of 'src/components/PrintDemo.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/components/PrinterTroubleshooter.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/navigation/RootNavigator.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/screens/Customers/CustomerManagementScreen.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/screens/Customers/CustomerProfileScreen.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/screens/Dashboard/TablesDashboardScreen.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/screens/Menu/EnhancedMenuManagementScreen.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/screens/Menu/MenuScreen.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/screens/Orders/OrderConfirmationScreen.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/screens/Orders/OrderManagementScreen.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/screens/Orders/OrderTakingScreen.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/screens/Orders/PaymentScreen.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/screens/Receipts/DailySummaryScreen.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/screens/Receipts/ReceiptDetailScreen.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/screens/Settings/BluetoothDebugScreen.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/screens/Settings/PrinterSetupScreen.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/screens/Settings/SettingsScreen.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/services/blePrinter.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/services/printing.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/utils/types.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tsconfig.json', LF will be replaced by CRLF the next time Git touches it
+BUILD_SUCCESS.md
+src/components/PrintDemo.tsx
+src/components/PrinterTroubleshooter.tsx
+src/navigation/RootNavigator.tsx
+src/screens/Customers/CustomerManagementScreen.tsx
+src/screens/Customers/CustomerProfileScreen.tsx
+src/screens/Dashboard/TablesDashboardScreen.tsx
+src/screens/Menu/EnhancedMenuManagementScreen.tsx
+src/screens/Menu/MenuScreen.tsx
+src/screens/Orders/OrderConfirmationScreen.tsx
+src/screens/Orders/OrderManagementScreen.tsx
+src/screens/Orders/OrderTakingScreen.tsx
+src/screens/Orders/PaymentScreen.tsx
+src/screens/Receipts/DailySummaryScreen.tsx
+src/screens/Receipts/ReceiptDetailScreen.tsx
+src/screens/Settings/BluetoothDebugScreen.tsx
+src/screens/Settings/PrinterSetupScreen.tsx
+src/screens/Settings/SettingsScreen.tsx
+src/services/blePrinter.ts
+src/services/printing.ts
+src/utils/types.ts
+start-expo-tunnel-auto.bat
+tsconfig.json

@@ -1,0 +1,63 @@
+{
+  "rules": {
+    "users": {
+      "$uid": {
+        ".read": "auth != null && auth.uid == $uid",
+        ".write": "auth != null && auth.uid == $uid",
+        ".validate": "newData.hasChildren(['uid', 'email', 'role', 'restaurantId', 'displayName', 'createdAt', 'isActive'])"
+      }
+    },
+    "restaurants": {
+      "$restaurantId": {
+        ".read": "auth != null && root.child('users').child(auth.uid).child('restaurantId').val() == $restaurantId",
+        ".write": "auth != null && root.child('users').child(auth.uid).child('restaurantId').val() == $restaurantId",
+        "info": {
+          ".read": "auth != null && root.child('users').child(auth.uid).child('restaurantId').val() == $restaurantId",
+          ".write": "auth != null && root.child('users').child(auth.uid).child('restaurantId').val() == $restaurantId && root.child('users').child(auth.uid).child('role').val() == 'owner'"
+        },
+        "tables": {
+          ".read": "auth != null && root.child('users').child(auth.uid).child('restaurantId').val() == $restaurantId",
+          ".write": "auth != null && root.child('users').child(auth.uid).child('restaurantId').val() == $restaurantId"
+        },
+        "orders": {
+          ".read": "auth != null && root.child('users').child(auth.uid).child('restaurantId').val() == $restaurantId",
+          ".write": "auth != null && root.child('users').child(auth.uid).child('restaurantId').val() == $restaurantId"
+        },
+        "menu": {
+          ".read": "auth != null && root.child('users').child(auth.uid).child('restaurantId').val() == $restaurantId",
+          ".write": "auth != null && root.child('users').child(auth.uid).child('restaurantId').val() == $restaurantId"
+        },
+        "inventory": {
+          ".read": "auth != null && root.child('users').child(auth.uid).child('restaurantId').val() == $restaurantId",
+          ".write": "auth != null && root.child('users').child(auth.uid).child('restaurantId').val() == $restaurantId"
+        },
+        "customers": {
+          ".read": "auth != null && root.child('users').child(auth.uid).child('restaurantId').val() == $restaurantId",
+          ".write": "auth != null && root.child('users').child(auth.uid).child('restaurantId').val() == $restaurantId"
+        },
+        "staff": {
+          ".read": "auth != null && root.child('users').child(auth.uid).child('restaurantId').val() == $restaurantId",
+          ".write": "auth != null && root.child('users').child(auth.uid).child('restaurantId').val() == $restaurantId"
+        },
+        "attendance": {
+          ".read": "auth != null && root.child('users').child(auth.uid).child('restaurantId').val() == $restaurantId",
+          ".write": "auth != null && root.child('users').child(auth.uid).child('restaurantId').val() == $restaurantId"
+        },
+        "receipts": {
+          ".read": "auth != null && root.child('users').child(auth.uid).child('restaurantId').val() == $restaurantId",
+          ".write": "auth != null && root.child('users').child(auth.uid).child('restaurantId').val() == $restaurantId",
+          "$receiptId": {
+            ".read": "auth != null && root.child('users').child(auth.uid).child('restaurantId').val() == $restaurantId && data.child('restaurantId').val() == $restaurantId",
+            ".write": "auth != null && root.child('users').child(auth.uid).child('restaurantId').val() == $restaurantId && newData.child('restaurantId').val() == $restaurantId"
+          }
+        }
+      }
+    },
+    "restaurant_users": {
+      "$userId": {
+        ".read": "auth != null && auth.uid == $userId",
+        ".write": "auth != null && auth.uid == $userId"
+      }
+    }
+  }
+}

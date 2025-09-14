@@ -1,0 +1,38 @@
+CHANGES AND HOW TO USE THEM
+
+1) Table Reservation
+- Where: Dashboard > Tables
+- How:
+  1. Long-press a table card
+  2. If Available: the Reserve modal opens. Set Today/Tomorrow, HH:MM, and AM/PM, then tap Reserve
+  3. If Reserved: confirm Unreserve to free the table
+  4. If Occupied or Merged: a notice is shown and reservation is blocked
+- Notes: Reserved tables show a “Reserved” badge and remaining time. To create an order on a reserved table, unreserve first (long-press).
+
+2) Order Confirmation three-dot menu (⋯)
+- Where: Orders > Order Confirmation
+- Actions: Add Items, Merge Table, Change Table, Assign Customer, Apply Discount, Go to Ongoing Orders, Cancel Order
+- Tip: Use the printer icon to print a Pre-Receipt; use Save Order to print KOT/BOT for newly added items.
+
+3) Customer Section
+- Where: Customers > Customer Management
+- What: Add/search/edit/delete customers; view profiles (visits, credit, loyalty); filter Credit-only
+- Link to orders: From Order Confirmation (⋯ > Assign Customer) or on the Payment screen by entering name/phone
+
+4) Receipts and Daily Summary printing
+- Where: Receipts
+- How:
+  1. Choose a date range using the filter
+  2. Tap the Print button next to Payment Summary to print the daily summary for the selected range
+  3. For a specific receipt, tap Print on that receipt or View to open details
+- Note: Pair your printer in Settings > Printer Setup. For issues, use Bluetooth Debug/Troubleshooter.
+
+5) Enhanced Payment UI (new features)
+- Where: Orders > Payment
+- What’s new: Payment methods (Cash, Card, Bank, Fonepay, Credit), Split Bill, customer capture, credit handling, receipt print option
+- How:
+  1. Select a payment method
+  2. Optional: enter customer name/phone (required if any Credit is used)
+  3. To split: tap Split Bill, add payment lines and amounts until totals match; tap Proceed Payment
+  4. Tap Process Payment. Choose Done or Print & Done to print the receipt
+- Notes: Merged table orders automatically unmerge after completing payment. Configure printers in Settings > Printer Setup.
