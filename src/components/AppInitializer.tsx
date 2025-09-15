@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { RootState } from '../redux/storeFirebase';
 import { initializeFirebaseAuthEnhanced } from '../services/firebaseAuthEnhanced';
 import { testFirestoreConnection } from '../services/firebase';
@@ -64,12 +65,15 @@ const AppInitializer: React.FC = () => {
               const fs = createFirestoreService(restaurantId);
               const info = await fs.getRestaurantInfo();
               if (!info || !info.name || !info.ownerName) {
-                // Navigate to Office Management
-                // We cannot access navigation here; rely on a global nav ref if available
-                // Alternatively, set a flag in AsyncStorage to be checked by Settings screen
+                // Set a flag in AsyncStorage to indicate new owner needs setup
+                await AsyncStorage.setItem('newOwnerNeedsSetup', 'true');
+                console.log('New owner detected - needs restaurant setup');
+              } else {
+                // Clear the flag if restaurant info is complete
+                await AsyncStorage.removeItem('newOwnerNeedsSetup');
               }
             } catch (e) {
-              // ignore
+              console.error('Error checking restaurant info:', e);
             }
           }
         }

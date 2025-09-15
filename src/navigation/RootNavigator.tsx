@@ -37,6 +37,7 @@ import PrintDemo from "../components/PrintDemo";
 import CustomDrawerContent from "../components/CustomDrawerContent";
 import BluetoothDebugScreen from "../screens/Settings/BluetoothDebugScreen";
 import PrintDebugComponent from "../components/PrintDebugComponent";
+import NewOwnerRedirect from "../components/NewOwnerRedirect";
 
 export type { 
   AuthStackParamList, 
@@ -226,6 +227,7 @@ export default function RootNavigator() {
             <>
               {/* If owner and missing restaurant info, force OfficeManagement first */}
               {/* We keep drawer but navigate user to OfficeManagement in Settings stack */}
+              <NewOwnerRedirect />
               <AppDrawer />
             </>
           )}

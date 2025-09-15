@@ -221,8 +221,8 @@ const StaffManagementScreen: React.FC = () => {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Staff Management</Text>
-        <Text style={styles.subtitle}>Manage restaurant staff and roles</Text>
+        <Text style={styles.title}>Employee Management</Text>
+        <Text style={styles.subtitle}>Manage restaurant employees and roles</Text>
       </View>
 
       {/* Search and Filters */}
@@ -292,7 +292,7 @@ const StaffManagementScreen: React.FC = () => {
         style={styles.addButton}
         onPress={() => setShowAddModal(true)}
       >
-        <Text style={styles.addButtonText}>+ Add Staff</Text>
+        <Text style={styles.addButtonIcon}>⚙️</Text>
       </TouchableOpacity>
 
       {/* Add/Edit Modal */}
@@ -305,7 +305,7 @@ const StaffManagementScreen: React.FC = () => {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>
-              {editingStaff ? 'Edit Staff Member' : 'Add New Staff Member'}
+              {editingStaff ? 'Edit Employee' : 'Add New Employee'}
             </Text>
             
             <TextInput
@@ -480,115 +480,112 @@ const styles = StyleSheet.create({
     paddingBottom: 100,
   },
   staffCard: {
-    backgroundColor: colors.surface,
+    backgroundColor: colors.surface2,
     borderRadius: radius.lg,
-    padding: spacing.lg,
     marginBottom: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.outline,
-    ...shadow.card,
+    overflow: 'hidden',
+    position: 'relative',
+    height: 120,
   },
-  staffHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  photoContainer: {
+    position: 'absolute',
+    left: spacing.md,
+    top: spacing.md,
+    zIndex: 2,
+  },
+  defaultPhoto: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: colors.outline,
+    justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: spacing.md,
+    borderWidth: 2,
+    borderColor: colors.surface,
+  },
+  silhouetteIcon: {
+    fontSize: 30,
+    color: colors.textMuted,
   },
   staffInfo: {
-    flex: 1,
+    position: 'absolute',
+    right: spacing.md,
+    top: spacing.md,
+    alignItems: 'flex-end',
+    zIndex: 2,
+  },
+  eventTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.textPrimary,
+    marginBottom: 4,
+  },
+  eventDuration: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    fontWeight: '500',
+  },
+  overlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    padding: spacing.md,
+    borderBottomLeftRadius: radius.lg,
+    borderBottomRightRadius: radius.lg,
   },
   staffName: {
     fontSize: 18,
     fontWeight: '700',
     color: colors.textPrimary,
-    marginBottom: 4,
+    marginBottom: spacing.xs,
   },
-  staffEmail: {
+  dateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  startDate: {
     fontSize: 14,
     color: colors.textSecondary,
     fontWeight: '500',
   },
-  rightSection: {
-    alignItems: 'flex-end',
-    gap: spacing.sm,
-  },
-  roleBadge: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: 4,
-    borderRadius: radius.pill,
-  },
-  roleText: {
-    color: colors.textPrimary,
-    fontSize: 12,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-  },
-  statusBadge: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: 4,
-    borderRadius: radius.pill,
-  },
-  statusText: {
-    color: colors.textPrimary,
-    fontSize: 12,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-  },
-  staffDetails: {
-    marginBottom: spacing.md,
-    gap: spacing.xs,
-  },
-  staffPhone: {
-    fontSize: 14,
-    color: colors.textMuted,
-    fontWeight: '500',
-  },
-  staffJoinDate: {
-    fontSize: 12,
-    color: colors.textMuted,
-    fontWeight: '400',
-  },
-  staffActions: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-  },
-  actionButton: {
-    flex: 1,
-    padding: spacing.sm,
-    borderRadius: radius.sm,
+  arrowIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: colors.primary,
+    justifyContent: 'center',
     alignItems: 'center',
   },
-  editButton: {
-    backgroundColor: colors.warning,
-  },
-  activateButton: {
-    backgroundColor: colors.success,
-  },
-  deactivateButton: {
-    backgroundColor: colors.danger,
-  },
-  deleteButton: {
-    backgroundColor: colors.danger,
-  },
-  actionButtonText: {
-    color: colors.textPrimary,
+  arrowText: {
     fontSize: 12,
+    color: colors.textPrimary,
     fontWeight: '600',
+  },
+  endDate: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    fontWeight: '500',
   },
   addButton: {
     position: 'absolute',
     bottom: 20,
     right: 20,
-    backgroundColor: colors.success,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    borderRadius: radius.pill,
+    backgroundColor: colors.surface,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.outline,
     ...shadow.card,
   },
-  addButtonText: {
+  addButtonIcon: {
+    fontSize: 20,
     color: colors.textPrimary,
-    fontSize: 16,
-    fontWeight: '600',
   },
   modalOverlay: {
     flex: 1,

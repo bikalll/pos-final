@@ -148,10 +148,10 @@ const CreateAccountScreen: React.FC = () => {
 
       Alert.alert(
         'Account Created Successfully!',
-        `Owner account created for ${formData.displayName}. You can now login with your credentials.`,
+        `Owner account created for ${formData.displayName}. You will now be redirected to complete your restaurant setup.`,
         [
           {
-            text: 'OK',
+            text: 'Continue to Setup',
             onPress: () => {
               // Reset form
               setFormData({
@@ -164,8 +164,8 @@ const CreateAccountScreen: React.FC = () => {
                 restaurantPhone: '',
               });
               setErrors({});
-              // Navigate back to login
-              navigation.goBack();
+              // Navigate to Office Management screen
+              navigation.navigate('OfficeManagement' as any);
             }
           }
         ]

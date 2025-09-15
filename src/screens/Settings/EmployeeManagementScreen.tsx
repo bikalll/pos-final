@@ -26,7 +26,8 @@ interface Employee extends Omit<UserMetadata, 'role'> {
   designation?: string;
   joinDate?: number;
   isActive: boolean;
-  role: 'owner' | 'manager' | 'staff';
+  role: 'Owner' | 'manager' | 'staff';
+  employmentType?: 'full-time' | 'part-time';
 }
 
 interface FormErrors {
@@ -43,11 +44,13 @@ const EmployeeManagementScreen: React.FC = () => {
   const [showCredentialsModal, setShowCredentialsModal] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedRole, setSelectedRole] = useState<string>('All');
   const [formErrors, setFormErrors] = useState<FormErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [generatedCredentials, setGeneratedCredentials] = useState<{email: string; password: string} | null>(null);
+  const [selectedEmployeeForMenu, setSelectedEmployeeForMenu] = useState<Employee | null>(null);
+  const [showEmployeeMenu, setShowEmployeeMenu] = useState(false);
+  const [showDesignationDropdown, setShowDesignationDropdown] = useState(false);
   const [newEmployee, setNewEmployee] = useState({
     displayName: '',
     email: '',
@@ -55,6 +58,7 @@ const EmployeeManagementScreen: React.FC = () => {
     phone: '',
     designation: '',
     role: 'staff' as 'manager' | 'staff',
+    employmentType: 'full-time' as 'full-time' | 'part-time',
   });
 
   const authState = useSelector((state: RootState) => state.auth);
@@ -81,20 +85,33 @@ const EmployeeManagementScreen: React.FC = () => {
         authService = createFirebaseAuthEnhanced(dispatch);
       }
 
+      // Get users from authentication system
       const restaurantUsers = await authService.getRestaurantUsers(
         authState.restaurantId || '',
         authState.userId || ''
       );
 
-      // Convert UserMetadata to Employee format
-      const employeeList: Employee[] = restaurantUsers.map(user => ({
-        ...user,
-        role: user.role === 'employee' ? 'staff' : user.role as 'owner' | 'manager' | 'staff',
-        phone: '', // Default empty phone
-        designation: '', // Default empty designation
-        joinDate: user.createdAt,
-        isActive: user.isActive,
-      }));
+      // Get staff data from Firestore
+      const firestoreService = createFirestoreService(authState.restaurantId || '');
+      const staffData = await firestoreService.getStaffMembers();
+
+      // Convert UserMetadata to Employee format and merge with staff data
+      const employeeList: Employee[] = restaurantUsers.map(user => {
+        // Find corresponding staff data
+        const staffInfo = Object.values(staffData).find((staff: any) => 
+          staff.email === user.email || staff.id === user.uid
+        );
+
+        return {
+          ...user,
+          role: user.role === 'employee' ? 'staff' : user.role as 'Owner' | 'manager' | 'staff',
+          phone: staffInfo?.phone || '',
+          designation: staffInfo?.designation || staffInfo?.role || '',
+          employmentType: staffInfo?.employmentType || 'full-time',
+          joinDate: staffInfo?.joinDate || user.createdAt,
+          isActive: user.isActive,
+        };
+      });
 
       setEmployees(employeeList);
     } catch (error) {
@@ -105,10 +122,8 @@ const EmployeeManagementScreen: React.FC = () => {
     }
   };
 
-  const roles = ['All', 'manager', 'staff'];
   const filteredEmployees = employees.filter(employee => 
-    (selectedRole === 'All' || employee.role === selectedRole) &&
-    (searchQuery === '' || employee.displayName.toLowerCase().includes(searchQuery.toLowerCase()))
+    searchQuery === '' || employee.displayName.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const validateForm = (): boolean => {
@@ -174,6 +189,20 @@ const EmployeeManagementScreen: React.FC = () => {
         newEmployee.password.trim() // Pass the user-provided password
       );
 
+      // Create staff record in Firestore with additional details
+      const firestoreService = createFirestoreService(authState.restaurantId || '');
+      await firestoreService.createStaffMember({
+        id: result.userMetadata.uid,
+        name: newEmployee.displayName.trim(),
+        email: newEmployee.email.trim().toLowerCase(),
+        phone: newEmployee.phone.trim(),
+        role: newEmployee.designation.trim() || 'Staff', // Use actual designation or default to Staff
+        designation: newEmployee.designation.trim() || 'Staff', // Store designation separately
+        employmentType: newEmployee.employmentType,
+        joinDate: Date.now(),
+        isActive: true,
+      });
+
       // Show the credentials that were actually used to create the account
       setGeneratedCredentials({
         email: result.credentials.email,
@@ -217,43 +246,6 @@ const EmployeeManagementScreen: React.FC = () => {
     }
   };
 
-  const handleFixOwnerRole = async () => {
-    if (!authState.isLoggedIn || authState.role !== 'Owner') {
-      Alert.alert('Error', 'Only owners can fix owner roles');
-      return;
-    }
-
-    Alert.alert(
-      'Fix Owner Role',
-      'This will fix the owner role in the restaurant users collection. Continue?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Fix',
-          onPress: async () => {
-            try {
-              let authService;
-              try {
-                authService = getFirebaseAuthEnhanced();
-              } catch (error) {
-                console.log('Firebase auth enhanced not initialized, creating new instance...');
-                authService = createFirebaseAuthEnhanced(dispatch);
-              }
-              
-              await authService.fixOwnerRole(authState.restaurantId || '', authState.userId || '');
-              Alert.alert('Success', 'Owner role fixed successfully!');
-              
-              // Refresh employee list
-              await loadEmployeeData();
-            } catch (error: any) {
-              console.error('Fix owner role error:', error);
-              Alert.alert('Error', 'Failed to fix owner role: ' + error.message);
-            }
-          },
-        },
-      ]
-    );
-  };
 
   const handleEditEmployee = (employee: Employee) => {
     setEditingEmployee(employee);
@@ -263,7 +255,8 @@ const EmployeeManagementScreen: React.FC = () => {
       password: '', // Empty password for editing
       phone: employee.phone || '',
       designation: employee.designation || '',
-      role: employee.role === 'owner' ? 'manager' : employee.role,
+      role: employee.role === 'Owner' ? 'manager' : employee.role,
+      employmentType: employee.employmentType || 'full-time',
     });
     setFormErrors({});
     setShowAddModal(true);
@@ -275,8 +268,16 @@ const EmployeeManagementScreen: React.FC = () => {
     setIsSubmitting(true);
     
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Update staff record in Firestore
+      const firestoreService = createFirestoreService(authState.restaurantId || '');
+      await firestoreService.updateStaffMember(editingEmployee.uid, {
+        name: newEmployee.displayName.trim(),
+        email: newEmployee.email.trim().toLowerCase(),
+        phone: newEmployee.phone.trim(),
+        role: newEmployee.designation.trim() || 'Staff',
+        designation: newEmployee.designation.trim() || 'Staff',
+        employmentType: newEmployee.employmentType,
+      });
       
       const updatedEmployees = employees.map(employee => 
         employee.uid === editingEmployee.uid ? {
@@ -297,6 +298,7 @@ const EmployeeManagementScreen: React.FC = () => {
       
       Alert.alert('Success', 'Employee updated successfully!');
     } catch (error) {
+      console.error('Update employee error:', error);
       Alert.alert('Error', 'Failed to update employee. Please try again.');
     } finally {
       setIsSubmitting(false);
@@ -455,6 +457,7 @@ const EmployeeManagementScreen: React.FC = () => {
       phone: '',
       designation: '',
       role: 'staff',
+      employmentType: 'full-time',
     });
     setFormErrors({});
   };
@@ -466,83 +469,91 @@ const EmployeeManagementScreen: React.FC = () => {
     resetNewEmployee();
   };
 
+  const handleEmployeeMenu = (employee: Employee) => {
+    setSelectedEmployeeForMenu(employee);
+    setShowEmployeeMenu(true);
+  };
+
+  const handleEmployeeDetails = (employee: Employee) => {
+    // For now, just show an alert with employee details
+    Alert.alert(
+      'Employee Details',
+      `Name: ${employee.displayName}\nEmail: ${employee.email}\nPhone: ${employee.phone || 'Not provided'}\nRole: ${employee.role}\nStatus: ${employee.isActive ? 'Active' : 'Inactive'}\nJoined: ${new Date(employee.joinDate || employee.createdAt).toLocaleDateString()}`,
+      [{ text: 'OK' }]
+    );
+  };
+
   const renderEmployee = ({ item }: { item: Employee }) => (
     <View style={[styles.employeeCard, !item.isActive && styles.inactiveEmployeeCard]}>
-      <View style={styles.employeeHeader}>
-        <View style={styles.employeeInfo}>
-          <Text style={[styles.employeeName, !item.isActive && styles.inactiveText]}>{item.displayName}</Text>
-          <Text style={[styles.employeeEmail, !item.isActive && styles.inactiveText]}>{item.email}</Text>
-          {item.designation && (
-            <Text style={[styles.employeeDesignation, !item.isActive && styles.inactiveText]}>
-              {item.designation}
-            </Text>
-          )}
-        </View>
-        <View style={[styles.roleBadge, { backgroundColor: getRoleColor(item.role) }]}>
-          <Text style={styles.roleText}>
-            {item.role === 'owner' ? 'Owner' : 
-             item.role === 'manager' ? 'Manager' : 'Staff'}
-          </Text>
-        </View>
+      {/* Status Badge */}
+      <View style={styles.statusBadge}>
+        <View style={[styles.statusDot, { backgroundColor: item.isActive ? colors.success : colors.danger }]} />
+        <Text style={styles.statusText}>{item.isActive ? 'Active' : 'Inactive'}</Text>
       </View>
+
+      {/* Menu Button */}
+      <TouchableOpacity 
+        style={styles.menuButton}
+        onPress={() => handleEmployeeMenu(item)}
+      >
+        <Ionicons name="ellipsis-horizontal" size={16} color={colors.textSecondary} />
+      </TouchableOpacity>
+
+      {/* Profile Picture */}
+      <View style={styles.profilePicture}>
+        <Ionicons name="person" size={40} color={colors.textSecondary} />
+      </View>
+
+      {/* Employee Name */}
+      <Text style={styles.employeeName}>{item.displayName}</Text>
       
-      <View style={styles.employeeDetails}>
-        {item.phone && (
-          <Text style={styles.employeeContact}>📞 {item.phone}</Text>
-        )}
-        <Text style={styles.employeeDate}>
-          Joined: {new Date(item.joinDate || item.createdAt).toLocaleDateString()}
+      {/* Designation */}
+      <Text style={styles.employeeTitle}>
+        {item.role === 'Owner' ? 'Owner' : (item.designation || 'Staff')}
+      </Text>
+
+      {/* Job Attributes */}
+      <View style={styles.jobAttributes}>
+        <Text style={styles.jobAttribute}>
+          {item.role === 'Owner' ? 'Owner' : (item.designation || 'Staff')}
         </Text>
-        <View style={styles.statusContainer}>
-          <View style={[styles.statusDot, { backgroundColor: item.isActive ? colors.success : colors.danger }]} />
-          <Text style={styles.employeeStatus}>
-            {item.isActive ? 'Active' : 'Inactive'}
-          </Text>
-        </View>
+        <Text style={styles.jobAttributeSeparator}>•</Text>
+        <Text style={styles.jobAttribute}>Onsite</Text>
+        <Text style={styles.jobAttributeSeparator}>•</Text>
+        <Text style={styles.jobAttribute}>
+          {item.employmentType === 'part-time' ? 'Part Time' : 'Full Time'}
+        </Text>
       </View>
-      
-      <View style={styles.employeeActions}>
-        <TouchableOpacity
-          style={[styles.actionButton, styles.editButton]}
-          onPress={() => handleEditEmployee(item)}
+
+      {/* Contact Information */}
+      <View style={styles.contactInfo}>
+        <Text style={styles.contactLabel}>Email : </Text>
+        <Text style={styles.contactValue}>{item.email}</Text>
+      </View>
+      <View style={styles.contactInfo}>
+        <Text style={styles.contactLabel}>Phone : </Text>
+        <Text style={styles.contactValue}>{item.phone || 'Not provided'}</Text>
+      </View>
+
+      {/* Bottom Section */}
+      <View style={styles.cardBottom}>
+        <Text style={styles.joinDate}>
+          Joined : {item.joinDate ? new Date(item.joinDate).toLocaleDateString('en-GB', { 
+            day: '2-digit', 
+            month: 'short', 
+            year: '2-digit' 
+          }) : new Date(item.createdAt).toLocaleDateString('en-GB', { 
+            day: '2-digit', 
+            month: 'short', 
+            year: '2-digit' 
+          })}
+        </Text>
+        <TouchableOpacity 
+          style={styles.detailsButton}
+          onPress={() => handleEmployeeDetails(item)}
         >
-          <Ionicons name="pencil" size={16} color={colors.primary} />
+          <Text style={styles.detailsButtonText}>Details</Text>
         </TouchableOpacity>
-        
-        {/* Only show deactivate/activate buttons if not the current owner */}
-        {item.uid !== authState.userId && (
-          <>
-            {item.isActive ? (
-              <TouchableOpacity
-                style={[styles.actionButton, styles.deactivateButton]}
-                onPress={() => handleDeactivateEmployee(item.uid)}
-              >
-                <Ionicons name="pause-circle" size={16} color={colors.warning} />
-              </TouchableOpacity>
-            ) : (
-              <TouchableOpacity
-                style={[styles.actionButton, styles.activateButton]}
-                onPress={() => handleActivateEmployee(item.uid)}
-              >
-                <Ionicons name="play-circle" size={16} color={colors.success} />
-              </TouchableOpacity>
-            )}
-            
-            <TouchableOpacity
-              style={[styles.actionButton, styles.deleteButton]}
-              onPress={() => handleDeleteEmployee(item.uid)}
-            >
-              <Ionicons name="trash" size={16} color={colors.danger} />
-            </TouchableOpacity>
-          </>
-        )}
-        
-        {/* Show a message for the current owner */}
-        {item.uid === authState.userId && (
-          <View style={styles.ownerNote}>
-            <Text style={styles.ownerNoteText}>You</Text>
-          </View>
-        )}
       </View>
     </View>
   );
@@ -639,41 +650,10 @@ const EmployeeManagementScreen: React.FC = () => {
           style={styles.addButton}
           onPress={() => setShowAddModal(true)}
         >
-          <Ionicons name="add" size={20} color={colors.textPrimary} />
-          <Text style={styles.addButtonText}>Add Employee</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={[styles.addButton, { backgroundColor: colors.warning, marginTop: spacing.sm }]}
-          onPress={handleFixOwnerRole}
-        >
-          <Ionicons name="shield-checkmark" size={20} color="white" />
-          <Text style={[styles.addButtonText, { color: 'white' }]}>Fix Owner Role</Text>
+          <Ionicons name="add" size={24} color={colors.textPrimary} />
         </TouchableOpacity>
       </View>
 
-      {/* Role Filter */}
-      <View style={styles.filterSection}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.rolesContainer}>
-          {roles.map((role) => (
-            <TouchableOpacity
-              key={role}
-              style={[
-                styles.roleButton,
-                selectedRole === role && styles.roleButtonActive
-              ]}
-              onPress={() => setSelectedRole(role)}
-            >
-              <Text style={[
-                styles.roleButtonText,
-                selectedRole === role && styles.roleButtonTextActive
-              ]}>
-                {role === 'All' ? 'All' : role === 'manager' ? 'Managers' : 'Staff'}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      </View>
 
       {/* Employee List */}
       {isLoading ? (
@@ -723,19 +703,22 @@ const EmployeeManagementScreen: React.FC = () => {
               keyboardShouldPersistTaps="handled"
               contentContainerStyle={styles.modalFormContent}
             >
+              {/* Personal Information Section */}
               <View style={styles.formSection}>
                 <Text style={styles.sectionTitle}>Personal Information</Text>
+                
                 {renderFormField('Full Name', 'displayName', 'Enter full name')}
                 {renderFormField('Email Address', 'email', 'Enter email address', 'email-address', 'none')}
                 {renderFormField('Phone Number', 'phone', 'Enter phone number', 'phone-pad')}
-                {/* Designation Selection */}
+                
+                {/* Designation Field */}
                 <View style={styles.formField}>
-                  <Text style={styles.fieldLabel}>Designation</Text>
+                  <Text style={styles.fieldLabel}>Job Designation</Text>
                   <TextInput
                     style={styles.textInput}
                     value={newEmployee.designation}
                     onChangeText={(text) => setNewEmployee(prev => ({ ...prev, designation: text }))}
-                    placeholder="Enter designation (e.g., Manager, Chef, Waiter)"
+                    placeholder="e.g.,Chef"
                     placeholderTextColor={colors.textSecondary}
                     editable={!isSubmitting}
                   />
@@ -745,13 +728,46 @@ const EmployeeManagementScreen: React.FC = () => {
                 </View>
               </View>
 
+              {/* Employment Details Section */}
               <View style={styles.formSection}>
-                <Text style={styles.sectionTitle}>Account Details</Text>
-                {renderFormField('Password', 'password', 'Enter password for login', 'default', 'none', true)}
+                <Text style={styles.sectionTitle}>Employment Details</Text>
                 
+                {/* Employment Type Selection */}
+                <View style={styles.formField}>
+                  <Text style={styles.fieldLabel}>Employment Type</Text>
+                  <View style={styles.employmentTypeSelection}>
+                    {(['full-time', 'part-time'] as const).map((type) => (
+                      <TouchableOpacity
+                        key={type}
+                        style={[
+                          styles.employmentTypeOption,
+                          newEmployee.employmentType === type && styles.employmentTypeOptionActive
+                        ]}
+                        onPress={() => setNewEmployee(prev => ({ ...prev, employmentType: type }))}
+                        disabled={isSubmitting}
+                      >
+                        <View style={styles.radioContainer}>
+                          <View style={[
+                            styles.radioButton,
+                            newEmployee.employmentType === type && styles.radioButtonActive
+                          ]}>
+                            {newEmployee.employmentType === type && <View style={styles.radioButtonInner} />}
+                          </View>
+                          <Text style={[
+                            styles.employmentTypeOptionText,
+                            newEmployee.employmentType === type && styles.employmentTypeOptionTextActive
+                          ]}>
+                            {type === 'full-time' ? 'Full Time' : 'Part Time'}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+
                 {/* Role Selection */}
                 <View style={styles.formField}>
-                  <Text style={styles.fieldLabel}>Role</Text>
+                  <Text style={styles.fieldLabel}>Access Level</Text>
                   <View style={styles.roleSelection}>
                     {(['manager', 'staff'] as const).map((role) => (
                       <TouchableOpacity
@@ -781,6 +797,15 @@ const EmployeeManagementScreen: React.FC = () => {
                     ))}
                   </View>
                 </View>
+              </View>
+
+              {/* Account Security Section */}
+              <View style={styles.formSection}>
+                <Text style={styles.sectionTitle}>Account Security</Text>
+                {renderFormField('Password', 'password', 'Set login password', 'default', 'none', true)}
+                <Text style={styles.helpText}>
+                  Employee will use this password to sign in to the system
+                </Text>
               </View>
             </ScrollView>
             
@@ -880,6 +905,93 @@ const EmployeeManagementScreen: React.FC = () => {
           </View>
         </View>
       </Modal>
+
+      {/* Employee Action Menu Modal */}
+      <Modal
+        visible={showEmployeeMenu}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setShowEmployeeMenu(false)}
+      >
+        <TouchableOpacity 
+          style={styles.menuOverlay}
+          activeOpacity={1}
+          onPress={() => setShowEmployeeMenu(false)}
+        >
+          <View style={styles.menuContent}>
+            <View style={styles.menuHeader}>
+              <Text style={styles.menuTitle}>
+                {selectedEmployeeForMenu?.displayName}
+              </Text>
+              <TouchableOpacity
+                style={styles.menuCloseButton}
+                onPress={() => setShowEmployeeMenu(false)}
+              >
+                <Ionicons name="close" size={20} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+            
+            <View style={styles.menuActions}>
+              <TouchableOpacity
+                style={styles.menuAction}
+                onPress={() => {
+                  setShowEmployeeMenu(false);
+                  handleEmployeeDetails(selectedEmployeeForMenu!);
+                }}
+              >
+                <Ionicons name="eye" size={20} color={colors.textPrimary} />
+                <Text style={styles.menuActionText}>View Details</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={styles.menuAction}
+                onPress={() => {
+                  setShowEmployeeMenu(false);
+                  handleEditEmployee(selectedEmployeeForMenu!);
+                }}
+              >
+                <Ionicons name="create" size={20} color={colors.textPrimary} />
+                <Text style={styles.menuActionText}>Edit Employee</Text>
+              </TouchableOpacity>
+              
+              {selectedEmployeeForMenu?.isActive ? (
+                <TouchableOpacity
+                  style={[styles.menuAction, styles.menuActionWarning]}
+                  onPress={() => {
+                    setShowEmployeeMenu(false);
+                    handleDeactivateEmployee(selectedEmployeeForMenu!.uid);
+                  }}
+                >
+                  <Ionicons name="pause-circle" size={20} color={colors.warning} />
+                  <Text style={[styles.menuActionText, styles.menuActionWarningText]}>Deactivate</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={[styles.menuAction, styles.menuActionSuccess]}
+                  onPress={() => {
+                    setShowEmployeeMenu(false);
+                    handleActivateEmployee(selectedEmployeeForMenu!.uid);
+                  }}
+                >
+                  <Ionicons name="play-circle" size={20} color={colors.success} />
+                  <Text style={[styles.menuActionText, styles.menuActionSuccessText]}>Activate</Text>
+                </TouchableOpacity>
+              )}
+              
+              <TouchableOpacity
+                style={[styles.menuAction, styles.menuActionDanger]}
+                onPress={() => {
+                  setShowEmployeeMenu(false);
+                  handleDeleteEmployee(selectedEmployeeForMenu!.uid);
+                }}
+              >
+                <Ionicons name="trash" size={20} color={colors.danger} />
+                <Text style={[styles.menuActionText, styles.menuActionDangerText]}>Delete</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -913,7 +1025,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderBottomWidth: 1,
     borderBottomColor: colors.outline,
-    gap: spacing.md,
   },
   searchContainer: {
     flex: 1,
@@ -924,6 +1035,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     borderWidth: 1,
     borderColor: colors.outline,
+    marginRight: spacing.md,
   },
   searchIcon: {
     marginRight: spacing.sm,
@@ -935,49 +1047,15 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
   },
   addButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.primary,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-    borderRadius: radius.lg,
-    gap: spacing.xs,
-  },
-  addButtonText: {
-    color: colors.textPrimary,
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  filterSection: {
     backgroundColor: colors.surface,
-    paddingHorizontal: spacing.md,
-    paddingBottom: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.outline,
-  },
-  rolesContainer: {
-    flexDirection: 'row',
-  },
-  roleButton: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.pill,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    justifyContent: 'center',
+    alignItems: 'center',
     borderWidth: 1,
     borderColor: colors.outline,
-    marginRight: spacing.sm,
-    backgroundColor: colors.surface2,
-  },
-  roleButtonActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  roleButtonText: {
-    color: colors.textSecondary,
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  roleButtonTextActive: {
-    color: colors.textPrimary,
+    ...shadow.card,
   },
   statsContainer: {
     flexDirection: 'row',
@@ -1015,68 +1093,24 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.xl,
   },
   employeeCard: {
-    backgroundColor: colors.surface,
+    backgroundColor: colors.surface2,
     borderRadius: radius.lg,
-    padding: spacing.lg,
     marginBottom: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.outline,
+    padding: spacing.lg,
+    position: 'relative',
+    minHeight: 200,
     ...shadow.card,
   },
-  employeeHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: spacing.md,
-  },
-  employeeInfo: {
-    flex: 1,
-  },
-  employeeName: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: colors.textPrimary,
-    marginBottom: 4,
-  },
-  employeeEmail: {
-    fontSize: 14,
-    color: colors.textSecondary,
-  },
-  roleBadge: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 6,
-    borderRadius: radius.pill,
-    marginLeft: spacing.sm,
-  },
-  roleText: {
-    color: colors.textPrimary,
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  employeeDetails: {
-    marginBottom: spacing.md,
-  },
-  employeeDesignation: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    fontWeight: '500',
-    marginTop: spacing.xs,
-    fontStyle: 'italic',
-  },
-  employeeContact: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    marginBottom: spacing.xs,
-  },
-  employeeDate: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    marginBottom: spacing.xs,
-  },
-  statusContainer: {
+  statusBadge: {
+    position: 'absolute',
+    top: spacing.md,
+    left: spacing.md,
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: spacing.xs,
+    backgroundColor: colors.success + '20',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.pill,
   },
   statusDot: {
     width: 8,
@@ -1084,59 +1118,102 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     marginRight: spacing.xs,
   },
-  employeeStatus: {
+  statusText: {
     fontSize: 12,
+    fontWeight: '600',
+    color: colors.textPrimary,
+  },
+  menuButton: {
+    position: 'absolute',
+    top: spacing.md,
+    right: spacing.md,
+    padding: spacing.xs,
+  },
+  profilePicture: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: colors.primary + '20',
+    justifyContent: 'center',
+    alignItems: 'center',
+    alignSelf: 'center',
+    marginTop: spacing.xl,
+    marginBottom: spacing.md,
+  },
+  employeeName: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: colors.textPrimary,
+    textAlign: 'center',
+    marginBottom: spacing.xs,
+  },
+  employeeTitle: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: colors.primary,
+    textAlign: 'center',
+    marginBottom: spacing.sm,
+  },
+  jobAttributes: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  jobAttribute: {
+    fontSize: 14,
     color: colors.textSecondary,
     fontWeight: '500',
   },
-  employeeActions: {
+  jobAttributeSeparator: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    marginHorizontal: spacing.sm,
+  },
+  contactInfo: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: spacing.sm,
-  },
-  actionButton: {
-    padding: spacing.sm,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface2,
-    borderWidth: 1,
-    borderColor: colors.outline,
-  },
-  editButton: {
-    backgroundColor: colors.primary + '20',
-    borderColor: colors.primary,
-  },
-  deactivateButton: {
-    backgroundColor: colors.warning + '20',
-    borderColor: colors.warning,
-  },
-  activateButton: {
-    backgroundColor: colors.success + '20',
-    borderColor: colors.success,
-  },
-  deleteButton: {
-    backgroundColor: colors.danger + '20',
-    borderColor: colors.danger,
-  },
-  ownerNote: {
-    backgroundColor: colors.primary + '20',
-    borderColor: colors.primary,
+    marginBottom: spacing.xs,
     paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.sm,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
-  ownerNoteText: {
-    color: colors.primary,
-    fontSize: 12,
+  contactLabel: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    fontWeight: '500',
+    minWidth: 60,
+  },
+  contactValue: {
+    fontSize: 14,
+    color: colors.textPrimary,
+    flex: 1,
+  },
+  cardBottom: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: spacing.md,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.outline,
+  },
+  joinDate: {
+    fontSize: 14,
+    color: colors.textMuted,
+    fontWeight: '500',
+  },
+  detailsButton: {
+    backgroundColor: colors.primary,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.pill,
+  },
+  detailsButtonText: {
+    fontSize: 14,
     fontWeight: '600',
+    color: colors.textPrimary,
   },
   inactiveEmployeeCard: {
     opacity: 0.6,
     backgroundColor: colors.surface2,
-  },
-  inactiveText: {
-    opacity: 0.7,
   },
   placeholderText: {
     color: colors.textSecondary,
@@ -1181,7 +1258,7 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
   },
   formSection: {
-    marginBottom: spacing.xl,
+    marginBottom: spacing.xl + spacing.md,
   },
   sectionTitle: {
     fontSize: 18,
@@ -1296,7 +1373,7 @@ const styles = StyleSheet.create({
     padding: spacing.sm,
   },
   formField: {
-    marginBottom: spacing.md,
+    marginBottom: spacing.lg,
   },
   fieldLabel: {
     fontSize: 14,
@@ -1397,6 +1474,102 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.warning,
     textAlign: 'center',
+    fontStyle: 'italic',
+  },
+  menuOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  menuContent: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    width: '80%',
+    maxWidth: 300,
+    ...shadow.card,
+  },
+  menuHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: spacing.lg,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.outline,
+  },
+  menuTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: colors.textPrimary,
+    flex: 1,
+  },
+  menuCloseButton: {
+    padding: spacing.xs,
+  },
+  menuActions: {
+    padding: spacing.sm,
+  },
+  menuAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.md,
+    borderRadius: radius.md,
+    marginBottom: spacing.xs,
+  },
+  menuActionText: {
+    fontSize: 16,
+    color: colors.textPrimary,
+    marginLeft: spacing.md,
+    fontWeight: '500',
+  },
+  menuActionWarning: {
+    backgroundColor: colors.warning + '10',
+  },
+  menuActionWarningText: {
+    color: colors.warning,
+  },
+  menuActionSuccess: {
+    backgroundColor: colors.success + '10',
+  },
+  menuActionSuccessText: {
+    color: colors.success,
+  },
+  menuActionDanger: {
+    backgroundColor: colors.danger + '10',
+  },
+  menuActionDangerText: {
+    color: colors.danger,
+  },
+  // New styles for improved modal
+  employmentTypeSelection: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  employmentTypeOption: {
+    flex: 1,
+    padding: spacing.sm,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.outline,
+    backgroundColor: colors.background,
+  },
+  employmentTypeOptionActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primary + '10',
+  },
+  employmentTypeOptionText: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    textAlign: 'center',
+  },
+  employmentTypeOptionTextActive: {
+    color: colors.primary,
+    fontWeight: '600',
+  },
+  helpText: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginTop: spacing.xs,
     fontStyle: 'italic',
   },
 });

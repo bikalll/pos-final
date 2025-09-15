@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TextInput, TouchableOpacity, Image, ActivityInd
 import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
+import * as DocumentPicker from 'expo-document-picker';
 import { Platform } from 'react-native';
 import { useSelector, useDispatch } from 'react-redux';
 import { RootState } from '../../redux/storeFirebase';
@@ -98,106 +99,76 @@ export default function OfficeManagementScreen() {
   }, [restaurantId]);
 
   const pickImage = async (onPicked: (url: string) => void) => {
-    console.log('📷 pickImage pressed. canEdit:', canEdit, 'platform:', Platform.OS);
+    console.log('📷 pickImage pressed. canEdit:', canEdit);
     if (!canEdit) {
       Alert.alert('View only', 'Only owners can change images.');
       return;
     }
-    // On Android 13+ gallery may not require explicit permission; still request gracefully
-    console.log('📷 Checking media library permission...');
-    const currentPerm = await ImagePicker.getMediaLibraryPermissionsAsync();
-    let granted = currentPerm.granted || Platform.OS === 'android';
-    if (!granted) {
-      console.log('📷 Requesting media library permission...');
-      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      granted = perm.granted;
-      if (!granted) {
-        Alert.alert('Permission required', 'Please grant photo library permission in Settings to pick an image.');
-        return;
-      }
-    }
-    console.log('📷 Launching image library...');
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaType.Images,
-      quality: 0.8,
-      base64: true,
-      allowsMultipleSelection: false,
-      allowsEditing: false,
-    });
-    console.log('📷 Image library result:', { canceled: result.canceled, assets: result.assets ? result.assets.length : 0 });
-    if (!result.canceled && result.assets && result.assets[0]) {
-      try {
-        setLoading(true);
-        console.log('📷 Converting selected image to base64...');
-        const base64 = await ensureBase64FromAsset(result.assets[0]);
-        const url = await uploadToImgbbBase64(base64);
-        onPicked(url);
-        // update auth logo immediately for drawer
-        dispatch(setAuthLogoUrl(url));
-        console.log('📷 Upload success. URL:', url);
-      } catch (e) {
-        Alert.alert('Upload failed', (e as Error).message);
-      } finally {
-        setLoading(false);
-      }
-    } else {
-      // Fallback: use DocumentPicker to select an image file
-      console.log('📄 Falling back to DocumentPicker...');
-      const doc = await DocumentPicker.getDocumentAsync({ type: ['image/*'], multiple: false, copyToCacheDirectory: true });
-      console.log('📄 DocumentPicker result:', doc.type);
-      if (doc.type === 'success' && doc.assets && doc.assets[0]?.uri) {
+
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1], // Square aspect ratio for logos
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets[0]) {
         try {
           setLoading(true);
-          const base64 = await FileSystem.readAsStringAsync(doc.assets[0].uri, { encoding: FileSystem.EncodingType.Base64 });
+          console.log('📷 Converting selected image to base64...');
+          const base64 = await ensureBase64FromAsset(result.assets[0]);
           const url = await uploadToImgbbBase64(base64);
           onPicked(url);
+          // update auth logo immediately for drawer
           dispatch(setAuthLogoUrl(url));
-          console.log('📄 Upload success (document). URL:', url);
+          console.log('📷 Upload success. URL:', url);
         } catch (e) {
-          Alert.alert('Upload failed', (e as Error).message);
+          console.error('📷 Upload error:', e);
+          Alert.alert('Upload failed', (e as Error).message || 'Failed to upload image. Please try again.');
         } finally {
           setLoading(false);
         }
-      } else {
-        Alert.alert('No image selected', 'Please choose an image to upload.');
       }
+    } catch (error) {
+      console.error('📷 Image picker error:', error);
+      Alert.alert('Error', 'Failed to open image picker. Please try again.');
     }
   };
 
   const pickFromCamera = async (onPicked: (url: string) => void) => {
-    console.log('📷 pickFromCamera pressed. canEdit:', canEdit, 'platform:', Platform.OS);
+    console.log('📷 pickFromCamera pressed. canEdit:', canEdit);
     if (!canEdit) {
       Alert.alert('View only', 'Only owners can take images.');
       return;
     }
+
     try {
-      const camPerm = await ImagePicker.requestCameraPermissionsAsync();
-      if (!camPerm.granted) {
-        Alert.alert('Permission required', 'Please grant camera permission in Settings to take a photo.');
-        return;
-      }
-      console.log('📷 Launching camera...');
       const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: true,
+        aspect: [1, 1], // Square aspect ratio for logos
         quality: 0.8,
-        base64: true,
       });
-      console.log('📷 Camera result:', { canceled: result.canceled, assets: result.assets ? result.assets.length : 0 });
-      if (!result.canceled && result.assets && result.assets[0]) {
-        setLoading(true);
+
+      if (!result.canceled && result.assets[0]) {
         try {
+          setLoading(true);
+          console.log('📷 Converting camera image to base64...');
           const base64 = await ensureBase64FromAsset(result.assets[0]);
           const url = await uploadToImgbbBase64(base64);
           onPicked(url);
           dispatch(setAuthLogoUrl(url));
           console.log('📷 Upload success (camera). URL:', url);
         } catch (e) {
-          Alert.alert('Upload failed', (e as Error).message);
+          console.error('📷 Upload error:', e);
+          Alert.alert('Upload failed', (e as Error).message || 'Failed to upload image. Please try again.');
         } finally {
           setLoading(false);
         }
       }
-    } catch (err) {
-      Alert.alert('Camera Error', (err as Error).message || 'Could not open camera');
+    } catch (error) {
+      console.error('📷 Camera error:', error);
+      Alert.alert('Error', 'Failed to open camera. Please try again.');
     }
   };
 
