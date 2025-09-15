@@ -17,7 +17,7 @@ import { colors, spacing, radius, shadow } from '../../theme';
 import { RootState } from '../../redux/storeFirebase';
 import { PrintService } from '../../services/printing';
 import { blePrinter } from '../../services/blePrinter';
-import { removeItem, updateItemQuantity, markOrderSaved, snapshotSavedQuantities, cancelOrder, changeOrderTable, applyDiscount, applyItemDiscount, removeItemDiscount, setOrderCustomer, markOrderReviewed, markOrderUnsaved } from '../../redux/slices/ordersSliceFirebase';
+import { removeItem, updateItemQuantity, markOrderSaved, snapshotSavedQuantities, cancelOrder, changeOrderTable, applyDiscount, applyItemDiscount, removeItemDiscount, setOrderCustomer, markOrderReviewed, markOrderUnsaved, setOrderSpecialInstructions } from '../../redux/slices/ordersSliceFirebase';
 // Removed direct customer mutations here; selection will use existing customers only
 import { unmergeTables } from '../../redux/slices/tablesSliceFirebase';
 import MergeTableModal from '../../components/MergeTableModal';
@@ -39,6 +39,10 @@ const OrderConfirmationScreen: React.FC = () => {
   const [discountModalVisible, setDiscountModalVisible] = useState(false);
   const [discountType, setDiscountType] = useState<'percentage' | 'amount'>('percentage');
   const [discountValue, setDiscountValue] = useState<string>('');
+  const [discountTab, setDiscountTab] = useState<'order' | 'item'>('order');
+  const [selectedDiscountItemId, setSelectedDiscountItemId] = useState<string | null>(null);
+  const [itemDiscountType, setItemDiscountType] = useState<'percentage' | 'amount'>('percentage');
+  const [itemDiscountValue, setItemDiscountValue] = useState<string>('');
   const [assignCustomerModalVisible, setAssignCustomerModalVisible] = useState(false);
   const [customerSearch, setCustomerSearch] = useState('');
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
@@ -60,6 +64,20 @@ const OrderConfirmationScreen: React.FC = () => {
   const menuItems = useSelector((state: RootState) => state.menu.itemsById);
   const allOrdersById = useSelector((state: RootState) => state.orders.ordersById);
   const { restaurantId } = useSelector((state: RootState) => state.auth);
+
+  // Fallback: if the specific orderId isn't in Redux yet, try to find by tableId
+  useEffect(() => {
+    if (!order && tableId) {
+      const state: any = (global as any).store?.getState?.() || undefined;
+      const all = state?.orders?.ordersById || {};
+      const candidate = Object.values(all).find((o: any) => o && o.status === 'ongoing' && o.tableId === tableId);
+      if (candidate && (candidate as any).id && (candidate as any).id !== orderId) {
+        try {
+          (navigation as any).setParams({ orderId: (candidate as any).id });
+        } catch {}
+      }
+    }
+  }, [order, orderId, tableId, navigation]);
 
   // Load Firebase tables
   useEffect(() => {
@@ -268,12 +286,15 @@ const OrderConfirmationScreen: React.FC = () => {
   const hasKOT = orderWithOrderTypes.items.some((i: any) => (i.orderType || 'KOT') === 'KOT' && i.quantity > 0);
   const hasBOT = orderWithOrderTypes.items.some((i: any) => (i.orderType || 'KOT') === 'BOT' && i.quantity > 0);
 
-  const calculateSubtotal = () => orderWithOrderTypes.items.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
+  const calculateBaseSubtotal = () => orderWithOrderTypes.items.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
+  const calculateDiscountedSubtotal = () => orderWithOrderTypes.items.reduce((sum: number, item: any) => sum + calculateItemTotal(item), 0);
+  const calculateItemDiscountsTotal = () => Math.max(0, calculateBaseSubtotal() - calculateDiscountedSubtotal());
+  const calculateSubtotal = () => calculateDiscountedSubtotal();
   const calculateTotal = () => {
-    const subtotal = calculateSubtotal();
+    const discountedSubtotal = calculateDiscountedSubtotal();
     const percent = orderWithOrderTypes.discountPercentage || 0;
-    const discountAmt = subtotal * (percent / 100);
-    return Math.max(0, subtotal - discountAmt);
+    const discountAmt = discountedSubtotal * (percent / 100);
+    return Math.max(0, discountedSubtotal - discountAmt);
   };
 
   // Helper function to calculate item total with individual discount
@@ -347,6 +368,8 @@ const OrderConfirmationScreen: React.FC = () => {
     
     console.log('✅ Save order validation passed, opening modal');
     try { (dispatch as any)({ type: 'orders/lockOrderSaving', payload: { orderId } }); } catch {}
+    // Persist notes to Redux immediately so save/print flows and future views read from order.specialInstructions
+    try { (dispatch as any)(setOrderSpecialInstructions({ orderId, specialInstructions: modificationNotes })); } catch {}
     setPrintModalVisible(true);
   };
 
@@ -357,11 +380,9 @@ const OrderConfirmationScreen: React.FC = () => {
     }
     
     setIsSaving(true);
-    try { 
-      (dispatch as any)(markOrderSaved({ orderId })); 
-      // Snapshot immediately so Settle Payment becomes enabled and Save gets disabled right after clicking save
-      (dispatch as any)(snapshotSavedQuantities({ orderId }));
-      (dispatch as any)({ type: 'orders/lockOrderSaving', payload: { orderId } }); 
+    try {
+      // Lock saving UI; we'll mark saved and snapshot only after successful persistence
+      (dispatch as any)({ type: 'orders/lockOrderSaving', payload: { orderId } });
     } catch {}
     console.log('🔄 Starting order save process...');
     console.log('Order details:', { orderId, restaurantId, actualTableId, orderItems: order?.items?.length });
@@ -375,7 +396,7 @@ const OrderConfirmationScreen: React.FC = () => {
           throw new Error('Restaurant ID is required');
         }
         const svc = createFirestoreService(restaurantId);
-        const payload: any = { ...order, id: orderId, restaurantId, status: 'ongoing' as const, isSaved: true };
+        const payload: any = { ...order, id: orderId, restaurantId, status: 'ongoing' as const, isSaved: true, specialInstructions: (order as any).specialInstructions || modificationNotes || '' };
         await svc.saveOrder(payload);
         const t = Date.now() - startTime;
         console.log(`✅ Step 1: Firestore save successful (${t}ms)`);
@@ -407,9 +428,10 @@ const OrderConfirmationScreen: React.FC = () => {
         return;
       }
       
-      // 2) Mark saved in Redux (snapshot was already taken at start)
+      // 2) Mark saved in Redux and snapshot baseline AFTER successful save
       console.log('🔄 Step 2: Updating Redux state...');
       try { 
+        // Mark saved to trigger inventory deduction middleware; middleware will snapshot after deduction
         (dispatch as any)(markOrderSaved({ orderId })); 
         (dispatch as any)({ type: 'orders/lockOrderSaving', payload: { orderId } });
         console.log('✅ Step 2: Redux state updated');
@@ -464,6 +486,8 @@ const OrderConfirmationScreen: React.FC = () => {
         .filter((i: any) => i.delta > 0)
         .map((i: any) => ({ ...i, quantity: i.delta }));
 
+      // Ensure Redux stores the latest notes before printing
+      try { (dispatch as any)(setOrderSpecialInstructions({ orderId, specialInstructions: modificationNotes })); } catch {}
       const orderDelta = { ...orderWithOrderTypes, items: deltaItems, specialInstructions: (modificationNotes || (orderWithOrderTypes as any).specialInstructions || '') } as any;
 
       console.log('🔄 handlePrint - Attempting to print tickets');
@@ -566,7 +590,16 @@ const OrderConfirmationScreen: React.FC = () => {
               </TouchableOpacity>
             </View>
           </View>
-          <Text style={styles.orderItemPrice}>Rs {item.price.toFixed(2)}</Text>
+          {!!(item.discountPercentage !== undefined || item.discountAmount !== undefined) ? (
+            <View>
+              <Text style={styles.orderItemPrice}>Rs {item.price.toFixed(2)}</Text>
+              <Text style={{ color: colors.success, marginTop: 2 }}>
+                {getItemDiscountText(item)} applied → Rs {calculateItemTotal(item).toFixed(2)}
+              </Text>
+            </View>
+          ) : (
+            <Text style={styles.orderItemPrice}>Rs {item.price.toFixed(2)}</Text>
+          )}
         </View>
       </View>
     );
@@ -672,12 +705,18 @@ const OrderConfirmationScreen: React.FC = () => {
           <View style={styles.summarySection}>
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Subtotal:</Text>
-              <Text style={styles.summaryValue}>Rs {calculateSubtotal().toFixed(2)}</Text>
+              <Text style={styles.summaryValue}>Rs {calculateBaseSubtotal().toFixed(2)}</Text>
             </View>
+            {calculateItemDiscountsTotal() > 0 && (
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Item Discounts:</Text>
+                <Text style={styles.summaryValue}>- Rs {calculateItemDiscountsTotal().toFixed(2)}</Text>
+              </View>
+            )}
             {!!orderWithOrderTypes.discountPercentage && orderWithOrderTypes.discountPercentage > 0 && (
               <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Discount ({orderWithOrderTypes.discountPercentage}%):</Text>
-                <Text style={styles.summaryValue}>- Rs {(calculateSubtotal() * (orderWithOrderTypes.discountPercentage / 100)).toFixed(2)}</Text>
+                <Text style={styles.summaryLabel}>Order Discount ({orderWithOrderTypes.discountPercentage}%):</Text>
+                <Text style={styles.summaryValue}>- Rs {(calculateDiscountedSubtotal() * (orderWithOrderTypes.discountPercentage / 100)).toFixed(2)}</Text>
               </View>
             )}
             <View style={styles.summaryRowTotal}>
@@ -876,7 +915,7 @@ const OrderConfirmationScreen: React.FC = () => {
                          </View>
       </Modal>
 
-      {/* Apply Discount Modal */}
+      {/* Apply Discount Modal (Order + Item tabs) */}
       <Modal visible={discountModalVisible} animationType="slide" transparent onRequestClose={() => setDiscountModalVisible(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -886,48 +925,134 @@ const OrderConfirmationScreen: React.FC = () => {
                 <Ionicons name="close" size={24} color={colors.textPrimary} />
               </TouchableOpacity>
             </View>
-            <Text style={styles.modalDescription}>Choose discount type and enter a value.</Text>
+            {/* Tabs */}
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md }}>
-              <TouchableOpacity onPress={() => setDiscountType('percentage')} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: discountType === 'percentage' ? colors.primary : colors.outline, backgroundColor: discountType === 'percentage' ? colors.primary + '10' : colors.surface }}>
-                <Text style={{ color: colors.textPrimary, fontWeight: '600' }}>Percentage (%)</Text>
+              <TouchableOpacity onPress={() => setDiscountTab('order')} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: discountTab === 'order' ? colors.primary : colors.outline, backgroundColor: discountTab === 'order' ? colors.primary + '10' : colors.surface }}>
+                <Text style={{ color: colors.textPrimary, fontWeight: '700' }}>Order</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={() => setDiscountType('amount')} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: discountType === 'amount' ? colors.primary : colors.outline, backgroundColor: discountType === 'amount' ? colors.primary + '10' : colors.surface }}>
-                <Text style={{ color: colors.textPrimary, fontWeight: '600' }}>Amount (Rs)</Text>
-              </TouchableOpacity>
-            </View>
-            <View style={{ marginBottom: spacing.md }}>
-              <Text style={styles.modalDescription}>Value</Text>
-              <TextInput
-                style={{ borderWidth: 1, borderColor: colors.outline, borderRadius: radius.md, padding: spacing.md, color: colors.textPrimary, backgroundColor: colors.background }}
-                keyboardType="numeric"
-                placeholder={discountType === 'percentage' ? 'e.g., 10' : 'e.g., 100'}
-                placeholderTextColor={colors.textSecondary}
-                value={discountValue}
-                onChangeText={setDiscountValue}
-              />
-            </View>
-            <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.saveButton} onPress={() => {
-                const value = parseFloat(discountValue);
-                const subtotal = calculateSubtotal();
-                if (isNaN(value) || value < 0) { Alert.alert('Invalid', 'Enter a valid discount value'); return; }
-                let percent = 0;
-                if (discountType === 'percentage') {
-                  percent = Math.min(100, value);
-                } else {
-                  const clamped = Math.min(subtotal, value);
-                  percent = subtotal > 0 ? (clamped / subtotal) * 100 : 0;
-                }
-                try { (dispatch as any)(applyDiscount({ orderId, discountPercentage: Number(percent.toFixed(4)) })); } catch {}
-                setDiscountModalVisible(false);
-                setDiscountValue('');
-              }}>
-                <Text style={styles.saveButtonText}>Apply</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.cancelButton} onPress={() => setDiscountModalVisible(false)}>
-                <Text style={styles.cancelButtonText}>Cancel</Text>
+              <TouchableOpacity onPress={() => setDiscountTab('item')} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: discountTab === 'item' ? colors.primary : colors.outline, backgroundColor: discountTab === 'item' ? colors.primary + '10' : colors.surface }}>
+                <Text style={{ color: colors.textPrimary, fontWeight: '700' }}>Item</Text>
               </TouchableOpacity>
             </View>
+
+            {discountTab === 'order' ? (
+              <>
+                <Text style={styles.modalDescription}>Choose discount type and enter a value.</Text>
+                <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md }}>
+                  <TouchableOpacity onPress={() => setDiscountType('percentage')} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: discountType === 'percentage' ? colors.primary : colors.outline, backgroundColor: discountType === 'percentage' ? colors.primary + '10' : colors.surface }}>
+                    <Text style={{ color: colors.textPrimary, fontWeight: '600' }}>Percentage (%)</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => setDiscountType('amount')} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: discountType === 'amount' ? colors.primary : colors.outline, backgroundColor: discountType === 'amount' ? colors.primary + '10' : colors.surface }}>
+                    <Text style={{ color: colors.textPrimary, fontWeight: '600' }}>Amount (Rs)</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={{ marginBottom: spacing.md }}>
+                  <Text style={styles.modalDescription}>Value</Text>
+                  <TextInput
+                    style={{ borderWidth: 1, borderColor: colors.outline, borderRadius: radius.md, padding: spacing.md, color: colors.textPrimary, backgroundColor: colors.background }}
+                    keyboardType="numeric"
+                    placeholder={discountType === 'percentage' ? 'e.g., 10' : 'e.g., 100'}
+                    placeholderTextColor={colors.textSecondary}
+                    value={discountValue}
+                    onChangeText={setDiscountValue}
+                  />
+                </View>
+                <View style={styles.modalActions}>
+                  <TouchableOpacity style={styles.saveButton} onPress={() => {
+                    const value = parseFloat(discountValue);
+                    const subtotal = calculateSubtotal();
+                    if (isNaN(value) || value < 0) { Alert.alert('Invalid', 'Enter a valid discount value'); return; }
+                    let percent = 0;
+                    if (discountType === 'percentage') {
+                      percent = Math.min(100, value);
+                    } else {
+                      const clamped = Math.min(subtotal, value);
+                      percent = subtotal > 0 ? (clamped / subtotal) * 100 : 0;
+                    }
+                    try { (dispatch as any)(applyDiscount({ orderId, discountPercentage: Number(percent.toFixed(4)) })); } catch {}
+                    setDiscountModalVisible(false);
+                    setDiscountValue('');
+                  }}>
+                    <Text style={styles.saveButtonText}>Apply</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.cancelButton} onPress={() => setDiscountModalVisible(false)}>
+                    <Text style={styles.cancelButtonText}>Cancel</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            ) : (
+              <>
+                <Text style={styles.modalDescription}>Select an item and set discount.</Text>
+                <View style={{ marginBottom: spacing.sm }}>
+                  {orderWithOrderTypes.items.length === 0 ? (
+                    <Text style={{ color: colors.textSecondary }}>No items in order.</Text>
+                  ) : (
+                    <ScrollView style={{ maxHeight: 200 }}>
+                      {orderWithOrderTypes.items.map((it: any) => {
+                        const isSelected = selectedDiscountItemId === it.menuItemId;
+                        const currentText = getItemDiscountText(it);
+                        return (
+                          <TouchableOpacity key={it.menuItemId} onPress={() => setSelectedDiscountItemId(it.menuItemId)} style={{ paddingVertical: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: isSelected ? colors.primary : colors.outline, backgroundColor: isSelected ? colors.primary + '10' : colors.surface, marginBottom: spacing.xs }}>
+                            <Text style={{ color: colors.textPrimary, fontWeight: '600' }}>{it.name} x{it.quantity}</Text>
+                            <Text style={{ color: colors.textSecondary, marginTop: 2 }}>{currentText || 'No discount'}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  )}
+                </View>
+                {!!selectedDiscountItemId && (
+                  <>
+                    <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md }}>
+                      <TouchableOpacity onPress={() => setItemDiscountType('percentage')} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: itemDiscountType === 'percentage' ? colors.primary : colors.outline, backgroundColor: itemDiscountType === 'percentage' ? colors.primary + '10' : colors.surface }}>
+                        <Text style={{ color: colors.textPrimary, fontWeight: '600' }}>Percentage (%)</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => setItemDiscountType('amount')} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: itemDiscountType === 'amount' ? colors.primary : colors.outline, backgroundColor: itemDiscountType === 'amount' ? colors.primary + '10' : colors.surface }}>
+                        <Text style={{ color: colors.textPrimary, fontWeight: '600' }}>Amount (Rs)</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <View style={{ marginBottom: spacing.md }}>
+                      <Text style={styles.modalDescription}>Value</Text>
+                      <TextInput
+                        style={{ borderWidth: 1, borderColor: colors.outline, borderRadius: radius.md, padding: spacing.md, color: colors.textPrimary, backgroundColor: colors.background }}
+                        keyboardType="numeric"
+                        placeholder={itemDiscountType === 'percentage' ? 'e.g., 10' : 'e.g., 25'}
+                        placeholderTextColor={colors.textSecondary}
+                        value={itemDiscountValue}
+                        onChangeText={setItemDiscountValue}
+                      />
+                    </View>
+                    <View style={styles.modalActions}>
+                      <TouchableOpacity style={styles.saveButton} onPress={() => {
+                        const v = parseFloat(itemDiscountValue);
+                        if (!selectedDiscountItemId) { return; }
+                        if (isNaN(v) || v < 0) { Alert.alert('Invalid', 'Enter a valid discount value'); return; }
+                        try {
+                          (dispatch as any)(applyItemDiscount({ orderId, menuItemId: selectedDiscountItemId, discountType: itemDiscountType, discountValue: v }));
+                        } catch {}
+                        setItemDiscountValue('');
+                        setSelectedDiscountItemId(null);
+                        setDiscountModalVisible(false);
+                      }}>
+                        <Text style={styles.saveButtonText}>Apply to Item</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.cancelButton} onPress={() => { setItemDiscountValue(''); setSelectedDiscountItemId(null); setDiscountModalVisible(false); }}>
+                        <Text style={styles.cancelButtonText}>Cancel</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={[styles.cancelButton, { borderWidth: 1, borderColor: colors.outline, backgroundColor: colors.surface2 }]} onPress={() => {
+                        if (!selectedDiscountItemId) return;
+                        try { (dispatch as any)(removeItemDiscount({ orderId, menuItemId: selectedDiscountItemId })); } catch {}
+                        setSelectedDiscountItemId(null);
+                        setItemDiscountValue('');
+                        setDiscountModalVisible(false);
+                      }}>
+                        <Text style={styles.cancelButtonText}>Remove Item Discount</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </>
+                )}
+              </>
+            )}
           </View>
         </View>
       </Modal>

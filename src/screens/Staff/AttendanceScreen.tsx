@@ -18,6 +18,9 @@ import * as Location from 'expo-location';
 import { useDispatch, useSelector } from 'react-redux';
 import { RootState } from '../../redux/store';
 import { colors, spacing, radius, shadow } from '../../theme';
+import { getFirebaseAuthEnhanced } from '../../services/firebaseAuthEnhanced';
+import { createAttendanceService } from '../../services/attendanceService';
+import { imgbbService } from '../../services/imgbbService';
 
 interface AttendanceRecord {
   id: string;
@@ -35,27 +38,39 @@ interface AttendanceRecord {
   longitude?: number;
 }
 
-const AttendanceScreen: React.FC = () => {
+const EmployeeAttendanceScreen: React.FC = () => {
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [locationPermission, setLocationPermission] = useState<boolean | null>(null);
+  const [currentUser, setCurrentUser] = useState<{ id: string; name: string; role: string } | null>(null);
   
   const dispatch = useDispatch();
-  
-  // Current user - in a real app, this would come from authentication
-  const currentUser = {
-    id: 'current-user',
-    name: 'Current User',
-    role: 'Staff'
-  };
+  const authState = useSelector((state: RootState) => state.auth);
 
   useEffect(() => {
+    // Get current user info from auth state
+    if (authState.isLoggedIn && authState.userId) {
+      console.log('🔍 Attendance Screen - User Role Debug:', {
+        isLoggedIn: authState.isLoggedIn,
+        userId: authState.userId,
+        userName: authState.userName,
+        role: authState.role,
+        restaurantId: authState.restaurantId
+      });
+      
+      setCurrentUser({
+        id: authState.userId,
+        name: authState.userName || 'Employee',
+        role: authState.role || 'employee'
+      });
+    }
+    
     // Request location permissions
     requestLocationPermission();
     
     // Load saved attendance records
     loadAttendanceRecords();
-  }, []);
+  }, [authState.isLoggedIn, authState.userId, authState.userName, authState.role]);
 
   const requestLocationPermission = async () => {
     try {
@@ -144,42 +159,54 @@ const AttendanceScreen: React.FC = () => {
     }
   };
 
-  const saveAttendanceRecords = async (records: AttendanceRecord[]) => {
+  const saveAttendanceRecord = async (record: AttendanceRecord) => {
     try {
-      await AsyncStorage.setItem('attendanceRecords', JSON.stringify(records));
+      if (!authState.restaurantId) {
+        throw new Error('Restaurant ID not found');
+      }
+      
+      const attendanceService = createAttendanceService(authState.restaurantId);
+      
+      // If record has a photo URI, upload it to ImgBB first
+      if (record.photoUri) {
+        await attendanceService.recordAttendanceWithPhoto(record, record.photoUri);
+      } else {
+        await attendanceService.recordAttendance(record);
+      }
+      
+      // Also save locally for immediate UI update
+      const updatedRecords = [record, ...attendanceRecords];
+      setAttendanceRecords(updatedRecords);
+      await AsyncStorage.setItem('attendanceRecords', JSON.stringify(updatedRecords));
     } catch (error) {
-      console.error('Error saving attendance records:', error);
+      console.error('Error saving attendance record:', error);
+      throw error;
     }
   };
 
   const takePicture = async () => {
     try {
       setIsLoading(true);
+      console.log('📷 Starting photo capture process...');
       
       // Get current location first
+      console.log('📍 Getting location...');
       const locationData = await getCurrentLocation();
+      console.log('📍 Location obtained:', locationData ? 'Success' : 'Failed');
       
-      const photo = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [1, 1], // Square aspect ratio
-        quality: 0.8,
-        base64: true,
-      });
-      
-      if (photo.canceled) {
-        setIsLoading(false);
-        return;
-      }
+      // Take photo and upload to ImgBB directly
+      console.log('📷 Taking photo and uploading to ImgBB...');
+      const uploadResult = await imgbbService.takePhotoAndUpload();
+      console.log('📷 Photo upload successful:', uploadResult.url);
 
       // Record self check-in with photo and location
+      console.log('💾 Saving attendance record...');
       const newRecord: AttendanceRecord = {
         id: Date.now().toString(),
-        staffId: currentUser.id,
-        staffName: currentUser.name,
+        staffId: currentUser?.id || 'unknown',
+        staffName: currentUser?.name || 'Employee',
         timestamp: Date.now(),
-        photoUri: photo.assets[0].uri,
-        photoBase64: photo.assets[0].base64 || '',
+        photoUri: uploadResult.url,
         type: 'in',
         location: 'Photo Check-in',
         address: locationData?.address || 'Location not available',
@@ -189,9 +216,8 @@ const AttendanceScreen: React.FC = () => {
         longitude: locationData?.longitude,
       };
       
-      const updatedRecords = [newRecord, ...attendanceRecords];
-      setAttendanceRecords(updatedRecords);
-      await saveAttendanceRecords(updatedRecords);
+      await saveAttendanceRecord(newRecord);
+      console.log('💾 Attendance record saved successfully');
       
       const locationMessage = locationData?.detailedAddress 
         ? `\nLocation: ${locationData.detailedAddress}\nAccuracy: ${Math.round(locationData.accuracy || 0)}m`
@@ -199,15 +225,16 @@ const AttendanceScreen: React.FC = () => {
       
       Alert.alert(
         'Check In Successful',
-        `${currentUser.name} checked in successfully with photo!${locationMessage}`,
+        `${currentUser?.name || 'Employee'} checked in successfully with photo!${locationMessage}`,
         [{ text: 'OK' }]
       );
       
     } catch (error) {
-      console.error('Error taking picture:', error);
-      Alert.alert('Error', 'Failed to take photo. Please try again.');
+      console.error('❌ Error taking picture:', error);
+      Alert.alert('Error', `Failed to take photo: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setIsLoading(false);
+      console.log('📷 Photo capture process completed');
     }
   };
 
@@ -228,7 +255,14 @@ const AttendanceScreen: React.FC = () => {
       // Request camera permissions
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission Required', 'Camera permission is required to take attendance photos.');
+        Alert.alert(
+          'Camera Permission Required', 
+          'Camera permission is required for attendance photos. Would you like to check in without photo?',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Check In Without Photo', onPress: () => handleCheckInWithoutPhoto() }
+          ]
+        );
         setIsLoading(false);
         return;
       }
@@ -237,8 +271,62 @@ const AttendanceScreen: React.FC = () => {
       await takePicture();
     } catch (error) {
       console.error('Error in check-in:', error);
-      Alert.alert('Error', 'Failed to start camera. Please try again.');
+      Alert.alert(
+        'Error', 
+        'Failed to start camera. Would you like to check in without photo?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Check In Without Photo', onPress: () => handleCheckInWithoutPhoto() }
+        ]
+      );
       setIsLoading(false);
+    }
+  };
+
+  const handleCheckInWithoutPhoto = async () => {
+    try {
+      setIsLoading(true);
+      console.log('📍 Check-in without photo - Getting location...');
+      
+      // Get current location
+      const locationData = await getCurrentLocation();
+      console.log('📍 Location obtained:', locationData ? 'Success' : 'Failed');
+
+      // Record self check-in without photo
+      console.log('💾 Saving attendance record without photo...');
+      const newRecord: AttendanceRecord = {
+        id: Date.now().toString(),
+        staffId: currentUser?.id || 'unknown',
+        staffName: currentUser?.name || 'Employee',
+        timestamp: Date.now(),
+        type: 'in',
+        location: 'Check-in',
+        address: locationData?.address || 'Location not available',
+        detailedAddress: locationData?.detailedAddress || 'Location not available',
+        accuracy: locationData?.accuracy || undefined,
+        latitude: locationData?.latitude,
+        longitude: locationData?.longitude,
+      };
+      
+      await saveAttendanceRecord(newRecord);
+      console.log('💾 Attendance record saved successfully');
+      
+      const locationMessage = locationData?.detailedAddress 
+        ? `\nLocation: ${locationData.detailedAddress}\nAccuracy: ${Math.round(locationData.accuracy || 0)}m`
+        : '\nLocation: Not available';
+      
+      Alert.alert(
+        'Check In Successful',
+        `${currentUser?.name || 'Employee'} checked in successfully!${locationMessage}`,
+        [{ text: 'OK' }]
+      );
+      
+    } catch (error) {
+      console.error('❌ Error checking in without photo:', error);
+      Alert.alert('Error', `Failed to record check in: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsLoading(false);
+      console.log('📍 Check-in without photo completed');
     }
   };
 
@@ -261,8 +349,8 @@ const AttendanceScreen: React.FC = () => {
       
       const newRecord: AttendanceRecord = {
         id: Date.now().toString(),
-        staffId: currentUser.id,
-        staffName: currentUser.name,
+        staffId: currentUser?.id || 'unknown',
+        staffName: currentUser?.name || 'Employee',
         timestamp: Date.now(),
         type: 'out',
         location: 'Self Check-out',
@@ -273,9 +361,7 @@ const AttendanceScreen: React.FC = () => {
         longitude: locationData?.longitude,
       };
       
-      const updatedRecords = [newRecord, ...attendanceRecords];
-      setAttendanceRecords(updatedRecords);
-      await saveAttendanceRecords(updatedRecords);
+      await saveAttendanceRecord(newRecord);
       
       const locationMessage = locationData?.detailedAddress 
         ? `\nLocation: ${locationData.detailedAddress}\nAccuracy: ${Math.round(locationData.accuracy || 0)}m`
@@ -283,7 +369,7 @@ const AttendanceScreen: React.FC = () => {
       
       Alert.alert(
         'Check Out Successful',
-        `${currentUser.name} checked out successfully!${locationMessage}`,
+        `${currentUser?.name || 'Employee'} checked out successfully!${locationMessage}`,
         [{ text: 'OK' }]
       );
     } catch (error) {
@@ -295,6 +381,7 @@ const AttendanceScreen: React.FC = () => {
   };
 
   const getLastAttendanceStatus = () => {
+    if (!currentUser) return null;
     const lastRecord = attendanceRecords
       .filter(r => r.staffId === currentUser.id)
       .sort((a, b) => b.timestamp - a.timestamp)[0];
@@ -303,6 +390,7 @@ const AttendanceScreen: React.FC = () => {
   };
 
   const canCheckInToday = () => {
+    if (!currentUser) return false;
     const today = new Date();
     const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
     const todayEnd = todayStart + (24 * 60 * 60 * 1000) - 1; // End of today
@@ -319,6 +407,7 @@ const AttendanceScreen: React.FC = () => {
   };
 
   const canCheckOutToday = () => {
+    if (!currentUser) return false;
     const today = new Date();
     const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
     const todayEnd = todayStart + (24 * 60 * 60 * 1000) - 1; // End of today
@@ -394,6 +483,46 @@ const AttendanceScreen: React.FC = () => {
     </View>
   );
 
+  // Don't render if user is not loaded
+  if (!currentUser) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <Text style={styles.title}>Employee Attendance</Text>
+          <Text style={styles.subtitle}>Loading user information...</Text>
+        </View>
+        <View style={styles.accessDeniedContainer}>
+          <Text style={styles.accessDeniedText}>
+            Please wait while we load your information.
+          </Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // Block owners from accessing employee attendance
+  console.log('🔍 Attendance Screen - Access Control Check:', {
+    currentUserRole: currentUser.role,
+    isOwner: currentUser.role === 'Owner',
+    isEmployee: currentUser.role === 'employee' || currentUser.role === 'Staff'
+  });
+  
+  if (currentUser.role === 'Owner') {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <Text style={styles.title}>Employee Attendance</Text>
+          <Text style={styles.subtitle}>Access restricted to employees only</Text>
+        </View>
+        <View style={styles.accessDeniedContainer}>
+          <Text style={styles.accessDeniedText}>
+            Owners should use the attendance dashboard to view employee performance.
+          </Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   const lastStatus = getLastAttendanceStatus();
   const isCheckedIn = lastStatus === 'in';
   const canCheckIn = canCheckInToday();
@@ -402,24 +531,23 @@ const AttendanceScreen: React.FC = () => {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Self Attendance</Text>
-        <Text style={styles.subtitle}>Check yourself in and out with a selfie</Text>
+        <Text style={styles.title}>Employee Attendance</Text>
+        <Text style={styles.subtitle}>Track your daily attendance</Text>
       </View>
 
       <ScrollView style={styles.content}>
         {/* Current User Status */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Your Status</Text>
           <View style={styles.userCard}>
             <View style={styles.userInfo}>
               <Text style={styles.userName}>{currentUser.name}</Text>
               <Text style={styles.userRole}>{currentUser.role}</Text>
-              <Text style={styles.userStatus}>
-                Status: {isCheckedIn ? 'Checked In' : 'Not Checked In'}
-              </Text>
-              <Text style={styles.dailyStatus}>
-                Today: {canCheckIn ? 'Can Check In' : canCheckOut ? 'Can Check Out' : 'Already Completed'}
-              </Text>
+              <View style={styles.statusContainer}>
+                <View style={[styles.statusIndicator, { backgroundColor: isCheckedIn ? colors.success : colors.textMuted }]} />
+                <Text style={styles.userStatus}>
+                  {isCheckedIn ? 'Currently Working' : 'Not Checked In'}
+                </Text>
+              </View>
             </View>
             
             <View style={styles.userActions}>
@@ -454,16 +582,19 @@ const AttendanceScreen: React.FC = () => {
 
         {/* Recent Attendance Records */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Your Attendance History</Text>
+          <Text style={styles.sectionTitle}>Recent Activity</Text>
           {attendanceRecords.filter(r => r.staffId === currentUser.id).length > 0 ? (
             <FlatList
-              data={attendanceRecords.filter(r => r.staffId === currentUser.id).slice(0, 10)}
+              data={attendanceRecords.filter(r => r.staffId === currentUser.id).slice(0, 5)}
               renderItem={renderAttendanceRecord}
               keyExtractor={(item) => item.id}
               scrollEnabled={false}
             />
           ) : (
-            <Text style={styles.emptyText}>No attendance records yet</Text>
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>No attendance records yet</Text>
+              <Text style={styles.emptySubtext}>Your attendance history will appear here</Text>
+            </View>
           )}
         </View>
       </ScrollView>
@@ -517,9 +648,20 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginBottom: 4,
   },
+  statusContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  statusIndicator: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 6,
+  },
   userStatus: {
     fontSize: 12,
-    color: colors.primary,
+    color: colors.textSecondary,
     fontWeight: '500',
   },
   userActions: {
@@ -586,12 +728,30 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     borderRadius: radius.md,
   },
+  emptyContainer: {
+    padding: spacing.xl,
+    alignItems: 'center',
+  },
   emptyText: {
-    textAlign: 'center',
-    color: colors.textSecondary,
     fontSize: 16,
-    fontStyle: 'italic',
-    paddingVertical: 20,
+    color: colors.textSecondary,
+    marginBottom: spacing.sm,
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: colors.textMuted,
+    textAlign: 'center',
+  },
+  accessDeniedContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.xl,
+  },
+  accessDeniedText: {
+    fontSize: 16,
+    color: colors.textSecondary,
+    textAlign: 'center',
   },
   recordAccuracy: {
     fontSize: 12,
@@ -601,15 +761,10 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: colors.textMuted,
   },
-  dailyStatus: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    marginTop: 4,
+  completedButton: {
+    backgroundColor: colors.textMuted,
+    opacity: 0.7,
   },
-     completedButton: {
-     backgroundColor: colors.textMuted,
-     opacity: 0.7,
-   },
 });
 
-export default AttendanceScreen;
+export default EmployeeAttendanceScreen;

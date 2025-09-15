@@ -40,7 +40,7 @@ const ReceiptDetailScreen: React.FC = () => {
   
   const tables = useSelector((state: RootState) => state.tables.tablesById);
   const customers = useSelector((state: RootState) => state.customers.customersById);
-  const { restaurantId, restaurantName: authRestaurantName, logoUrl: authLogoUrl } = useSelector((state: RootState) => (state as any).auth);
+  const { restaurantId, restaurantName: authRestaurantName, logoUrl: authLogoUrl, userName: authUserName } = useSelector((state: RootState) => (state as any).auth);
   const [restaurantInfo, setRestaurantInfo] = useState<{ name?: string; address?: string; panVat?: string; logoUrl?: string } | null>(null);
   const reduxOrder = useSelector((state: RootState) => state.orders.ordersById[orderId]);
 
@@ -278,7 +278,17 @@ const ReceiptDetailScreen: React.FC = () => {
   const shortReceiptId = getShortReceiptId(orderId);
 
   const table = tables[order.tableId];
-  const subtotal = order.items.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
+  const calculateItemTotal = (item: any) => {
+    const baseTotal = item.price * item.quantity;
+    let discount = 0;
+    if (item.discountPercentage !== undefined) discount = (baseTotal * item.discountPercentage) / 100;
+    else if (item.discountAmount !== undefined) discount = item.discountAmount;
+    return Math.max(0, baseTotal - discount);
+  };
+  const baseSubtotal = order.items.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
+  const discountedSubtotal = order.items.reduce((sum: number, item: any) => sum + calculateItemTotal(item), 0);
+  const itemDiscountsTotal = Math.max(0, baseSubtotal - discountedSubtotal);
+  const subtotal = discountedSubtotal;
   const tax = subtotal * (order.taxPercentage / 100);
   const serviceCharge = subtotal * (order.serviceChargePercentage / 100);
   const discount = subtotal * (order.discountPercentage / 100);
@@ -693,6 +703,12 @@ Ref Number: ${shortReceiptId}
                     })()}
                   </Text>
                 </View>
+                {!!authUserName && (
+                  <View style={styles.infoRow}>
+                    <Text style={styles.infoLabel}>Steward:</Text>
+                    <Text style={styles.infoValue}>{authUserName}</Text>
+                  </View>
+                )}
                 {(
                   (order.payment?.customerName && order.payment.customerName.length > 0) ||
                   (order.payment?.customerPhone && order.payment.customerPhone.length > 0)
@@ -710,16 +726,23 @@ Ref Number: ${shortReceiptId}
               {/* Items List */}
               <View style={styles.itemsSection}>
                 <Text style={styles.sectionTitle}>ORDER ITEMS</Text>
+                <View style={styles.itemsHeaderRow}>
+                  <Text style={styles.itemsHeaderLeft}>Item</Text>
+                  <Text style={styles.itemsHeaderRight}>Total</Text>
+                </View>
                 {order.items.map((item: any, index: number) => (
                   <View key={`${item.menuItemId || item.name}-${index}`} style={styles.itemRow}>
-                    <View style={styles.itemInfo}>
-                      <Text style={styles.itemName}>{item.name}</Text>
-                      <Text style={styles.itemQuantity}>Qty: {item.quantity}</Text>
+                    <View style={styles.itemInfoInline}>
+                      <Text style={styles.itemName} numberOfLines={2} ellipsizeMode="tail">{`${item.name} x${item.quantity}`}</Text>
+                      <Text style={styles.itemTotalInline}>Rs {(item.price * item.quantity).toFixed(2)}</Text>
                     </View>
-                    <View style={styles.itemPrice}>
-                      <Text style={styles.itemUnitPrice}>Rs {item.price.toFixed(2)}</Text>
-                      <Text style={styles.itemTotalPrice}>Rs {(item.price * item.quantity).toFixed(2)}</Text>
-                    </View>
+                    {(item.discountPercentage !== undefined || item.discountAmount !== undefined) && (
+                      <View style={styles.itemDiscountContainer}>
+                        <Text style={[styles.itemUnitPrice, styles.itemDiscountLine]}>
+                          {item.discountPercentage !== undefined ? `${item.discountPercentage}%` : `Rs ${Number(item.discountAmount || 0).toFixed(2)}`} off → Rs {calculateItemTotal(item).toFixed(2)}
+                        </Text>
+                      </View>
+                    )}
                   </View>
                 ))}
               </View>
@@ -731,8 +754,14 @@ Ref Number: ${shortReceiptId}
               <View style={styles.billSummary}>
                 <View style={styles.summaryRow}>
                   <Text style={styles.summaryLabel}>Subtotal:</Text>
-                  <Text style={styles.summaryValue}>{formatCurrency(subtotal)}</Text>
+                  <Text style={styles.summaryValue}>{formatCurrency(baseSubtotal)}</Text>
                 </View>
+                {itemDiscountsTotal > 0 && (
+                  <View style={styles.summaryRow}>
+                    <Text style={styles.summaryLabel}>Item Discounts:</Text>
+                    <Text style={styles.summaryValue}>-{formatCurrency(itemDiscountsTotal)}</Text>
+                  </View>
+                )}
                 {order.serviceChargePercentage > 0 && (
                   <View style={styles.summaryRow}>
                     <Text style={styles.summaryLabel}>Service Charge ({order.serviceChargePercentage}%):</Text>
@@ -747,7 +776,7 @@ Ref Number: ${shortReceiptId}
                 )}
                 {order.discountPercentage > 0 && (
                   <View style={styles.summaryRow}>
-                    <Text style={styles.summaryLabel}>Discount ({order.discountPercentage}%):</Text>
+                    <Text style={styles.summaryLabel}>Order Discount ({order.discountPercentage}%):</Text>
                     <Text style={styles.summaryValue}>-{formatCurrency(discount)}</Text>
                   </View>
                 )}
@@ -959,6 +988,25 @@ const styles = StyleSheet.create({
   itemsSection: {
     marginBottom: 20,
   },
+  itemsHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+    marginBottom: 6,
+  },
+  itemsHeaderLeft: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#7f8c8d',
+  },
+  itemsHeaderRight: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#7f8c8d',
+  },
   sectionTitle: {
     fontSize: 16,
     fontWeight: 'bold',
@@ -991,6 +1039,26 @@ const styles = StyleSheet.create({
   },
   itemPrice: {
     alignItems: 'flex-end',
+  },
+  itemInfoInline: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    width: '100%',
+  },
+  itemTotalInline: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: '#2c3e50',
+    textAlign: 'right',
+  },
+  itemDiscountLine: {
+    color: '#27ae60',
+    marginTop: 2,
+    textAlign: 'right',
+  },
+  itemDiscountContainer: {
+    width: '100%',
   },
   itemUnitPrice: {
     fontSize: 13,

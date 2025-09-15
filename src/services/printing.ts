@@ -785,9 +785,11 @@ export class PrintService {
       let restaurantName = 'ARBI POS';
       let address: string | undefined;
       let panVat: string | undefined;
+      let stewardName: string | undefined;
       try {
         const state: any = store.getState?.() || {};
         const restaurantId = state?.auth?.restaurantId || order.restaurantId;
+        stewardName = state?.auth?.userName || undefined;
         if (restaurantId) {
           const fs = createFirestoreService(restaurantId);
           const info = await fs.getRestaurantInfo();
@@ -814,6 +816,7 @@ export class PrintService {
         date: new Date(order.createdAt).toLocaleDateString(),
         time: new Date(order.createdAt).toLocaleTimeString(),
         table: table?.name || order.tableId,
+        steward: stewardName,
         items: order.items.map((item: any) => ({
           name: item.name,
           quantity: item.quantity,
@@ -897,6 +900,7 @@ export class PrintService {
         date: new Date(order.createdAt).toLocaleDateString(),
         time: new Date(order.createdAt).toLocaleTimeString(),
         table: table?.name || order.tableId,
+        steward: (store as any)?.getState?.()?.auth?.userName,
         items: order.items.map((item: any) => ({
           name: item.name,
           quantity: item.quantity,
@@ -1259,15 +1263,14 @@ export class PrintService {
     lines.push(`${receipt.date} ${receipt.time}`);
     lines.push(`Table ${receipt.tableNumber}`);
     lines.push('Cashier: ' + (receipt.cashier || 'POS'));
-    lines.push('Steward: Maam');
+    if ((receipt as any).steward) lines.push('Steward: ' + (receipt as any).steward);
     lines.push('------------------------------');
-    lines.push('Item                    Qty    Total');
+    lines.push('Item                         Total');
     lines.push('------------------------------');
     for (const it of receipt.items || []) {
-      const name = this.padEnd(it.name, 20);
-      const qty = this.padStart(it.quantity, 3);
-      const total = (it.total).toFixed(1);
-      lines.push(`${name}${qty}   ${total}`);
+      const nameQty = this.padEnd(`${it.name} x${it.quantity}`, 22);
+      const total = (it.total).toFixed(1).padStart(8);
+      lines.push(`${nameQty}${total}`);
     }
     lines.push('------------------------------');
     lines.push(`Sub Total: ${receipt.subtotal.toFixed(1)}`);

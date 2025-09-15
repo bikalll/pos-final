@@ -50,15 +50,39 @@ const InventoryScreen: React.FC = () => {
     unit: '',
     supplier: '',
   });
+  const [categoriesList, setCategoriesList] = useState<{ id: string; name: string }[]>([]);
+  const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
+  const [showAddCategoryModal, setShowAddCategoryModal] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [categoryPickerVisible, setCategoryPickerVisible] = useState(false);
+  const [unitPickerVisible, setUnitPickerVisible] = useState(false);
 
   useEffect(() => {
-    const init = async () => {
-      if (!restaurantId) return;
-      const service = createFirestoreService(restaurantId);
-      setFirestoreService(service);
+    if (!restaurantId) return;
+    const service = createFirestoreService(restaurantId);
+    setFirestoreService(service);
+    let unsubscribe: (() => void) | undefined;
+    (async () => {
       await loadInventoryData(service);
-    };
-    init();
+      try {
+        unsubscribe = service.listenToInventory?.((items: Record<string, any>) => {
+          const mapped: InventoryItem[] = Object.values(items).map((it: any) => ({
+            id: it.id,
+            name: it.name,
+            category: it.category || 'Uncategorized',
+            price: Number(it.price) || 0,
+            stockQuantity: Number(it.stockQuantity) || 0,
+            minStockLevel: Number(it.minStockLevel) || 0,
+            unit: it.unit || 'pcs',
+            supplier: it.supplier || 'Unknown',
+            lastUpdated: it.lastUpdated || Date.now(),
+            isActive: it.isActive !== false,
+          }));
+          setInventoryItems(mapped);
+        });
+      } catch {}
+    })();
+    return () => { try { unsubscribe && unsubscribe(); } catch {} };
   }, [restaurantId]);
 
   const loadInventoryData = async (service = firestoreService) => {
@@ -78,6 +102,12 @@ const InventoryScreen: React.FC = () => {
         isActive: it.isActive !== false,
       }));
       setInventoryItems(items);
+      // Load inventory categories list for dropdown
+      try {
+        const cats = await service.getInventoryCategories();
+        const arr = Object.values(cats || {}).map((c: any) => ({ id: c.id, name: c.name }));
+        setCategoriesList(arr);
+      } catch {}
     } catch (e) {
       Alert.alert('Error', 'Failed to load inventory');
     }
@@ -97,6 +127,10 @@ const InventoryScreen: React.FC = () => {
       Alert.alert('Error', 'Please fill in all required fields');
       return;
     }
+    if (!newItem.unit?.trim()) {
+      Alert.alert('Error', 'Please provide a unit for this item (e.g., kg, g, l, ml, pcs)');
+      return;
+    }
     try {
       const id = `${Date.now()}`;
       const item = {
@@ -104,7 +138,7 @@ const InventoryScreen: React.FC = () => {
         name: newItem.name,
         category: newItem.category,
         price: parseFloat(newItem.price),
-        stockQuantity: parseInt(newItem.stockQuantity),
+        stockQuantity: parseFloat(newItem.stockQuantity),
         minStockLevel: parseInt(newItem.minStockLevel) || 0,
         unit: newItem.unit || 'pcs',
         supplier: newItem.supplier || 'Unknown',
@@ -140,12 +174,16 @@ const InventoryScreen: React.FC = () => {
         name: newItem.name,
         category: newItem.category,
         price: parseFloat(newItem.price),
-        stockQuantity: parseInt(newItem.stockQuantity),
+        stockQuantity: parseFloat(newItem.stockQuantity),
         minStockLevel: parseInt(newItem.minStockLevel) || 0,
-        unit: newItem.unit || 'pcs',
+        unit: (newItem.unit || '').trim(),
         supplier: newItem.supplier || 'Unknown',
         lastUpdated: Date.now(),
       };
+      if (!updates.unit) {
+        Alert.alert('Error', 'Please provide a unit for this item (e.g., kg, g, l, ml, pcs)');
+        return;
+      }
       await firestoreService.updateInventoryItem(editingItem.id, updates);
       await loadInventoryData();
       setShowAddModal(false);
@@ -178,15 +216,21 @@ const InventoryScreen: React.FC = () => {
     );
   };
 
-  const handleStockAdjustment = (itemId: string, adjustment: number) => {
-    const updatedItems = inventoryItems.map(item => 
-      item.id === itemId ? {
-        ...item,
-        stockQuantity: Math.max(0, item.stockQuantity + adjustment),
-        lastUpdated: Date.now(),
-      } : item
-    );
-    setInventoryItems(updatedItems);
+  const handleStockAdjustment = async (itemId: string, adjustment: number) => {
+    const target = inventoryItems.find(i => i.id === itemId);
+    if (!target || !firestoreService) return;
+    const newQty = Math.max(0, Number(target.stockQuantity) + Number(adjustment));
+    // Optimistic update
+    const prevItems = inventoryItems;
+    setInventoryItems(prevItems.map(item => item.id === itemId ? { ...item, stockQuantity: newQty, lastUpdated: Date.now() } : item));
+    try {
+      await firestoreService.updateInventoryItem(itemId, { stockQuantity: newQty, lastUpdated: Date.now() });
+      // Listener will refresh; keep optimistic state meanwhile
+    } catch (e: any) {
+      // Rollback on failure
+      setInventoryItems(prevItems);
+      Alert.alert('Error', e?.message || 'Failed to update stock');
+    }
   };
 
   const resetNewItem = () => {
@@ -233,7 +277,7 @@ const InventoryScreen: React.FC = () => {
       <View style={styles.itemDetails}>
         <View style={styles.detailRow}>
           <Text style={styles.detailLabel}>Price:</Text>
-          <Text style={styles.detailValue}>${item.price.toFixed(2)}</Text>
+          <Text style={styles.detailValue}>Rs {item.price.toFixed(2)}</Text>
         </View>
         <View style={styles.detailRow}>
           <Text style={styles.detailLabel}>Stock:</Text>
@@ -325,17 +369,32 @@ const InventoryScreen: React.FC = () => {
             </View>
 
             <View style={styles.statsContainer}>
-              <View style={styles.statCard}>
-                <Text style={styles.statValue}>{inventoryItems.length}</Text>
-                <Text style={styles.statLabel}>Total Items</Text>
+              <View style={styles.statGroup}>
+                <Text style={styles.statHeading}>Total Items</Text>
+                <View style={styles.statCard}>
+                  <Text style={styles.statValue}>{inventoryItems.length}</Text>
+                </View>
               </View>
-              <View style={styles.statCard}>
-                <Text style={styles.statValue}>{lowStockItems.length}</Text>
-                <Text style={styles.statLabel}>Low Stock</Text>
+              <View style={styles.statGroup}>
+                <Text style={styles.statHeading}>Low Stock</Text>
+                <View style={styles.statCard}>
+                  <Text style={styles.statValue}>{lowStockItems.length}</Text>
+                </View>
               </View>
-              <View style={styles.statCard}>
-                <Text style={styles.statValue}>${totalValue.toFixed(2)}</Text>
-                <Text style={styles.statLabel}>Total Value</Text>
+              <View style={styles.statGroup}>
+                <Text style={styles.statHeading}>Total Value (Rs)</Text>
+                <View style={styles.statCard}>
+                  <Text
+                    style={[styles.statValue, { fontSize: 12 } ]}
+                    numberOfLines={1}
+                    ellipsizeMode="clip"
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.8}
+                    allowFontScaling
+                  >
+                    {totalValue.toFixed(2)}
+                  </Text>
+                </View>
               </View>
             </View>
 
@@ -369,13 +428,21 @@ const InventoryScreen: React.FC = () => {
                 value={newItem.name} 
                 onChangeText={(text) => setNewItem(prev => ({ ...prev, name: text }))} 
               />
-              <TextInput 
-                style={styles.modalInput} 
-                placeholder="Category" 
-                placeholderTextColor={colors.textSecondary}
-                value={newItem.category} 
-                onChangeText={(text) => setNewItem(prev => ({ ...prev, category: text }))} 
-              />
+              {/* Category dropdown with add button */}
+              <Text style={{ color: colors.textSecondary, fontSize: 12, marginBottom: 6 }}>Category</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <TouchableOpacity
+                  style={[styles.modalInput, { flex: 1, justifyContent: 'center' }]}
+                  onPress={() => setCategoryPickerVisible(true)}
+                >
+                  <Text style={{ color: newItem.category ? colors.textPrimary : colors.textSecondary }} numberOfLines={1}>
+                    {newItem.category || 'Select category'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => setShowAddCategoryModal(true)} style={{ paddingVertical: 12, paddingHorizontal: 12, borderRadius: radius.md, borderWidth: 1, borderColor: colors.outline, backgroundColor: colors.surface }}>
+                  <Text style={{ color: colors.primary, fontWeight: '600' }}>+ Add</Text>
+                </TouchableOpacity>
+              </View>
               <TextInput 
                 style={styles.modalInput} 
                 placeholder="Price" 
@@ -400,13 +467,15 @@ const InventoryScreen: React.FC = () => {
                 onChangeText={(text) => setNewItem(prev => ({ ...prev, minStockLevel: text }))} 
                 keyboardType="numeric" 
               />
-              <TextInput 
-                style={styles.modalInput} 
-                placeholder="Unit (kg, L, pcs)" 
-                placeholderTextColor={colors.textSecondary}
-                value={newItem.unit} 
-                onChangeText={(text) => setNewItem(prev => ({ ...prev, unit: text }))} 
-              />
+              <Text style={{ color: colors.textSecondary, fontSize: 12, marginBottom: 6 }}>Unit</Text>
+              <TouchableOpacity
+                style={[styles.modalInput, { justifyContent: 'center' }]}
+                onPress={() => setUnitPickerVisible(true)}
+              >
+                <Text style={{ color: newItem.unit ? colors.textPrimary : colors.textSecondary }} numberOfLines={1}>
+                  {newItem.unit || 'Select unit (kg, g, l, ml, pcs)'}
+                </Text>
+              </TouchableOpacity>
               <TextInput 
                 style={styles.modalInput} 
                 placeholder="Supplier" 
@@ -426,6 +495,81 @@ const InventoryScreen: React.FC = () => {
             </View>
           </View>
         </KeyboardAvoidingView>
+      </Modal>
+      {/* Category Picker Modal (similar to unit/ingredient pickers) */}
+      <Modal visible={categoryPickerVisible} transparent animationType="fade" onRequestClose={() => setCategoryPickerVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxWidth: 380 }] }>
+            <Text style={styles.modalTitle}>Select Category</Text>
+            <ScrollView style={{ maxHeight: 320 }}>
+              {(categoriesList || []).length === 0 ? (
+                <Text style={{ color: colors.textSecondary, padding: spacing.md, textAlign: 'center' }}>No categories. Tap + Add to create one.</Text>
+              ) : (
+                (categoriesList || []).map(c => (
+                  <TouchableOpacity key={c.id} style={{ paddingVertical: 10, paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: colors.outline }} onPress={() => { setNewItem(prev => ({ ...prev, category: c.name })); setCategoryPickerVisible(false); }}>
+                    <Text style={{ color: colors.textPrimary }} numberOfLines={1}>{c.name}</Text>
+                  </TouchableOpacity>
+                ))
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+      {/* Add Category Modal */}
+      <Modal visible={showAddCategoryModal} animationType="fade" transparent onRequestClose={() => setShowAddCategoryModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxWidth: 360 }]}>
+            <Text style={styles.modalTitle}>Add Category</Text>
+            <TextInput
+              style={styles.modalInput}
+              placeholder="Category name"
+              placeholderTextColor={colors.textSecondary}
+              value={newCategoryName}
+              onChangeText={setNewCategoryName}
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={[styles.modalButton, styles.modalButtonCancel]} onPress={() => { setShowAddCategoryModal(false); setNewCategoryName(''); }}>
+                <Text style={styles.modalButtonCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonConfirm]}
+                onPress={async () => {
+                  if (!newCategoryName.trim()) { Alert.alert('Error', 'Enter a category name'); return; }
+                  try {
+                    const svc = firestoreService || createFirestoreService((useSelector((s: RootState) => s.auth) as any)?.restaurantId);
+                    await svc.createInventoryCategory({ name: newCategoryName.trim() });
+                    const cats = await svc.getInventoryCategories();
+                    const arr = Object.values(cats || {}).map((c: any) => ({ id: c.id, name: c.name }));
+                    setCategoriesList(arr);
+                    setNewItem(prev => ({ ...prev, category: newCategoryName.trim() }));
+                    setNewCategoryName('');
+                    setShowAddCategoryModal(false);
+                    setShowCategoryDropdown(false);
+                  } catch (e: any) {
+                    Alert.alert('Error', e?.message || 'Failed to create category');
+                  }
+                }}
+              >
+                <Text style={styles.modalButtonConfirmText}>Add</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      {/* Unit Picker Modal */}
+      <Modal visible={unitPickerVisible} transparent animationType="fade" onRequestClose={() => setUnitPickerVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxWidth: 360 }] }>
+            <Text style={styles.modalTitle}>Select Unit</Text>
+            <ScrollView style={{ maxHeight: 320 }}>
+              {['kg','g','l','ml','pcs'].map(u => (
+                <TouchableOpacity key={u} style={{ paddingVertical: 10, paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: colors.outline }} onPress={() => { setNewItem(prev => ({ ...prev, unit: u })); setUnitPickerVisible(false); }}>
+                  <Text style={{ color: colors.textPrimary }}>{u}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
       </Modal>
     </SafeAreaView>
   );
@@ -451,9 +595,11 @@ const styles = StyleSheet.create({
   categoryButtonActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   categoryButtonText: { color: colors.textSecondary, fontSize: 14, fontWeight: '500' },
   categoryButtonTextActive: { color: colors.textPrimary },
-  statsContainer: { flexDirection: 'row', padding: spacing.md, gap: spacing.md },
-  statCard: { flex: 1, backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.md, alignItems: 'center', borderWidth: 1, borderColor: colors.outline, ...shadow.card },
-  statValue: { fontSize: 20, fontWeight: 'bold', color: colors.primary, marginBottom: 4 },
+  statsContainer: { flexDirection: 'row', paddingHorizontal: spacing.md, paddingTop: spacing.md, paddingBottom: spacing.sm, gap: spacing.md },
+  statGroup: { flex: 1 },
+  statHeading: { fontSize: 12, color: colors.textSecondary, marginLeft: 6, marginBottom: 6 },
+  statCard: { flex: 1, backgroundColor: colors.surface, borderRadius: radius.lg, paddingVertical: spacing.md, paddingHorizontal: spacing.lg, alignItems: 'center', borderWidth: 1, borderColor: colors.outline, ...shadow.card },
+  statValue: { fontSize: 16, fontWeight: '700', color: colors.primary, marginBottom: 2 },
   statLabel: { fontSize: 12, color: colors.textSecondary, textAlign: 'center' },
   alertSection: { backgroundColor: colors.surface, borderColor: colors.outline, borderWidth: 1, borderRadius: radius.md, padding: spacing.md, margin: spacing.md },
   alertTitle: { fontSize: 16, fontWeight: 'bold', color: colors.warning, marginBottom: 4 },
@@ -475,8 +621,8 @@ const styles = StyleSheet.create({
   itemInfo: {
     flex: 1,
   },
-  itemName: { fontSize: 18, fontWeight: 'bold', color: colors.textPrimary, marginBottom: 4 },
-  itemCategory: { fontSize: 14, color: colors.textSecondary },
+  itemName: { fontSize: 16, fontWeight: '600', color: colors.textPrimary, marginBottom: 2 },
+  itemCategory: { fontSize: 12, color: colors.textSecondary },
   stockStatus: {
     paddingHorizontal: 12,
     paddingVertical: 6,
@@ -492,7 +638,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   detailLabel: { fontSize: 14, color: colors.textSecondary },
-  detailValue: { fontSize: 14, color: colors.textPrimary, fontWeight: '500' },
+  detailValue: { fontSize: 13, color: colors.textPrimary, fontWeight: '500' },
   itemActions: {
     flexDirection: 'row',
     gap: 8,

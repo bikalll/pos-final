@@ -515,9 +515,8 @@ const MenuScreen: React.FC = () => {
             await svc.updateTable(pendingOrderInfo.tableId, { isOccupied: true });
           }
         } catch {}
-        // Mark saved and snapshot only after successful print
+        // Mark saved after successful print; middleware will snapshot after deduction
         (dispatch as any)(markOrderSaved({ orderId: pendingOrderInfo.orderId }));
-        (dispatch as any)(snapshotSavedQuantities({ orderId: pendingOrderInfo.orderId }));
         (dispatch as any)(markOrderReviewed({ orderId: pendingOrderInfo.orderId }));
         (dispatch as any)(loadOrders());
 
@@ -613,7 +612,6 @@ const MenuScreen: React.FC = () => {
       }
 
       (dispatch as any)(markOrderSaved({ orderId: pendingOrderInfo.orderId }));
-      (dispatch as any)(snapshotSavedQuantities({ orderId: pendingOrderInfo.orderId }));
       (dispatch as any)(markOrderReviewed({ orderId: pendingOrderInfo.orderId }));
       // Persist order via unified Firebase service (mirrors to Firestore and occupancy)
       try {
@@ -668,7 +666,6 @@ const MenuScreen: React.FC = () => {
           await svc.saveOrder(payload);
         } catch {}
         (dispatch as any)(markOrderSaved({ orderId: pendingOrderInfo.orderId }));
-        (dispatch as any)(snapshotSavedQuantities({ orderId: pendingOrderInfo.orderId }));
         (dispatch as any)(markOrderReviewed({ orderId: pendingOrderInfo.orderId }));
         (dispatch as any)(loadOrders());
         (navigation as any).navigate('Orders', { screen: 'OngoingOrders' });
@@ -739,9 +736,8 @@ const MenuScreen: React.FC = () => {
             const svc = getFirebaseService();
             const payload = { ...order, id: existingOrderId, restaurantId, status: 'ongoing' as const, isSaved: true } as any;
             await svc.saveOrder(payload);
-            (dispatch as any)(markOrderSaved({ orderId: existingOrderId }));
-            (dispatch as any)(snapshotSavedQuantities({ orderId: existingOrderId }));
-            (dispatch as any)(markOrderReviewed({ orderId: existingOrderId }));
+            // Do not mark saved here to avoid triggering inventory deduction prematurely.
+            // Confirmation/print flows will handle mark + snapshot explicitly.
             (dispatch as any)(loadOrders());
           } catch {}
         })();
@@ -800,9 +796,8 @@ const MenuScreen: React.FC = () => {
             const svc = getFirebaseService();
             const payload = { ...order, id: newOrderId, tableId: table.id, restaurantId, status: 'ongoing' as const, isSaved: true } as any;
             await svc.saveOrder(payload);
-            (dispatch as any)(markOrderSaved({ orderId: newOrderId }));
-            (dispatch as any)(snapshotSavedQuantities({ orderId: newOrderId }));
-            (dispatch as any)(markOrderReviewed({ orderId: newOrderId }));
+            // Do not mark saved here to avoid triggering inventory deduction prematurely.
+            // Confirmation/print flows will handle mark + snapshot explicitly.
             (dispatch as any)(loadOrders());
           } catch {}
         })();

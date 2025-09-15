@@ -11,17 +11,19 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { Modal } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSelector } from 'react-redux';
 import { RootState } from '../../redux/storeFirebase';
 import { colors, spacing, radius, shadow } from '../../theme';
 import { createFirestoreService } from '../../services/firestoreService';
+import { getFirebaseService } from '../../services/firebaseService';
 import * as ImagePicker from 'expo-image-picker';
 
 interface Ingredient {
   name: string;
-  quantity: string;
-  unit: string;
+  quantity: string; // stored as string in form, cast to number when saving
+  unit: string; // e.g., kg, g, l, ml, pcs
 }
 
 interface MenuItem {
@@ -66,6 +68,14 @@ const AddDishScreen: React.FC = () => {
   // UI states
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
   const [errors, setErrors] = useState<{[key: string]: string}>({});
+  // New dropdown states and options
+  const [showIngredientDropdown, setShowIngredientDropdown] = useState(false);
+  const [showUnitDropdown, setShowUnitDropdown] = useState(false);
+  const [inventoryOptions, setInventoryOptions] = useState<string[]>([]);
+  const [ingredientSearch, setIngredientSearch] = useState('');
+  const unitOptions = ['kg', 'g', 'l', 'ml', 'pcs'];
+  const [ingredientPickerVisible, setIngredientPickerVisible] = useState(false);
+  const [unitPickerVisible, setUnitPickerVisible] = useState(false);
   
   // Check if editing existing item
   const editingItem = route.params?.item as MenuItem | null;
@@ -85,6 +95,27 @@ const AddDishScreen: React.FC = () => {
         } catch (error) {
           console.error('Error loading categories:', error);
         }
+        
+        // Load inventory options for ingredient dropdown
+        try {
+          const inv = await service.getInventoryItems();
+          const names = Object.values(inv || {}).map((it: any) => String(it.name || '').trim()).filter(Boolean);
+          const unique = Array.from(new Set(names)).sort((a, b) => a.localeCompare(b));
+          setInventoryOptions(unique);
+        } catch (e) {
+          // no-op
+        }
+
+        // If editing, fetch latest dish (ensure ingredients are present)
+        try {
+          if (isEditing && (route as any)?.params?.item?.id) {
+            const dishId = (route as any).params.item.id as string;
+            const remote = await (service as any).read?.('menu', dishId);
+            if (remote && Array.isArray(remote.ingredients)) {
+              setIngredients(remote.ingredients as any);
+            }
+          }
+        } catch {}
       }
     };
     
@@ -137,7 +168,9 @@ const AddDishScreen: React.FC = () => {
         price: Number(formData.price),
         category: formData.category,
         image: formData.image,
-        ingredients: ingredients.filter(ing => ing.name.trim() && ing.quantity.trim()),
+        ingredients: ingredients
+          .filter(ing => ing.name.trim() && ing.quantity.trim())
+          .map(ing => ({ name: ing.name.trim(), quantity: Number(ing.quantity), unit: ing.unit || 'pcs' })),
         restaurantId,
         orderType: formData.orderType,
       };
@@ -150,7 +183,12 @@ const AddDishScreen: React.FC = () => {
         Alert.alert('Success', 'Dish added successfully!');
       }
       
-      navigation.goBack();
+      // Navigate explicitly to Menu Management to avoid being stuck on loader
+      try {
+        (navigation as any).navigate('MenuManagement');
+      } catch {
+        navigation.goBack();
+      }
     } catch (error) {
       console.error('Error saving dish:', error);
       Alert.alert('Error', 'Failed to save dish. Please try again.');
@@ -181,6 +219,8 @@ const AddDishScreen: React.FC = () => {
     if (newIngredient.name.trim() && newIngredient.quantity.trim()) {
       setIngredients(prev => [...prev, { ...newIngredient }]);
       setNewIngredient({ name: '', quantity: '', unit: '' });
+      setShowIngredientDropdown(false);
+      setShowUnitDropdown(false);
     }
   };
 
@@ -339,13 +379,24 @@ const AddDishScreen: React.FC = () => {
           {/* Add Ingredient Form */}
           <View style={styles.ingredientForm}>
             <View style={styles.ingredientInputRow}>
-              <TextInput
-                style={[styles.ingredientInput, styles.ingredientNameInput]}
-                value={newIngredient.name}
-                onChangeText={(text) => setNewIngredient(prev => ({ ...prev, name: text }))}
-                placeholder="Ingredient name"
-                placeholderTextColor={colors.textSecondary}
-              />
+              {/* Ingredient name dropdown (from inventory) */}
+              <TouchableOpacity
+                style={[styles.ingredientInput, styles.ingredientNameInput, { justifyContent: 'center' }]}
+                onPress={() => setIngredientPickerVisible(true)}
+                activeOpacity={0.7}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text
+                    style={[{ color: newIngredient.name ? colors.textPrimary : colors.textSecondary, fontSize: 13 }]}
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                  >
+                    {newIngredient.name || 'Ingredient'}
+                  </Text>
+                  <Ionicons name={showIngredientDropdown ? 'chevron-up' : 'chevron-down'} size={18} color={colors.textSecondary} />
+                </View>
+              </TouchableOpacity>
+              {/* inline dropdown removed in favor of modal */}
               <TextInput
                 style={[styles.ingredientInput, styles.ingredientQuantityInput]}
                 value={newIngredient.quantity}
@@ -354,13 +405,20 @@ const AddDishScreen: React.FC = () => {
                 placeholderTextColor={colors.textSecondary}
                 keyboardType="numeric"
               />
-              <TextInput
-                style={[styles.ingredientInput, styles.ingredientUnitInput]}
-                value={newIngredient.unit}
-                onChangeText={(text) => setNewIngredient(prev => ({ ...prev, unit: text }))}
-                placeholder="Unit"
-                placeholderTextColor={colors.textSecondary}
-              />
+              {/* Unit dropdown */}
+              <TouchableOpacity
+                style={[styles.ingredientInput, styles.ingredientUnitInput, { justifyContent: 'center' }]}
+                onPress={() => setUnitPickerVisible(true)}
+                activeOpacity={0.7}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={[{ color: newIngredient.unit ? colors.textPrimary : colors.textSecondary, fontSize: 13 }]}>
+                    {newIngredient.unit || 'Unit'}
+                  </Text>
+                  <Ionicons name={showUnitDropdown ? 'chevron-up' : 'chevron-down'} size={18} color={colors.textSecondary} />
+                </View>
+              </TouchableOpacity>
+              {/* inline dropdown removed in favor of modal */}
               <TouchableOpacity
                 style={styles.addIngredientButton}
                 onPress={addIngredient}
@@ -393,6 +451,62 @@ const AddDishScreen: React.FC = () => {
           )}
         </View>
       </ScrollView>
+
+      {/* Ingredient Picker Modal */}
+      <Modal visible={ingredientPickerVisible} transparent animationType="fade" onRequestClose={() => setIngredientPickerVisible(false)}>
+        <View style={styles.modalOverlayCentered}>
+          <View style={styles.pickerModalContent}>
+            <View style={styles.modalHeaderRow}>
+              <Text style={styles.modalTitle}>Select Ingredient</Text>
+              <TouchableOpacity onPress={() => setIngredientPickerVisible(false)} style={styles.modalCloseBtn}>
+                <Ionicons name="close" size={20} color={colors.textPrimary} />
+              </TouchableOpacity>
+            </View>
+            <TextInput
+              style={styles.pickerSearch}
+              placeholder="Search ingredient"
+              placeholderTextColor={colors.textSecondary}
+              value={ingredientSearch}
+              onChangeText={setIngredientSearch}
+            />
+            <ScrollView style={{ maxHeight: 320 }}>
+              {inventoryOptions.filter(n => n.toLowerCase().includes(ingredientSearch.trim().toLowerCase())).length === 0 ? (
+                <Text style={{ color: colors.textSecondary, padding: spacing.md, textAlign: 'center' }}>No inventory items</Text>
+              ) : (
+                inventoryOptions
+                  .filter(n => n.toLowerCase().includes(ingredientSearch.trim().toLowerCase()))
+                  .slice(0, 200)
+                  .map(name => (
+                    <TouchableOpacity key={name} style={styles.pickerItem} onPress={() => { setNewIngredient(prev => ({ ...prev, name })); setIngredientPickerVisible(false); }}>
+                      <Text style={styles.pickerItemText} numberOfLines={1} ellipsizeMode="tail">{name}</Text>
+                    </TouchableOpacity>
+                  ))
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Unit Picker Modal */}
+      <Modal visible={unitPickerVisible} transparent animationType="fade" onRequestClose={() => setUnitPickerVisible(false)}>
+        <View style={styles.modalOverlayCentered}>
+          <View style={styles.pickerModalContent}>
+            <View style={styles.modalHeaderRow}>
+              <Text style={styles.modalTitle}>Select Unit</Text>
+              <TouchableOpacity onPress={() => setUnitPickerVisible(false)} style={styles.modalCloseBtn}>
+                <Ionicons name="close" size={20} color={colors.textPrimary} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={{ maxHeight: 320 }}>
+              {unitOptions.map(u => (
+                <TouchableOpacity key={u} style={styles.pickerItem} onPress={() => { setNewIngredient(prev => ({ ...prev, unit: u })); setUnitPickerVisible(false); }}>
+                  <Text style={styles.pickerItemText}>{u}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       {/* Save Button */}
       <View style={styles.footer}>
@@ -629,6 +743,79 @@ const styles = StyleSheet.create({
   },
   ingredientUnitInput: {
     flex: 1,
+  },
+  // dropdown shared styles
+  dropdownList: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.outline,
+    borderRadius: radius.md,
+    zIndex: 20,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+  },
+  dropdownItem: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.outline,
+  },
+  // modal picker styles
+  modalOverlayCentered: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.md,
+  },
+  pickerModalContent: {
+    width: '92%',
+    maxWidth: 520,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+  },
+  modalHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.sm,
+  },
+  modalTitle: {
+    color: colors.textPrimary,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  modalCloseBtn: {
+    padding: spacing.xs,
+  },
+  pickerSearch: {
+    borderWidth: 1,
+    borderColor: colors.outline,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+    color: colors.textPrimary,
+    backgroundColor: colors.surface,
+    fontSize: 13,
+    marginBottom: spacing.sm,
+  },
+  pickerItem: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.outline,
+  },
+  pickerItemText: {
+    color: colors.textPrimary,
+    fontSize: 14,
   },
   addIngredientButton: {
     backgroundColor: colors.primary,

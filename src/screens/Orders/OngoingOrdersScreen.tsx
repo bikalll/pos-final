@@ -434,6 +434,11 @@ const OngoingOrdersScreen: React.FC = () => {
             <Text style={styles.orderBriefText}>
               {(order.items || []).length} items • Rs. {calculateTotal(order).toFixed(2)}
             </Text>
+            {!!(order as any).specialInstructions && (
+              <Text style={[styles.orderBriefText, { marginTop: 4 }]}>
+                Notes: {(order as any).specialInstructions}
+              </Text>
+            )}
           </View>
         </View>
       </TouchableOpacity>

@@ -152,6 +152,13 @@ const ordersSlice = createSlice({
       // Mark order as unsaved when customer is assigned
       (order as any).isSaved = false;
     },
+    setOrderSpecialInstructions: (state, action: PayloadAction<{ orderId: string; specialInstructions: string }>) => {
+      const order = state.ordersById[action.payload.orderId];
+      if (!order) return;
+      (order as any).specialInstructions = action.payload.specialInstructions || '';
+      // Mark order as unsaved when notes change
+      (order as any).isSaved = false;
+    },
     completeOrder: (state, action: PayloadAction<{ orderId: string }>) => {
       const order = state.ordersById[action.payload.orderId];
       if (!order) return;
@@ -483,6 +490,7 @@ export const {
   cancelOrder,
   changeOrderTable,
   setOrderCustomer,
+  setOrderSpecialInstructions,
   mergeOrders,
   unmergeOrders,
   snapshotSavedQuantities,

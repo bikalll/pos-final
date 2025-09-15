@@ -627,7 +627,7 @@ export function createFirestoreService(restaurantId: string) {
       const snap = await getDocs(q);
       const out: Record<string, any> = {};
       snap.forEach(docSnap => {
-        out[docSnap.id] = { id: docSnap.id, ...docSnap.data() };
+        out[docSnap.id] = { ...docSnap.data(), id: docSnap.id } as any;
       });
       return out;
     } catch (error) {
@@ -709,7 +709,29 @@ export function createFirestoreService(restaurantId: string) {
   }
 
   async function updateOrder(orderId: string, updates: any): Promise<void> {
-    return update('orders', orderId, updates);
+    try {
+      // Try updating ongoingOrders first
+      const ongoingRef = doc(db, 'restaurants', currentRestaurantId, 'orders', 'root', 'ongoingOrders', orderId);
+      const ongoingSnap = await getDoc(ongoingRef);
+      if (ongoingSnap.exists()) {
+        await setDoc(ongoingRef, { ...removeUndefinedValues(updates), updatedAt: serverTimestamp() }, { merge: true });
+        return;
+      }
+
+      // Then try processedOrders
+      const processedRef = doc(db, 'restaurants', currentRestaurantId, 'orders', 'root', 'processedOrders', orderId);
+      const processedSnap = await getDoc(processedRef);
+      if (processedSnap.exists()) {
+        await setDoc(processedRef, { ...removeUndefinedValues(updates), updatedAt: serverTimestamp() }, { merge: true });
+        return;
+      }
+
+      // Neither exists: upsert into ongoingOrders by default (safe fallback)
+      await setDoc(ongoingRef, { id: orderId, ...removeUndefinedValues(updates), updatedAt: serverTimestamp() }, { merge: true });
+    } catch (error) {
+      console.error('Firestore updateOrder error:', error);
+      throw error;
+    }
   }
 
   async function deleteOrder(orderId: string): Promise<void> {
@@ -1072,6 +1094,38 @@ export function createFirestoreService(restaurantId: string) {
     }
   }
 
+  // Real-time inventory listener
+  function listenToInventory(callback: (items: Record<string, any>) => void): Unsubscribe {
+    const q = query(collection(db, "restaurants", currentRestaurantId, "inventory"));
+    return onSnapshot(q, (snap) => {
+      const out: Record<string, any> = {};
+      snap.forEach(docSnap => {
+        out[docSnap.id] = { ...docSnap.data(), id: docSnap.id } as any;
+      });
+      callback(out);
+    });
+  }
+
+  // Inventory categories operations (separate from menu categories)
+  async function getInventoryCategories(): Promise<Record<string, any>> {
+    try {
+      const q = query(collection(db, "restaurants", currentRestaurantId, "inventoryCategories"));
+      const snap = await getDocs(q);
+      const out: Record<string, any> = {};
+      snap.forEach(docSnap => {
+        out[docSnap.id] = { id: docSnap.id, ...docSnap.data() };
+      });
+      return out;
+    } catch (error) {
+      console.error('Firestore getInventoryCategories error:', error);
+      return {};
+    }
+  }
+
+  async function createInventoryCategory(category: any): Promise<string> {
+    return create('inventoryCategories', category);
+  }
+
   async function createInventoryItem(item: any): Promise<string> {
     return create('inventory', item);
   }
@@ -1099,6 +1153,8 @@ export function createFirestoreService(restaurantId: string) {
     getCustomers, createCustomer, updateCustomer, deleteCustomer,
     getStaffMembers, createStaffMember, updateStaffMember, deleteStaffMember,
     getInventoryItems, createInventoryItem, updateInventoryItem, deleteInventoryItem,
+    listenToInventory,
+    getInventoryCategories, createInventoryCategory,
     // extras used by UI
     setDocument, updateTable, deleteTable, cleanupAndRecreateTables,
     listenToCustomers, listenToTables

@@ -87,6 +87,20 @@ const PaymentScreen: React.FC = () => {
   const hasAssignedCustomer = Boolean(assignedName || assignedPhone);
 
   // Note: Customer data is already scoped and kept up to date by Customers screen via Redux
+  // Discount calculations (item-level then order-level)
+  const calculateItemTotal = (item: any) => {
+    const baseTotal = item.price * item.quantity;
+    let discount = 0;
+    if (item.discountPercentage !== undefined) discount = (baseTotal * item.discountPercentage) / 100;
+    else if (item.discountAmount !== undefined) discount = item.discountAmount;
+    return Math.max(0, baseTotal - discount);
+  };
+  const baseSubtotal = (order?.items || []).reduce((sum: number, it: any) => sum + (it.price * it.quantity), 0);
+  const discountedSubtotal = (order?.items || []).reduce((sum: number, it: any) => sum + calculateItemTotal(it), 0);
+  const itemDiscountsTotal = Math.max(0, baseSubtotal - discountedSubtotal);
+  const orderDiscountPercent = (order as any)?.discountPercentage || 0;
+  const orderDiscountAmount = discountedSubtotal * (orderDiscountPercent / 100);
+  const computedTotal = Math.max(0, discountedSubtotal - orderDiscountAmount);
 
   useEffect(() => {
     // Prefill from assigned customer on order; run once per assignment to avoid loops
@@ -143,11 +157,9 @@ const PaymentScreen: React.FC = () => {
         email: '',
         address: '',
         visitCount: 0,
-        totalSpent: 0,
         creditAmount: 0,
-        lastVisit: new Date().toISOString(),
-        createdAt: new Date().toISOString(),
-        restaurantId: restaurantId || '',
+        lastVisit: Date.now(),
+        createdAt: Date.now(),
       };
       dispatch(addOrUpdateCustomer(newCustomer));
       createdCustomerIdRef.current = newCustomer.id;
@@ -383,17 +395,17 @@ const PaymentScreen: React.FC = () => {
     }
 
     // Complete order and save receipt
-    dispatch(completeOrderWithReceipt({ orderId, restaurantId }));
+    (dispatch as any)(completeOrderWithReceipt({ orderId, restaurantId }));
     // Persist to Realtime DB as completed (and force Firestore upsert mirror)
     try {
       const { getFirebaseService } = require('../../services/firebaseService');
       const svc = getFirebaseService();
       const payload = { ...order, status: 'completed', restaurantId, saved: true } as any;
-      svc.saveOrder(payload);
+      svc.saveOrder({ ...order, status: 'completed', restaurantId, saved: true } as any);
       try {
         const { createFirestoreService } = require('../../services/firestoreService');
         const fsSvc = createFirestoreService(restaurantId);
-        fsSvc.saveOrder(payload);
+        fsSvc.saveOrder({ ...order, status: 'completed', restaurantId, saved: true } as any);
       } catch {}
     } catch {}
 
@@ -426,7 +438,7 @@ const PaymentScreen: React.FC = () => {
           const currentTables = currentState.tables.tablesById;
           console.log('🔍 State after unmerge (500ms delay):', {
             originalTableIds: table.mergedTables,
-            tableStatuses: table.mergedTables.map(id => ({
+            tableStatuses: table.mergedTables.map((id: string) => ({
               id,
               isActive: currentTables[id]?.isActive,
               isOccupied: currentTables[id]?.isOccupied,
@@ -441,7 +453,7 @@ const PaymentScreen: React.FC = () => {
           const currentTables = currentState.tables.tablesById;
           console.log('🔍 State after unmerge (2s delay):', {
             originalTableIds: table.mergedTables,
-            tableStatuses: table.mergedTables.map(id => ({
+            tableStatuses: table.mergedTables.map((id: string) => ({
               id,
               isActive: currentTables[id]?.isActive,
               isOccupied: currentTables[id]?.isOccupied,
@@ -450,7 +462,7 @@ const PaymentScreen: React.FC = () => {
           });
           
           // Force refresh tables from Firebase if they're still inactive
-          const inactiveTables = table.mergedTables.filter(id => 
+          const inactiveTables = table.mergedTables.filter((id: string) => 
             currentTables[id] && currentTables[id].isActive === false
           );
           
@@ -638,7 +650,7 @@ const PaymentScreen: React.FC = () => {
     }
 
     // Complete order and save receipt
-    dispatch(completeOrderWithReceipt({ orderId, restaurantId }));
+    (dispatch as any)(completeOrderWithReceipt({ orderId, restaurantId }));
 
     // Unmerge tables if this was a merged order
     if (order.isMergedOrder && order.tableId) {
@@ -721,6 +733,22 @@ const PaymentScreen: React.FC = () => {
           <Text style={styles.sectionTitle}>Order Summary</Text>
           <View style={styles.summaryCard}>
             <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Subtotal:</Text>
+              <Text style={styles.summaryValue}>Rs. {baseSubtotal.toFixed(2)}</Text>
+            </View>
+            {itemDiscountsTotal > 0 && (
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Item Discounts:</Text>
+                <Text style={styles.summaryValue}>- Rs. {itemDiscountsTotal.toFixed(2)}</Text>
+              </View>
+            )}
+            {orderDiscountPercent > 0 && (
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Order Discount ({orderDiscountPercent}%):</Text>
+                <Text style={styles.summaryValue}>- Rs. {orderDiscountAmount.toFixed(2)}</Text>
+              </View>
+            )}
+            <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Order ID:</Text>
               <Text style={styles.summaryValue}>{orderId}</Text>
             </View>
@@ -731,7 +759,7 @@ const PaymentScreen: React.FC = () => {
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Total Amount:</Text>
               <Text style={[styles.summaryValue, styles.totalAmount]}>
-                Rs. {totalAmount.toFixed(2)}
+                Rs. {computedTotal.toFixed(2)}
               </Text>
             </View>
           </View>
@@ -747,12 +775,19 @@ const PaymentScreen: React.FC = () => {
                   <Text style={styles.itemName}>{item.name}</Text>
                   <Text style={styles.itemQuantity}>x{item.quantity}</Text>
                 </View>
-                <Text style={styles.itemPrice}>Rs. {(item.price * item.quantity).toFixed(2)}</Text>
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Text style={styles.itemPrice}>Rs. {(item.price * item.quantity).toFixed(2)}</Text>
+                  {(item.discountPercentage !== undefined || item.discountAmount !== undefined) && (
+                    <Text style={{ color: colors.success, marginTop: 2 }}>
+                      {item.discountPercentage !== undefined ? `${item.discountPercentage}%` : `Rs ${Number(item.discountAmount || 0).toFixed(2)}`} off → Rs. {calculateItemTotal(item).toFixed(2)}
+                    </Text>
+                  )}
+                </View>
               </View>
             ))}
             <View style={styles.itemsTotal}>
               <Text style={styles.itemsTotalLabel}>Total:</Text>
-              <Text style={styles.itemsTotalAmount}>Rs. {totalAmount.toFixed(2)}</Text>
+              <Text style={styles.itemsTotalAmount}>Rs. {computedTotal.toFixed(2)}</Text>
             </View>
           </View>
         </View>
@@ -1214,17 +1249,18 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
+    gap: spacing.xs,
   },
   itemName: {
     fontSize: 14,
     fontWeight: '500',
     color: colors.textPrimary,
-    flex: 1,
+    // Keep name and qty closer by not stretching name across row
   },
   itemQuantity: {
     fontSize: 12,
     color: colors.textSecondary,
-    marginLeft: spacing.sm,
+    marginLeft: spacing.xs,
   },
   itemPrice: {
     fontSize: 14,
@@ -1725,7 +1761,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   backButtonText: {
-    color: colors.white,
+    color: 'white',
     fontSize: 16,
     fontWeight: '600',
   },

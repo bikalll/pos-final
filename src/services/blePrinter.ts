@@ -559,18 +559,20 @@ export const blePrinter = {
 			if (data.panVat) await BluetoothEscposPrinter.printText(`PAN: ${data.panVat}\n`, {});
 			await BluetoothEscposPrinter.printText(`${data.date} ${data.time}\n`, {});
 			await BluetoothEscposPrinter.printText(`Table ${data.table}\n`, {});
+			if (data.steward) await BluetoothEscposPrinter.printText(`Steward: ${data.steward}\n`, {});
 			await BluetoothEscposPrinter.printText('------------------------------\n', {});
 			
 			// Print items in table format
 			await BluetoothEscposPrinter.printerAlign(getAlignment('LEFT'));
-			await BluetoothEscposPrinter.printText('Item               Qty      Total\n', {});
+			// Merge quantity next to item name for tighter spacing
+			await BluetoothEscposPrinter.printText('Item                         Total\n', {});
 			await BluetoothEscposPrinter.printText('------------------------------\n', {});
 			
 			for (const item of data.items) {
-				const nameCol = item.name.slice(0, 16).padEnd(16);
-				const qtyCol = item.quantity.toString().padStart(3);
-				const totalCol = (item.price * item.quantity).toFixed(1).padStart(9);
-				await BluetoothEscposPrinter.printText(`${nameCol}${qtyCol}${totalCol}\n`, {});
+				const nameWithQty = `${item.name} x${item.quantity}`;
+				const nameCol = nameWithQty.slice(0, 22).padEnd(22);
+				const totalCol = (item.price * item.quantity).toFixed(1).padStart(8);
+				await BluetoothEscposPrinter.printText(`${nameCol}${totalCol}\n`, {});
 			}
 			
 			await BluetoothEscposPrinter.printText('------------------------------\n', {});

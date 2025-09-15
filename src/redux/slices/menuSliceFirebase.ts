@@ -1,6 +1,12 @@
 import { createSlice, PayloadAction, createAsyncThunk } from "@reduxjs/toolkit";
 import { getFirebaseService } from "../../services/firebaseService";
 
+export type Ingredient = {
+  name: string;
+  quantity: number;
+  unit: string;
+};
+
 export type MenuItem = {
   id: string;
   name: string;
@@ -11,6 +17,8 @@ export type MenuItem = {
   modifiers: string[];
   image?: string;
   orderType: 'KOT' | 'BOT'; // Kitchen Order Ticket or Bar Order Ticket
+  // Optional ingredient list to support inventory deduction
+  ingredients?: Ingredient[];
 };
 
 export type MenuState = {

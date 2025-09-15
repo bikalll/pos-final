@@ -41,6 +41,8 @@ serviceChargePercentage: number;
 taxPercentage: number;
  customerName?: string;
  customerPhone?: string;
+  // Order-level notes/special instructions (printed on KOT/BOT and persisted)
+  specialInstructions?: string;
 payment?: PaymentInfo;
 createdAt: number;
  // Tracks last saved/printed quantities per item so KOT/BOT only prints deltas
@@ -82,13 +84,21 @@ role: StaffRole;
 };
 
 export type AttendanceRecord = {
-id: string;
-staffId: string;
-timestamp: number;
-latitude?: number;
-longitude?: number;
-photoUri?: string;
-type: "in" | "out";
+  id: string;
+  staffId: string;
+  staffName: string;
+  timestamp: number;
+  latitude?: number;
+  longitude?: number;
+  photoUri?: string; // ImgBB URL
+  type: "in" | "out";
+  location?: string;
+  address?: string;
+  detailedAddress?: string;
+  accuracy?: number;
+  restaurantId?: string;
+  createdAt?: number;
+  updatedAt?: number;
 };
 
 export type Receipt = {

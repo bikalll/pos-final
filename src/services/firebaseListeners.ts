@@ -48,13 +48,19 @@ export class FirebaseListenersService {
 
       // Orders listener (ongoing only) via Firestore subcollection to avoid RTDB conflicts
       try {
-        const firestore = (await import('./firestoreService')).createFirestoreService((store.getState() as any).auth.restaurantId);
-        const ordersUnsubscribe = firestore.listenToOngoingOrders((orders) => {
-          Object.values(orders).forEach(order => {
-            this.dispatch(updateOrderFromFirebase(order));
+        import('./firestoreService').then((mod) => {
+          const state: any = (global as any).store?.getState?.() || undefined;
+          const restaurantId = state?.auth?.restaurantId;
+          const firestore = mod.createFirestoreService(restaurantId);
+          const ordersUnsubscribe = firestore.listenToOngoingOrders((orders) => {
+            Object.values(orders).forEach(order => {
+              this.dispatch(updateOrderFromFirebase(order));
+            });
           });
+          this.listeners.set('orders', ordersUnsubscribe);
+        }).catch((e) => {
+          console.warn('Failed to initialize Firestore orders listener:', (e as Error).message);
         });
-        this.listeners.set('orders', ordersUnsubscribe);
       } catch (e) {
         console.warn('Failed to initialize Firestore orders listener:', (e as Error).message);
       }

@@ -21,6 +21,7 @@ import PaymentScreen from "../screens/Orders/PaymentScreen";
 import DailySummaryScreen from "../screens/Receipts/DailySummaryScreen";
 import ReceiptDetailScreen from "../screens/Receipts/ReceiptDetailScreen";
 import AttendanceScreen from "../screens/Staff/AttendanceScreen";
+import OwnerAttendanceDashboard from "../screens/Staff/OwnerAttendanceDashboard";
 import StaffManagementScreen from "../screens/Staff/StaffManagementScreen";
 import InventoryScreen from "../screens/Inventory/InventoryScreen";
 import MenuScreen from "../screens/Menu/MenuScreen";
@@ -104,9 +105,15 @@ function ReceiptsStack() {
 
 function StaffStack() {
   const Stack = createNativeStackNavigator();
+  const userRole = useSelector((state: RootState) => state.auth.role);
+  
   return (
     <Stack.Navigator screenOptions={defaultHeader}>
-      <Stack.Screen name="Attendance" component={AttendanceScreen} options={withMenuHeader("Attendance")} />
+      <Stack.Screen 
+        name="Attendance" 
+        component={userRole === 'Owner' ? OwnerAttendanceDashboard : AttendanceScreen} 
+        options={withMenuHeader("Attendance")} 
+      />
       <Stack.Screen name="StaffManagement" component={StaffManagementScreen} options={{ title: "Staff" }} />
     </Stack.Navigator>
   );

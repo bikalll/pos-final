@@ -11,6 +11,7 @@ import {
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { colors, spacing, radius, shadow } from '../../theme';
 
 interface StaffMember {
   id: string;
@@ -20,11 +21,6 @@ interface StaffMember {
   phone: string;
   joinDate: number;
   isActive: boolean;
-  performance: {
-    ordersHandled: number;
-    totalSales: number;
-    rating: number;
-  };
 }
 
 const StaffManagementScreen: React.FC = () => {
@@ -55,39 +51,24 @@ const StaffManagementScreen: React.FC = () => {
         phone: '+1 (555) 123-4567',
         joinDate: Date.now() - 365 * 24 * 60 * 60 * 1000, // 1 year ago
         isActive: true,
-        performance: {
-          ordersHandled: 156,
-          totalSales: 2340.50,
-          rating: 4.8,
-        },
       },
       {
         id: '2',
         name: 'Jane Smith',
-        role: 'Chef',
+        role: 'Staff',
         email: 'jane.smith@restaurant.com',
         phone: '+1 (555) 234-5678',
         joinDate: Date.now() - 180 * 24 * 60 * 60 * 1000, // 6 months ago
         isActive: true,
-        performance: {
-          ordersHandled: 89,
-          totalSales: 1567.25,
-          rating: 4.9,
-        },
       },
       {
         id: '3',
         name: 'Mike Johnson',
-        role: 'Manager',
+        role: 'Staff',
         email: 'mike.johnson@restaurant.com',
         phone: '+1 (555) 345-6789',
         joinDate: Date.now() - 730 * 24 * 60 * 60 * 1000, // 2 years ago
         isActive: true,
-        performance: {
-          ordersHandled: 234,
-          totalSales: 4567.80,
-          rating: 4.7,
-        },
       },
       {
         id: '4',
@@ -97,17 +78,12 @@ const StaffManagementScreen: React.FC = () => {
         phone: '+1 (555) 456-7890',
         joinDate: Date.now() - 90 * 24 * 60 * 60 * 1000, // 3 months ago
         isActive: false,
-        performance: {
-          ordersHandled: 45,
-          totalSales: 678.90,
-          rating: 4.5,
-        },
       },
     ];
     setStaffMembers(mockStaff);
   };
 
-  const roles = ['All', 'Owner', 'Manager', 'Chef', 'Waiter'];
+  const roles = ['All', 'Owner', 'Staff', 'Waiter'];
   const filteredStaff = staffMembers.filter(staff => 
     (selectedRole === 'All' || staff.role === selectedRole) &&
     (searchQuery === '' || staff.name.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -127,11 +103,6 @@ const StaffManagementScreen: React.FC = () => {
       phone: newStaff.phone,
       joinDate: Date.now(),
       isActive: true,
-      performance: {
-        ordersHandled: 0,
-        totalSales: 0,
-        rating: 5.0,
-      },
     };
 
     setStaffMembers(prev => [staff, ...prev]);
@@ -218,88 +189,33 @@ const StaffManagementScreen: React.FC = () => {
   };
 
   const renderStaffMember = ({ item }: { item: StaffMember }) => (
-    <View style={styles.staffCard}>
-      <View style={styles.staffHeader}>
-        <View style={styles.staffInfo}>
-          <Text style={styles.staffName}>{item.name}</Text>
-          <View style={[
-            styles.roleBadge,
-            { backgroundColor: getRoleColor(item.role) }
-          ]}>
-            <Text style={styles.roleText}>{item.role}</Text>
-          </View>
-        </View>
-        <View style={[
-          styles.statusBadge,
-          { backgroundColor: item.isActive ? '#27ae60' : '#e74c3c' }
-        ]}>
-          <Text style={styles.statusText}>
-            {item.isActive ? 'Active' : 'Inactive'}
+    <TouchableOpacity style={styles.staffCard}>
+      <View style={styles.photoContainer}>
+        <View style={styles.defaultPhoto}>
+          <Text style={styles.silhouetteIcon}>
+            {item.name.toLowerCase().includes('jane') || item.name.toLowerCase().includes('sarah') ? '👩' : '👨'}
           </Text>
         </View>
       </View>
-
-      <View style={styles.staffDetails}>
-        <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Email:</Text>
-          <Text style={styles.detailValue}>{item.email}</Text>
-        </View>
-        <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Phone:</Text>
-          <Text style={styles.detailValue}>{item.phone}</Text>
-        </View>
-        <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Join Date:</Text>
-          <Text style={styles.detailValue}>{formatDate(item.joinDate)}</Text>
+      
+      <View style={styles.staffInfo}>
+        <Text style={styles.eventTitle}>{item.role}</Text>
+        <Text style={styles.eventDuration}>
+          {item.isActive ? 'Active' : 'Inactive'}
+        </Text>
+      </View>
+      
+      <View style={styles.overlay}>
+        <Text style={styles.staffName}>{item.name}</Text>
+        <View style={styles.dateRow}>
+          <Text style={styles.startDate}>{formatDate(item.joinDate)}</Text>
+          <View style={styles.arrowIcon}>
+            <Text style={styles.arrowText}>→</Text>
+          </View>
+          <Text style={styles.endDate}>Present</Text>
         </View>
       </View>
-
-      <View style={styles.performanceSection}>
-        <Text style={styles.performanceTitle}>Performance</Text>
-        <View style={styles.performanceMetrics}>
-          <View style={styles.metric}>
-            <Text style={styles.metricValue}>{item.performance.ordersHandled}</Text>
-            <Text style={styles.metricLabel}>Orders</Text>
-          </View>
-          <View style={styles.metric}>
-            <Text style={styles.metricValue}>${item.performance.totalSales.toFixed(2)}</Text>
-            <Text style={styles.metricLabel}>Sales</Text>
-          </View>
-          <View style={styles.metric}>
-            <Text style={styles.metricValue}>{item.performance.rating}</Text>
-            <Text style={styles.metricLabel}>Rating</Text>
-          </View>
-        </View>
-      </View>
-
-      <View style={styles.staffActions}>
-        <TouchableOpacity
-          style={[styles.actionButton, styles.editButton]}
-          onPress={() => handleEditStaff(item)}
-        >
-          <Text style={styles.actionButtonText}>Edit</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity
-          style={[
-            styles.actionButton,
-            item.isActive ? styles.deactivateButton : styles.activateButton
-          ]}
-          onPress={() => handleToggleStatus(item.id)}
-        >
-          <Text style={styles.actionButtonText}>
-            {item.isActive ? 'Deactivate' : 'Activate'}
-          </Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity
-          style={[styles.actionButton, styles.deleteButton]}
-          onPress={() => handleDeleteStaff(item.id)}
-        >
-          <Text style={styles.actionButtonText}>Delete</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
+    </TouchableOpacity>
   );
 
   return (
@@ -401,7 +317,7 @@ const StaffManagementScreen: React.FC = () => {
             
             <View style={styles.roleSelector}>
               <Text style={styles.roleSelectorLabel}>Role:</Text>
-              {(['Owner', 'Manager', 'Chef', 'Waiter'] as const).map((role) => (
+              {(['Owner', 'Staff', 'Waiter'] as const).map((role) => (
                 <TouchableOpacity
                   key={role}
                   style={[
@@ -468,216 +384,194 @@ const StaffManagementScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: colors.background,
   },
   header: {
-    backgroundColor: 'white',
-    padding: 16,
-    paddingTop: 0,
+    backgroundColor: colors.surface,
+    padding: spacing.lg,
+    paddingTop: spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
+    borderBottomColor: colors.outline,
+    ...shadow.card,
   },
   title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#2c3e50',
+    fontSize: 24,
+    fontWeight: '700',
+    color: colors.textPrimary,
     marginBottom: 4,
   },
   subtitle: {
-    fontSize: 16,
-    color: '#7f8c8d',
+    fontSize: 14,
+    color: colors.textSecondary,
+    fontWeight: '500',
   },
   searchSection: {
-    backgroundColor: 'white',
-    padding: 12,
+    backgroundColor: colors.surface,
+    padding: spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
+    borderBottomColor: colors.outline,
   },
   searchInput: {
     borderWidth: 1,
-    borderColor: '#e0e0e0',
-    borderRadius: 8,
-    padding: 12,
+    borderColor: colors.outline,
+    borderRadius: radius.md,
+    padding: spacing.md,
     fontSize: 16,
-    backgroundColor: '#fafafa',
-    marginBottom: 12,
+    backgroundColor: colors.surface2,
+    marginBottom: spacing.md,
+    color: colors.textPrimary,
   },
   rolesContainer: {
     flexDirection: 'row',
   },
   roleButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.pill,
     borderWidth: 1,
-    borderColor: '#e0e0e0',
-    marginRight: 8,
-    backgroundColor: '#fafafa',
+    borderColor: colors.outline,
+    marginRight: spacing.sm,
+    backgroundColor: colors.surface2,
   },
   roleButtonActive: {
-    backgroundColor: '#3498db',
-    borderColor: '#3498db',
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   roleButtonText: {
-    color: '#7f8c8d',
+    color: colors.textSecondary,
     fontSize: 14,
     fontWeight: '500',
   },
   roleButtonTextActive: {
-    color: 'white',
+    color: colors.textPrimary,
   },
   statsContainer: {
     flexDirection: 'row',
-    padding: 12,
-    gap: 12,
+    padding: spacing.md,
+    gap: spacing.md,
   },
   statCard: {
     flex: 1,
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 16,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    padding: spacing.md,
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    borderWidth: 1,
+    borderColor: colors.outline,
+    ...shadow.card,
   },
   statValue: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#3498db',
+    color: colors.primary,
     marginBottom: 4,
   },
   statLabel: {
     fontSize: 12,
-    color: '#7f8c8d',
+    color: colors.textSecondary,
     textAlign: 'center',
+    fontWeight: '500',
   },
   staffList: {
     flex: 1,
   },
   staffListContent: {
-    padding: 12,
+    padding: spacing.md,
     paddingBottom: 100,
   },
   staffCard: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    marginBottom: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.outline,
+    ...shadow.card,
   },
   staffHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: spacing.md,
   },
   staffInfo: {
     flex: 1,
   },
   staffName: {
     fontSize: 18,
-    fontWeight: 'bold',
-    color: '#2c3e50',
-    marginBottom: 8,
-  },
-  roleBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    alignSelf: 'flex-start',
-  },
-  roleText: {
-    color: 'white',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  statusBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-  },
-  statusText: {
-    color: 'white',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  staffDetails: {
-    marginBottom: 16,
-  },
-  detailRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  detailLabel: {
-    fontSize: 14,
-    color: '#7f8c8d',
-  },
-  detailValue: {
-    fontSize: 14,
-    color: '#2c3e50',
-    fontWeight: '500',
-  },
-  performanceSection: {
-    marginBottom: 16,
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
-  },
-  performanceTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#2c3e50',
-    marginBottom: 12,
-  },
-  performanceMetrics: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-  },
-  metric: {
-    alignItems: 'center',
-  },
-  metricValue: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#27ae60',
+    fontWeight: '700',
+    color: colors.textPrimary,
     marginBottom: 4,
   },
-  metricLabel: {
+  staffEmail: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    fontWeight: '500',
+  },
+  rightSection: {
+    alignItems: 'flex-end',
+    gap: spacing.sm,
+  },
+  roleBadge: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
+  },
+  roleText: {
+    color: colors.textPrimary,
     fontSize: 12,
-    color: '#7f8c8d',
+    fontWeight: '600',
+    textTransform: 'uppercase',
+  },
+  statusBadge: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
+  },
+  statusText: {
+    color: colors.textPrimary,
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+  },
+  staffDetails: {
+    marginBottom: spacing.md,
+    gap: spacing.xs,
+  },
+  staffPhone: {
+    fontSize: 14,
+    color: colors.textMuted,
+    fontWeight: '500',
+  },
+  staffJoinDate: {
+    fontSize: 12,
+    color: colors.textMuted,
+    fontWeight: '400',
   },
   staffActions: {
     flexDirection: 'row',
-    gap: 8,
+    gap: spacing.sm,
   },
   actionButton: {
     flex: 1,
-    padding: 10,
-    borderRadius: 6,
+    padding: spacing.sm,
+    borderRadius: radius.sm,
     alignItems: 'center',
   },
   editButton: {
-    backgroundColor: '#f39c12',
+    backgroundColor: colors.warning,
   },
   activateButton: {
-    backgroundColor: '#27ae60',
+    backgroundColor: colors.success,
   },
   deactivateButton: {
-    backgroundColor: '#e74c3c',
+    backgroundColor: colors.danger,
   },
   deleteButton: {
-    backgroundColor: '#e74c3c',
+    backgroundColor: colors.danger,
   },
   actionButtonText: {
-    color: 'white',
+    color: colors.textPrimary,
     fontSize: 12,
     fontWeight: '600',
   },
@@ -685,108 +579,109 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 20,
     right: 20,
-    backgroundColor: '#27ae60',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderRadius: 30,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
+    backgroundColor: colors.success,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderRadius: radius.pill,
+    ...shadow.card,
   },
   addButtonText: {
-    color: 'white',
+    color: colors.textPrimary,
     fontSize: 16,
     fontWeight: '600',
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   modalContent: {
-    backgroundColor: 'white',
-    borderRadius: 16,
-    padding: 24,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    padding: spacing.xl,
     width: '90%',
     maxWidth: 400,
     maxHeight: '80%',
+    borderWidth: 1,
+    borderColor: colors.outline,
   },
   modalTitle: {
     fontSize: 20,
-    fontWeight: 'bold',
-    color: '#2c3e50',
-    marginBottom: 20,
+    fontWeight: '700',
+    color: colors.textPrimary,
+    marginBottom: spacing.lg,
     textAlign: 'center',
   },
   modalInput: {
     borderWidth: 1,
-    borderColor: '#e0e0e0',
-    borderRadius: 8,
-    padding: 12,
+    borderColor: colors.outline,
+    borderRadius: radius.md,
+    padding: spacing.md,
     fontSize: 16,
-    marginBottom: 16,
-    backgroundColor: '#fafafa',
+    marginBottom: spacing.md,
+    backgroundColor: colors.surface2,
+    color: colors.textPrimary,
   },
   roleSelector: {
-    marginBottom: 16,
+    marginBottom: spacing.md,
   },
   roleSelectorLabel: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#2c3e50',
-    marginBottom: 12,
+    color: colors.textPrimary,
+    marginBottom: spacing.sm,
   },
   roleOption: {
-    padding: 12,
-    borderRadius: 8,
+    padding: spacing.md,
+    borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: '#e0e0e0',
-    marginBottom: 8,
-    backgroundColor: '#fafafa',
+    borderColor: colors.outline,
+    marginBottom: spacing.sm,
+    backgroundColor: colors.surface2,
   },
   roleOptionActive: {
-    backgroundColor: '#3498db',
-    borderColor: '#3498db',
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   roleOptionText: {
     fontSize: 16,
-    color: '#2c3e50',
+    color: colors.textPrimary,
     textAlign: 'center',
+    fontWeight: '500',
   },
   roleOptionTextActive: {
-    color: 'white',
+    color: colors.textPrimary,
+    fontWeight: '600',
   },
   modalActions: {
     flexDirection: 'row',
-    gap: 12,
-    marginTop: 24,
+    gap: spacing.md,
+    marginTop: spacing.lg,
   },
   modalButton: {
     flex: 1,
-    padding: 16,
-    borderRadius: 8,
+    padding: spacing.md,
+    borderRadius: radius.md,
     alignItems: 'center',
   },
   modalButtonCancel: {
-    backgroundColor: '#f8f9fa',
+    backgroundColor: colors.surface2,
     borderWidth: 1,
-    borderColor: '#e0e0e0',
+    borderColor: colors.outline,
   },
   modalButtonConfirm: {
-    backgroundColor: '#27ae60',
+    backgroundColor: colors.success,
   },
   modalButtonCancelText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#7f8c8d',
+    color: colors.textSecondary,
   },
   modalButtonConfirmText: {
     fontSize: 16,
     fontWeight: '600',
-    color: 'white',
+    color: colors.textPrimary,
   },
 });
 
