@@ -22,7 +22,6 @@ import { addItem, createOrder, markOrderSaved, snapshotSavedQuantities, markOrde
 import { createFirestoreService } from '../../services/firestoreService';
 import Toast from '../../components/Toast';
 import { PrintService } from '../../services/printing';
-import { getFirebaseService } from '../../services/firebaseService';
 
 type MenuNavigationProp = any;
 
@@ -70,6 +69,9 @@ const MenuScreen: React.FC = () => {
   const [toastType, setToastType] = useState<'success' | 'error' | 'info' | 'warning'>('success');
   const [showViewOrderLink, setShowViewOrderLink] = useState(false);
   const [currentOrderInfo, setCurrentOrderInfo] = useState<{ orderId: string; tableId: string } | null>(null);
+  
+  // Processing state
+  const [processingItemId, setProcessingItemId] = useState<string | null>(null);
 
   // Get tables from Redux store
   const tablesById = useSelector((state: RootState) => state.tables.tablesById || {});
@@ -273,8 +275,8 @@ const MenuScreen: React.FC = () => {
   );
 
   const handleMenuItemPress = (item: MenuItem) => {
-    // Temporarily disable Menu interactions
-    showToast('Menu ordering is temporarily disabled', 'warning');
+    // Menu section is disabled - no ordering allowed
+    showToast('Menu ordering is currently disabled', 'warning');
     return;
   };
 
@@ -305,116 +307,27 @@ const MenuScreen: React.FC = () => {
 
   // Multi-selection functions
   const handleLongPress = (item: MenuItem) => {
-    if (!item.isAvailable) {
-      showToast('This item is currently not available', 'warning');
-      return;
-    }
-    
-    setIsMultiSelectMode(true);
-    setSelectedItems(new Set([item.id]));
+    // Menu section is disabled - no ordering allowed
+    showToast('Menu ordering is currently disabled', 'warning');
+    return;
   };
 
   const handleMultiSelect = (item: MenuItem) => {
-    if (!item.isAvailable) return;
-    
-    const newSelectedItems = new Set(selectedItems);
-    if (newSelectedItems.has(item.id)) {
-      newSelectedItems.delete(item.id);
-    } else {
-      newSelectedItems.add(item.id);
-    }
-    
-    setSelectedItems(newSelectedItems);
-    
-    if (newSelectedItems.size === 0) {
-      setIsMultiSelectMode(false);
-    }
+    // Menu section is disabled - no ordering allowed
+    showToast('Menu ordering is currently disabled', 'warning');
+    return;
   };
 
   const handleMultiOrder = () => {
-    if (selectedItems.size === 0) return;
-    setShowTableModal(true);
+    // Menu section is disabled - no ordering allowed
+    showToast('Menu ordering is currently disabled', 'warning');
+    return;
   };
 
     const handleMultiTableSelect = (table: Table) => {
-    console.log('🔥🔥🔥 MULTI TABLE SELECTED!', table.id);
-    setShowTableModal(false);
-
-    // Check if table already has an order
-    const existingOrderId = ongoingOrderIds.find((id: string) => {
-      const order = ordersById[id];
-      return order?.tableId === table.id;
-    });
-
-    const selectedItemsList = Array.from(selectedItems).map(id => items.find(item => item.id === id)).filter(Boolean) as MenuItem[];
-    
-    // Check if only one item is selected - treat as single order
-    const isSingleItem = selectedItemsList.length === 1;
-    
-    if (existingOrderId) {
-      // Add all selected items to existing order
-      selectedItemsList.forEach(item => {
-        dispatch(addItem({
-          orderId: existingOrderId,
-          item: {
-            menuItemId: item.id,
-            name: item.name,
-            description: item.description,
-            price: item.price,
-            quantity: 1,
-            modifiers: [],
-            orderType: item.orderType // Include the orderType
-          }
-        }));
-      });
-      
-      // Show print modal instead of direct toast
-      setPendingOrderInfo({ 
-        orderId: existingOrderId, 
-        tableId: table.id, 
-        isMulti: !isSingleItem,
-        itemCount: selectedItemsList.length,
-        itemName: isSingleItem ? selectedItemsList[0]?.name : undefined
-      });
-      setPrintModalVisible(true);
-    } else {
-      // Create new order with all selected items
-      try {
-        const action: any = dispatch(createOrder(table.id));
-        const newOrderId = action.payload.id;
-        
-        selectedItemsList.forEach(item => {
-          dispatch(addItem({
-            orderId: newOrderId,
-            item: {
-              menuItemId: item.id,
-              name: item.name,
-              description: item.description,
-              price: item.price,
-              quantity: 1,
-              modifiers: [],
-              orderType: item.orderType // Include the orderType
-            }
-          }));
-        });
-        
-        // Show print modal instead of direct toast
-        setPendingOrderInfo({ 
-          orderId: newOrderId, 
-          tableId: table.id, 
-          isMulti: !isSingleItem,
-          itemCount: selectedItemsList.length,
-          itemName: isSingleItem ? selectedItemsList[0]?.name : undefined
-        });
-        setPrintModalVisible(true);
-      } catch (error) {
-        console.error('❌ Multi-order creation failed:', error);
-      }
-    }
-    
-    // Reset multi-selection
-    setIsMultiSelectMode(false);
-    setSelectedItems(new Set());
+    // Menu section is disabled - no ordering allowed
+    showToast('Menu ordering is currently disabled', 'warning');
+    return;
   };
 
   const cancelMultiSelect = () => {
@@ -422,14 +335,12 @@ const MenuScreen: React.FC = () => {
     setSelectedItems(new Set());
   };
 
-  // Print modal handlers
+  // Print functions with Firestore integration
   const handlePrint = async () => {
     if (!pendingOrderInfo) return;
     
     try {
       setPrintModalVisible(false);
-
-      // Proceed with actual print flow (create/append already done at table select)
 
       // Get the order and table data
       const order = ordersById[pendingOrderInfo.orderId];
@@ -437,6 +348,7 @@ const MenuScreen: React.FC = () => {
       
       if (!order) {
         showToast('Order not found', 'error');
+        setProcessingItemId(null);
         return;
       }
       
@@ -452,19 +364,17 @@ const MenuScreen: React.FC = () => {
         .map((i: any) => ({ ...i, quantity: i.delta }));
 
       if (deltaItems.length === 0) {
-        // Nothing new to print → save to Firebase and mark occupied like create order flow
+        // Nothing new to print → save to Firestore and mark occupied
         try {
-          const svc = getFirebaseService();
-          const payload = { ...order, id: pendingOrderInfo.orderId, restaurantId, status: 'ongoing' as const, isSaved: true } as any;
-          await svc.saveOrder(payload);
-        } catch {}
-        // Ensure table marked occupied
-        try {
-          if (restaurantId && pendingOrderInfo.tableId) {
+          if (restaurantId) {
             const svc = createFirestoreService(restaurantId);
+            const payload = { ...order, id: pendingOrderInfo.orderId, restaurantId, status: 'ongoing' as const, isSaved: true } as any;
+            await svc.saveOrder(payload);
             await svc.updateTable(pendingOrderInfo.tableId, { isOccupied: true });
           }
-        } catch {}
+        } catch (error) {
+          console.error('Firestore save error:', error);
+        }
         (dispatch as any)(markOrderSaved({ orderId: pendingOrderInfo.orderId }));
         (dispatch as any)(snapshotSavedQuantities({ orderId: pendingOrderInfo.orderId }));
         (dispatch as any)(markOrderReviewed({ orderId: pendingOrderInfo.orderId }));
@@ -478,6 +388,8 @@ const MenuScreen: React.FC = () => {
           orderId: pendingOrderInfo.orderId, 
           tableId: pendingOrderInfo.tableId 
         });
+        setProcessingItemId(null);
+        setPendingOrderInfo(null);
         return;
       }
 
@@ -502,19 +414,17 @@ const MenuScreen: React.FC = () => {
       }
 
       if (printSuccess) {
-        // Persist order and occupancy via unified Firebase service
+        // Persist order to Firestore
         try {
-          const svc = getFirebaseService();
-          const payload = { ...order, id: pendingOrderInfo.orderId, restaurantId, status: 'ongoing' as const, isSaved: true } as any;
-          await svc.saveOrder(payload);
-        } catch {}
-        // Ensure table marked occupied
-        try {
-          if (restaurantId && pendingOrderInfo.tableId) {
+          if (restaurantId) {
             const svc = createFirestoreService(restaurantId);
+            const payload = { ...order, id: pendingOrderInfo.orderId, restaurantId, status: 'ongoing' as const, isSaved: true } as any;
+            await svc.saveOrder(payload);
             await svc.updateTable(pendingOrderInfo.tableId, { isOccupied: true });
           }
-        } catch {}
+        } catch (error) {
+          console.error('Firestore save error:', error);
+        }
         // Mark saved after successful print; middleware will snapshot after deduction
         (dispatch as any)(markOrderSaved({ orderId: pendingOrderInfo.orderId }));
         (dispatch as any)(markOrderReviewed({ orderId: pendingOrderInfo.orderId }));
@@ -572,6 +482,7 @@ const MenuScreen: React.FC = () => {
         showToast(`Failed to print tickets: ${error.message}`, 'error');
       }
     } finally {
+      setProcessingItemId(null);
       setPendingOrderInfo(null);
     }
   };
@@ -585,6 +496,7 @@ const MenuScreen: React.FC = () => {
       const table = tablesById[pendingOrderInfo.tableId];
       if (!order) {
         showToast('Order not found', 'error');
+        setProcessingItemId(null);
         return;
       }
 
@@ -675,152 +587,27 @@ const MenuScreen: React.FC = () => {
   };
 
   const handleTableSelect = async (table: Table) => {
-    console.log('🔥🔥🔥 TABLE CLICKED! Function called!', table.id, table.status);
-    console.log('🔥🔥🔥 TABLE NAME:', table.name);
-    console.log('🔥🔥🔥 FIREBASE TABLES:', firebaseTables);
-    console.log('🔥🔥🔥 FIREBASE TABLE FOR THIS ID:', firebaseTables[table.id]);
-    setShowTableModal(false);
-    setSelectedItem(null);
-
-    // Check if table already has an order
-    const existingOrderId = ongoingOrderIds.find((id: string) => {
-      const order = ordersById[id];
-      const matches = order?.tableId === table.id;
-      console.log(`Checking order ${id}: order.tableId = ${order?.tableId}, table.id = ${table.id}, matches = ${matches}`);
-      return matches;
-    });
-    
-    console.log('=== TABLE SELECTION DEBUG ===');
-    console.log('Table clicked:', table.id, 'Status:', table.status);
-    console.log('Ongoing orders:', ongoingOrderIds);
-    console.log('Orders by ID:', ordersById);
-    console.log('Existing order ID:', existingOrderId);
-    console.log('Selected item:', selectedItem);
-    
-    if (existingOrderId) {
-      // Table has ongoing order - add item to existing order
-      console.log('🚀 ADDING ITEM TO EXISTING ORDER:', existingOrderId);
-      try {
-        if (!selectedItem) {
-          console.log('❌ No selected item, cannot add to order');
-          return;
-        }
-        
-        // Add item to existing order
-        dispatch(addItem({
-          orderId: existingOrderId,
-          item: {
-            menuItemId: selectedItem.id,
-            name: selectedItem.name,
-            description: selectedItem.description,
-            price: selectedItem.price,
-            quantity: 1,
-            modifiers: [],
-            orderType: selectedItem.orderType // Include the orderType
-          }
-        }));
-        
-        // Prepare and show modal immediately to avoid UI delay
-        setPendingOrderInfo({ 
-          orderId: existingOrderId, 
-          tableId: table.id, 
-          isMulti: false,
-          itemName: selectedItem?.name
-        });
-        setPrintModalVisible(true);
-
-        // Persist to backend in background (do not block UI)
-        (async () => {
-          try {
-            const order = ordersById[existingOrderId];
-            const svc = getFirebaseService();
-            const payload = { ...order, id: existingOrderId, restaurantId, status: 'ongoing' as const, isSaved: true } as any;
-            await svc.saveOrder(payload);
-            // Do not mark saved here to avoid triggering inventory deduction prematurely.
-            // Confirmation/print flows will handle mark + snapshot explicitly.
-            (dispatch as any)(loadOrders());
-          } catch {}
-        })();
-        
-        console.log('✅ Item added to existing order successfully');
-      } catch (error) {
-        console.error('❌ Failed to add item to existing order:', error);
-      }
-    } else {
-      // Table is available - create new order and add selected item
-      if (!selectedItem) {
-        console.log('❌ No selected item, cannot create order');
-        return;
-      }
-      
-      console.log('🚀 CREATING NEW ORDER for table:', table.id);
-      console.log('🚀 TABLE NAME:', table.name);
-      console.log('🚀 FIREBASE TABLE DATA:', firebaseTables[table.id]);
-      console.log('🚀 RESTAURANT ID BEING USED:', restaurantId);
-      console.log('🚀 RESTAURANT ID TYPE:', typeof restaurantId);
-      console.log('🚀 TABLE EXISTS IN REDUX:', !!tables[table.id]);
-      console.log('🚀 TABLE EXISTS IN FIREBASE:', !!firebaseTables[table.id]);
-      try {
-        const action: any = dispatch(createOrder(table.id));
-        const newOrderId = action.payload.id;
-        console.log('✅ New order created:', newOrderId);
-        console.log('✅ Order tableId:', action.payload.tableId);
-        
-        // Add item to new order
-        dispatch(addItem({
-          orderId: newOrderId,
-          item: {
-            menuItemId: selectedItem.id,
-            name: selectedItem.name,
-            description: selectedItem.description,
-            price: selectedItem.price,
-            quantity: 1,
-            modifiers: [],
-            orderType: selectedItem.orderType // Include the orderType
-          }
-        }));
-        
-        // Prepare and show modal immediately to avoid UI delay
-        setPendingOrderInfo({ 
-          orderId: newOrderId, 
-          tableId: table.id, 
-          isMulti: false,
-          itemName: selectedItem?.name
-        });
-        setPrintModalVisible(true);
-        
-        // Persist to backend in background (do not block UI)
-        (async () => {
-          try {
-            const order = ordersById[newOrderId] || { id: newOrderId, tableId: table.id, items: [{ menuItemId: selectedItem.id, name: selectedItem.name, price: selectedItem.price, quantity: 1, modifiers: [], orderType: selectedItem.orderType }], createdAt: Date.now() } as any;
-            const svc = getFirebaseService();
-            const payload = { ...order, id: newOrderId, tableId: table.id, restaurantId, status: 'ongoing' as const, isSaved: true } as any;
-            await svc.saveOrder(payload);
-            // Do not mark saved here to avoid triggering inventory deduction prematurely.
-            // Confirmation/print flows will handle mark + snapshot explicitly.
-            (dispatch as any)(loadOrders());
-          } catch {}
-        })();
-        
-        console.log('✅ New order created successfully');
-      } catch (error) {
-        console.error('❌ Order creation failed:', error);
-      }
-    }
+    // Menu section is disabled - no ordering allowed
+    showToast('Menu ordering is currently disabled', 'warning');
+    return;
   };
 
   const renderMenuItem = ({ item }: { item: MenuItem }) => {
     const isSelected = selectedItems.has(item.id);
+    const isProcessing = processingItemId === item.id;
     
     return (
       <TouchableOpacity 
         style={[
           styles.menuItem,
-          isSelected && styles.selectedMenuItem
+          isSelected && styles.selectedMenuItem,
+          isProcessing && styles.processingMenuItem,
+          styles.disabledMenuItem
         ]}
         onPress={() => isMultiSelectMode ? handleMultiSelect(item) : handleMenuItemPress(item)}
         onLongPress={() => handleLongPress(item)}
         activeOpacity={0.8}
+        disabled={true}
       >
         {/* Selection Indicator */}
         {isMultiSelectMode && (
@@ -860,9 +647,9 @@ const MenuScreen: React.FC = () => {
 
         {/* Order Button - Only show when not in multi-select mode */}
         {!isMultiSelectMode && (
-          <View style={styles.orderButton}>
-            <Ionicons name="add-circle" size={24} color="white" />
-            <Text style={styles.orderButtonText}>Order</Text>
+          <View style={[styles.orderButton, styles.disabledOrderButton]}>
+            <Ionicons name="close-circle" size={24} color="white" />
+            <Text style={styles.orderButtonText}>Disabled</Text>
           </View>
         )}
       </TouchableOpacity>
@@ -910,23 +697,29 @@ const MenuScreen: React.FC = () => {
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Menu</Text>
-        <Text style={styles.subtitle}>Browse and order from our menu</Text>
+        <Text style={styles.subtitle}>Menu ordering is currently disabled</Text>
+        <View style={styles.disabledBanner}>
+          <Ionicons name="warning" size={16} color={colors.warning} />
+          <Text style={styles.disabledText}>Ordering functionality is temporarily unavailable</Text>
+        </View>
       </View>
 
       <View style={styles.filters}>
         <TextInput 
-          placeholder="Search dishes..." 
+          placeholder="Search disabled..." 
           placeholderTextColor={colors.textSecondary} 
           value={search} 
           onChangeText={setSearch} 
-          style={styles.search} 
+          style={[styles.search, styles.disabledInput]} 
+          editable={false}
         />
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
           {categories.map(c => (
             <TouchableOpacity 
               key={c} 
-              style={[styles.categoryChip, categoryFilter === c && styles.categoryChipActive]} 
+              style={[styles.categoryChip, categoryFilter === c && styles.categoryChipActive, styles.disabledChip]} 
               onPress={() => setCategoryFilter(c)}
+              disabled={true}
             >
               <Text style={[styles.categoryText, categoryFilter === c && styles.categoryTextActive]}>
                 {c}
@@ -1061,8 +854,8 @@ const MenuScreen: React.FC = () => {
         showViewOrderLink={showViewOrderLink}
         onViewOrder={handleViewOrder}
       />
-     </SafeAreaView>
-   );
+    </SafeAreaView>
+  );
 };
 
 const styles = StyleSheet.create({
@@ -1243,6 +1036,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginLeft: spacing.xs,
   },
+  processingMenuItem: {
+    opacity: 0.6,
+  },
+  processingOrderButton: {
+    backgroundColor: colors.warning,
+  },
   // Modal styles
   modalOverlay: {
     flex: 1,
@@ -1386,6 +1185,37 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  // Disabled state styles
+  disabledBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.warning + '20',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.md,
+    marginTop: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.warning + '40',
+  },
+  disabledText: {
+    color: colors.warning,
+    fontSize: 14,
+    fontWeight: '500',
+    marginLeft: spacing.xs,
+  },
+  disabledInput: {
+    backgroundColor: colors.surface2,
+    opacity: 0.6,
+  },
+  disabledChip: {
+    opacity: 0.6,
+  },
+  disabledMenuItem: {
+    opacity: 0.7,
+  },
+  disabledOrderButton: {
+    backgroundColor: colors.textSecondary,
   },
 });
 

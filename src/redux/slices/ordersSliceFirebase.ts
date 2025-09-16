@@ -58,6 +58,41 @@ export const saveOrderToFirebase = createAsyncThunk(
   }
 );
 
+export const updateOrderTableInFirebase = createAsyncThunk(
+  'orders/updateOrderTableInFirebase',
+  async ({ orderId, newTableId, restaurantId }: { orderId: string; newTableId: string; restaurantId: string }, { rejectWithValue, dispatch }) => {
+    try {
+      // Update the order in Firebase
+      const firestoreService = (await import('../../services/firestoreService')).createFirestoreService(restaurantId);
+      await firestoreService.updateOrder(orderId, { tableId: newTableId });
+      
+      // Update table occupancy status
+      const order = (dispatch as any).getState().orders.ordersById[orderId];
+      if (order) {
+        // Set old table as unoccupied
+        if (order.tableId) {
+          try {
+            await firestoreService.updateTable(order.tableId, { isOccupied: false });
+          } catch (error) {
+            console.warn('Failed to update old table occupancy:', error);
+          }
+        }
+        
+        // Set new table as occupied
+        try {
+          await firestoreService.updateTable(newTableId, { isOccupied: true });
+        } catch (error) {
+          console.warn('Failed to update new table occupancy:', error);
+        }
+      }
+      
+      return { orderId, newTableId };
+    } catch (error) {
+      return rejectWithValue(error instanceof Error ? error.message : 'Failed to update order table');
+    }
+  }
+);
+
 const ordersSlice = createSlice({
   name: "orders",
   initialState,
@@ -472,6 +507,23 @@ const ordersSlice = createSlice({
       .addCase(saveOrderToFirebase.rejected, (state, action) => {
         state.isLoading = false;
         state.error = action.payload as string;
+      })
+      .addCase(updateOrderTableInFirebase.pending, (state) => {
+        state.isLoading = true;
+        state.error = null;
+      })
+      .addCase(updateOrderTableInFirebase.fulfilled, (state, action) => {
+        state.isLoading = false;
+        // Update the order's tableId in Redux state
+        const { orderId, newTableId } = action.payload;
+        const order = state.ordersById[orderId];
+        if (order) {
+          order.tableId = newTableId;
+        }
+      })
+      .addCase(updateOrderTableInFirebase.rejected, (state, action) => {
+        state.isLoading = false;
+        state.error = action.payload as string;
       });
   },
 });
@@ -501,5 +553,7 @@ export const {
   removeOrderFromFirebase,
   clearError,
 } = ordersSlice.actions;
+
+// Async thunks are already exported above with their declarations
 
 export default ordersSlice.reducer;

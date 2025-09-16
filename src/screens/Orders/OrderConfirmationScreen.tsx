@@ -17,7 +17,7 @@ import { colors, spacing, radius, shadow } from '../../theme';
 import { RootState } from '../../redux/storeFirebase';
 import { PrintService } from '../../services/printing';
 import { blePrinter } from '../../services/blePrinter';
-import { removeItem, updateItemQuantity, markOrderSaved, snapshotSavedQuantities, cancelOrder, changeOrderTable, applyDiscount, applyItemDiscount, removeItemDiscount, setOrderCustomer, markOrderReviewed, markOrderUnsaved, setOrderSpecialInstructions } from '../../redux/slices/ordersSliceFirebase';
+import { removeItem, updateItemQuantity, markOrderSaved, snapshotSavedQuantities, cancelOrder, changeOrderTable, applyDiscount, applyItemDiscount, removeItemDiscount, setOrderCustomer, markOrderReviewed, markOrderUnsaved, setOrderSpecialInstructions, updateOrderTableInFirebase } from '../../redux/slices/ordersSliceFirebase';
 // Removed direct customer mutations here; selection will use existing customers only
 import { unmergeTables } from '../../redux/slices/tablesSliceFirebase';
 import MergeTableModal from '../../components/MergeTableModal';
@@ -27,6 +27,7 @@ import { createFirestoreService } from '../../services/firestoreService';
 interface RouteParams {
   orderId: string;
   tableId: string;
+  fromMenu?: boolean;
 }
 
 const OrderConfirmationScreen: React.FC = () => {
@@ -55,7 +56,7 @@ const OrderConfirmationScreen: React.FC = () => {
   const route = useRoute();
   const dispatch = useDispatch();
   
-  const { orderId, tableId } = route.params as RouteParams;
+  const { orderId, tableId, fromMenu } = route.params as RouteParams;
   const order = useSelector((state: RootState) => state.orders.ordersById[orderId]);
   const tables = useSelector((state: RootState) => state.tables.tablesById || {});
   // Use Firestore-scoped customers via Customers screen subscription
@@ -451,12 +452,20 @@ const OrderConfirmationScreen: React.FC = () => {
         console.error('❌ Step 3: Table occupancy update failed:', error as any);
       }
       
-      // 4) Redirect to Ongoing Orders after saving
-      console.log('🔄 Step 4: Navigating to Ongoing Orders...');
+      // 4) Redirect after saving based on source
+      console.log('🔄 Step 4: Navigating after save...');
       try {
         setPrintModalVisible(false); // Close the modal first
-        (navigation as any).navigate('OngoingOrders');
-        console.log('✅ Step 4: Navigation successful');
+        
+        if (fromMenu) {
+          // If coming from menu, go back to menu with success message
+          (navigation as any).navigate('Menu');
+          console.log('✅ Step 4: Navigation to Menu successful');
+        } else {
+          // Default behavior: go to Ongoing Orders
+          (navigation as any).navigate('OngoingOrders');
+          console.log('✅ Step 4: Navigation to Ongoing Orders successful');
+        }
       } catch (error) {
         console.error('❌ Step 4: Navigation failed:', error as any);
         Alert.alert('Navigation Error', 'Order saved successfully but failed to navigate. Please go to Ongoing Orders manually.');
@@ -466,7 +475,10 @@ const OrderConfirmationScreen: React.FC = () => {
       console.log(`✅ Order save process completed successfully! (Total: ${totalTime}ms)`);
       
       // Show success message to user
-      Alert.alert('Success', 'Order saved successfully!', [
+      const successMessage = fromMenu 
+        ? 'Order placed successfully! You can continue browsing the menu or check Ongoing Orders.'
+        : 'Order saved successfully!';
+      Alert.alert('Success', successMessage, [
         { text: 'OK', onPress: () => console.log('User acknowledged save success') }
       ]);
     } catch (error) {
@@ -1167,15 +1179,21 @@ const OrderConfirmationScreen: React.FC = () => {
                       disabled={disabled}
                       onPress={async () => {
                         try {
-                          (dispatch as any)(changeOrderTable({ orderId, newTableId: t.id }));
-                          setChangeTableModalVisible(false);
-                          (navigation as any).setParams({ tableId: t.id });
-                          if (restaurantId && actualTableId) {
-                            const svc = createFirestoreService(restaurantId);
-                            try { await svc.updateTable(actualTableId, { isOccupied: false }); } catch {}
-                            try { await svc.updateTable(t.id, { isOccupied: true }); } catch {}
+                          if (restaurantId) {
+                            // Use the new thunk action that updates both Redux and Firebase
+                            await (dispatch as any)(updateOrderTableInFirebase({ 
+                              orderId, 
+                              newTableId: t.id, 
+                              restaurantId 
+                            }));
+                            setChangeTableModalVisible(false);
+                            (navigation as any).setParams({ tableId: t.id });
+                          } else {
+                            console.error('No restaurant ID available for table change');
                           }
-                        } catch {}
+                        } catch (error) {
+                          console.error('Failed to change table:', error);
+                        }
                       }}
                       style={{
                         paddingVertical: spacing.sm,
