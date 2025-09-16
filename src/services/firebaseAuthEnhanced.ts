@@ -10,6 +10,8 @@ import { doc, setDoc, getDoc, updateDoc, serverTimestamp, collection, getDocs, q
 import { httpsCallable } from 'firebase/functions';
 import { auth, firestore, functions } from './firebase';
 import { createFirestoreService, initializeFirestoreService } from './firestoreService';
+import { stopRealtimeSync } from './realtimeSyncService';
+import { getFirebaseService } from './firebaseService';
 import { AppDispatch } from '../redux/storeFirebase';
 import { login, logout, setRestaurant } from '../redux/slices/authSlice';
 import { resetOrders } from '../redux/slices/ordersSliceFirebase';
@@ -330,6 +332,16 @@ export class FirebaseAuthEnhanced {
     try {
       // Clear orders state locally to prevent cross-account leakage in UI
       this.dispatch(resetOrders());
+      
+      // Proactively stop all realtime listeners to avoid setState on unmounted screens
+      try { stopRealtimeSync(); } catch {}
+      
+      // Clear any RTDB listeners if a service instance exists
+      try { 
+        const svc = getFirebaseService();
+        (svc as any)?.removeAllListeners?.();
+      } catch {}
+      
       await signOut(auth);
       this.dispatch(logout());
     } catch (error) {

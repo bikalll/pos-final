@@ -10,6 +10,7 @@ import {
   Platform,
   ScrollView,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -177,7 +178,7 @@ const EmployeeLoginScreen: React.FC = () => {
         <ScrollView contentContainerStyle={styles.scrollContainer}>
           <View style={styles.header}>
             <View style={styles.logoContainer}>
-              <Text style={styles.logo}>A</Text>
+              <Image source={require('../../../logo.png')} style={styles.logoImage} />
             </View>
             <Text style={styles.title}>Arbi POS</Text>
             <Text style={styles.subtitle}>Employee Login</Text>
@@ -297,18 +298,18 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xl,
   },
   logoContainer: {
-    width: 64,
-    height: 64,
-    backgroundColor: colors.primary,
-    borderRadius: 32,
-    justifyContent: 'center',
-    alignItems: 'center',
+    // container for spacing only; no background or fixed size
     marginBottom: spacing.md,
   },
   logo: {
     fontSize: 32,
     fontWeight: 'bold',
     color: 'white',
+  },
+  logoImage: {
+    width: 64,
+    height: 64,
+    resizeMode: 'contain',
   },
   title: {
     fontSize: 32,

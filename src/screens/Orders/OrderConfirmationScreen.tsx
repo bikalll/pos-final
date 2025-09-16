@@ -59,6 +59,7 @@ const OrderConfirmationScreen: React.FC = () => {
   const { orderId, tableId, fromMenu } = route.params as RouteParams;
   const order = useSelector((state: RootState) => state.orders.ordersById[orderId]);
   const tables = useSelector((state: RootState) => state.tables.tablesById || {});
+  const authRole = useSelector((state: RootState) => state.auth.role);
   // Use Firestore-scoped customers via Customers screen subscription
   const customersById = useSelector((state: RootState) => (state as any).customers?.customersById || {});
   const [firebaseCustomers, setFirebaseCustomers] = useState<Record<string, any>>({});
@@ -645,17 +646,19 @@ const OrderConfirmationScreen: React.FC = () => {
                   <Ionicons name="add-circle" size={16} color={colors.primary} />
                 <Text style={styles.optionsMenuText}>Add Items</Text>
                 </TouchableOpacity>
-              {/* Merge Table */}
-              <TouchableOpacity style={styles.optionsMenuItem} onPress={() => { setMergeTableModalVisible(true); setShowOptionsMenu(false); }}>
+              {/* Merge Table (disabled) */}
+              <TouchableOpacity
+                style={[styles.optionsMenuItem, { opacity: 0.5 }]}
+                disabled={true}
+                onPress={() => {}}
+              >
                 <Ionicons name="git-merge" size={16} color={colors.textPrimary} />
                 <Text style={styles.optionsMenuText}>Merge Table</Text>
-                </TouchableOpacity>
-              {/* Change Table */}
+              </TouchableOpacity>
+              {/* Change Table (enabled) */}
               <TouchableOpacity
-                style={[styles.optionsMenuItem, isMergedOrder && { opacity: 0.5 }]}
-                disabled={isMergedOrder}
+                style={styles.optionsMenuItem}
                 onPress={() => {
-                  if (isMergedOrder) { Alert.alert('Unavailable', 'Cannot change table for merged orders.'); return; }
                   setShowOptionsMenu(false);
                   setChangeTableModalVisible(true);
                 }}
@@ -681,13 +684,13 @@ const OrderConfirmationScreen: React.FC = () => {
               </TouchableOpacity>
               {/* Divider before destructive action */}
               <View style={{ height: 1, backgroundColor: colors.outline, marginVertical: spacing.xs }} />
-              {/* Cancel Order (last) */}
+              {/* Cancel Order (owners only) */}
               <TouchableOpacity style={styles.optionsMenuItem} onPress={() => { 
+                if (authRole !== 'Owner') { Alert.alert('Permission Denied', 'Only owners can cancel orders.'); setShowOptionsMenu(false); return; }
                 Alert.alert('Cancel Order', 'Are you sure you want to cancel this order?', [
                   { text: 'No', style: 'cancel' },
                   { text: 'Yes, Cancel', style: 'destructive', onPress: () => { 
                     try { 
-                      // If this was a merged order, unmerge the table so originals are reactivated
                       const isMerged = !!order.isMergedOrder && !!tables[order.tableId]?.isMerged;
                       if (isMerged) {
                         (dispatch as any)(unmergeTables({ mergedTableId: order.tableId }));
@@ -698,7 +701,7 @@ const OrderConfirmationScreen: React.FC = () => {
                   } }
                 ]);
                 setShowOptionsMenu(false);
-              }}>
+              }} disabled={false}>
                 <Ionicons name="trash-outline" size={16} color={colors.danger} />
                 <Text style={[styles.optionsMenuText, { color: colors.danger }]}>Cancel Order</Text>
             </TouchableOpacity>

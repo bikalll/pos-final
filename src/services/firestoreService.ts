@@ -13,7 +13,8 @@ import {
   getDoc,
   onSnapshot,
   serverTimestamp,
-  where
+  where,
+  writeBatch
 } from "firebase/firestore";
 import { Unsubscribe } from "firebase/firestore";
 import { cleanOrderData, removeUndefinedValues } from '../utils/orderUtils';
@@ -431,6 +432,65 @@ export function createFirestoreService(restaurantId: string) {
     await deleteDoc(tableDoc(tableId));
   }
 
+  // Atomic helpers for merge/unmerge using writeBatch
+  async function atomicMergeTables(params: { mergedTable: any; originalTableIds: string[] }): Promise<void> {
+    const { mergedTable, originalTableIds } = params;
+    const batch = writeBatch(db);
+    const now = serverTimestamp();
+
+    // Upsert merged table document
+    const mergedRef = tableDoc(mergedTable.id);
+    batch.set(mergedRef, { 
+      ...removeUndefinedValues({ ...mergedTable, restaurantId: currentRestaurantId }), 
+      updatedAt: now 
+    }, { merge: true });
+
+    // Update each original table with merge metadata
+    for (const id of originalTableIds) {
+      const ref = tableDoc(id);
+      batch.set(ref, removeUndefinedValues({
+        isMerged: true,
+        mergerId: mergedTable.mergerId,
+        isActive: true,
+        isOccupied: false,
+        updatedAt: now
+      }), { merge: true });
+    }
+
+    await batch.commit();
+  }
+
+  async function atomicUnmergeTables(params: { mergedTableId: string; originalTableIds: string[] }): Promise<void> {
+    const { mergedTableId, originalTableIds } = params;
+    const batch = writeBatch(db);
+    const now = serverTimestamp();
+
+    // Reset original tables to a fresh state
+    for (const id of originalTableIds) {
+      const ref = tableDoc(id);
+      batch.set(ref, removeUndefinedValues({
+        isMerged: false,
+        mergerId: null,
+        mergedTables: null,
+        mergedTableNames: null,
+        totalSeats: null,
+        isActive: true,
+        isOccupied: false,
+        isReserved: false,
+        reservedAt: null,
+        reservedUntil: null,
+        reservedBy: null,
+        reservedNote: null,
+        updatedAt: now
+      }), { merge: true });
+    }
+
+    // Delete the merged table document
+    batch.delete(tableDoc(mergedTableId));
+
+    await batch.commit();
+  }
+
   async function cleanupAndRecreateTables(): Promise<void> {
     // Delete all existing tables, then recreate defaults
     const snap = await getDocs(tablesCol());
@@ -736,8 +796,15 @@ export function createFirestoreService(restaurantId: string) {
 
   async function deleteOrder(orderId: string): Promise<void> {
     try {
-      const docRef = doc(db, "restaurants", currentRestaurantId, "orders", orderId);
-      await deleteDoc(docRef);
+      // Delete from nested subcollections first (source of truth)
+      const ongoingRef = doc(db, 'restaurants', currentRestaurantId, 'orders', 'root', 'ongoingOrders', orderId);
+      const processedRef = doc(db, 'restaurants', currentRestaurantId, 'orders', 'root', 'processedOrders', orderId);
+      try { await deleteDoc(ongoingRef); } catch {}
+      try { await deleteDoc(processedRef); } catch {}
+
+      // Also delete from legacy flat path if it exists (backward compatibility)
+      const legacyRef = doc(db, "restaurants", currentRestaurantId, "orders", orderId);
+      try { await deleteDoc(legacyRef); } catch {}
     } catch (error) {
       console.error('Firestore deleteOrder error:', error);
       throw error;
@@ -1157,6 +1224,7 @@ export function createFirestoreService(restaurantId: string) {
     getInventoryCategories, createInventoryCategory,
     // extras used by UI
     setDocument, updateTable, deleteTable, cleanupAndRecreateTables,
+    atomicMergeTables, atomicUnmergeTables,
     listenToCustomers, listenToTables
     , listenToReceipts,
     listenToOngoingOrders,

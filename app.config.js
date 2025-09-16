@@ -6,7 +6,7 @@ export default {
     slug: "rn-pos",
     version: "1.0.0",
     orientation: "portrait",
-    icon: "./assets/icon.png",
+    icon: "./logo.png",
     userInterfaceStyle: "dark",
     splash: {
       image: "./assets/splash-icon.png",
@@ -26,8 +26,8 @@ export default {
     android: {
       package: "com.yourcompany.rnpos",
       adaptiveIcon: {
-        foregroundImage: "./assets/adaptive-icon.png",
-        backgroundColor: "#0f1115"
+        foregroundImage: "./logo.png",
+        backgroundColor: "transparent"
       },
       edgeToEdgeEnabled: true,
       versionCode: 1,

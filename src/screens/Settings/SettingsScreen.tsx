@@ -54,36 +54,16 @@ const SettingsScreen: React.FC = () => {
       iconEl: <Ionicons name="print-outline" size={20} color={colors.textPrimary} />,
       onPress: () => navigation.navigate('PrintDemo' as any),
     },
-    {
-      title: 'Bluetooth Debug',
-      subtitle: 'Troubleshoot Bluetooth printing issues',
-      iconEl: <Feather name="bluetooth" size={20} color={colors.textPrimary} />,
-      onPress: () => navigation.navigate('BluetoothDebug' as any),
-    },
-    {
-      title: 'Print Debug',
-      subtitle: 'Test KOT and Receipt printing',
-      iconEl: <MaterialCommunityIcons name="printer-eye" size={20} color={colors.textPrimary} />,
-      onPress: () => navigation.navigate('PrintDebug' as any),
-    },
-    {
-      title: 'General Settings',
-      subtitle: 'App preferences and configuration',
-      iconEl: <Ionicons name="settings-outline" size={20} color={colors.textPrimary} />,
-      onPress: () => {},
-    },
+    
+    
+    
     {
       title: 'Employee Management',
       subtitle: 'Manage staff accounts and permissions',
       iconEl: <Ionicons name="people-outline" size={20} color={colors.textPrimary} />,
       onPress: () => navigation.navigate('EmployeeManagement' as any),
     },
-    {
-      title: 'Backup & Restore',
-      subtitle: 'Data backup and recovery options',
-      iconEl: <Ionicons name="cloud-upload-outline" size={20} color={colors.textPrimary} />,
-      onPress: () => {},
-    },
+    
     {
       title: 'About',
       subtitle: 'App version and information',

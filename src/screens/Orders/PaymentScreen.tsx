@@ -65,22 +65,8 @@ const PaymentScreen: React.FC = () => {
   const tables = useSelector((state: RootState) => state.tables.tablesById);
   const { restaurantId } = useSelector((state: RootState) => state.auth);
   
-  // Safety check for undefined order (after all hooks)
-  if (!order) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>Order not found</Text>
-          <TouchableOpacity 
-            style={styles.backButton} 
-            onPress={() => navigation.goBack()}
-          >
-            <Text style={styles.backButtonText}>Go Back</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
-    );
-  }
+  // Safety check flag for undefined order (avoid early return before hooks)
+  const isOrderMissing = !order;
   
   const assignedName = (order as any)?.customerName || '';
   const assignedPhone = (order as any)?.customerPhone || '';
@@ -422,7 +408,7 @@ const PaymentScreen: React.FC = () => {
         
         // Unmerge both tables and orders
         console.log('📤 Dispatching unmergeTables action...');
-        dispatch(unmergeTables({ mergedTableId: order.tableId }));
+        dispatch(unmergeTables({ mergedTableId: order.tableId, originalTableIds: table.mergedTables } as any));
         
         console.log('📤 Dispatching unmergeOrders action...');
         dispatch(unmergeOrders({ 
@@ -652,12 +638,23 @@ const PaymentScreen: React.FC = () => {
     // Complete order and save receipt
     (dispatch as any)(completeOrderWithReceipt({ orderId, restaurantId }));
 
-    // Unmerge tables if this was a merged order
+    // Unmerge tables and orders if this was a merged order
     if (order.isMergedOrder && order.tableId) {
-      // Check if the tableId is actually a merged table
       const table = tables[order.tableId];
-      if (table?.isMerged) {
-        dispatch(unmergeTables({ mergedTableId: order.tableId }));
+      if (table?.isMerged && Array.isArray(table.mergedTables) && table.mergedTables.length > 0) {
+        // Unmerge tables
+        dispatch(unmergeTables({ mergedTableId: order.tableId, originalTableIds: table.mergedTables } as any));
+        // Unmerge orders to fresh orders on original tables
+        try {
+          dispatch(unmergeOrders({ 
+            mergedTableId: order.tableId, 
+            originalTableIds: table.mergedTables 
+          }) as any);
+        } catch {}
+        // Optionally force a refresh shortly after to ensure dashboard reflects changes
+        setTimeout(() => {
+          try { dispatch({ type: 'tables/refreshFromFirebase' } as any); } catch {}
+        }, 800);
       }
     }
 
@@ -727,6 +724,17 @@ const PaymentScreen: React.FC = () => {
 
   return (
     <SafeAreaView style={styles.container}>
+      {isOrderMissing ? (
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>Order not found</Text>
+          <TouchableOpacity 
+            style={styles.backButton} 
+            onPress={() => navigation.goBack()}
+          >
+            <Text style={styles.backButtonText}>Go Back</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {/* Order Summary */}
         <View style={styles.section}>
@@ -950,8 +958,10 @@ const PaymentScreen: React.FC = () => {
           </Text>
         </TouchableOpacity>
       </ScrollView>
+      )}
 
       {/* Assign Customer Modal */}
+      {!isOrderMissing && (
       <Modal
         visible={assignCustomerModalVisible}
         animationType="slide"
@@ -1042,8 +1052,10 @@ const PaymentScreen: React.FC = () => {
           </View>
         </View>
       </Modal>
+      )}
 
       {/* Split Payment Modal */}
+      {!isOrderMissing && (
       <Modal
         visible={showSplitModal}
         animationType="slide"
@@ -1175,6 +1187,7 @@ const PaymentScreen: React.FC = () => {
           </View>
         </View>
       </Modal>
+      )}
     </SafeAreaView>
   );
 };

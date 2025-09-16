@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -42,6 +42,7 @@ const TablesDashboardScreen: React.FC = () => {
   const [firebaseTables, setFirebaseTables] = useState<any[]>([]);
   const [firestoreService, setFirestoreService] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const lastTablesHashRef = useRef<string>('');
   
   const navigation = useNavigation<TablesDashboardNavigationProp>();
   const ongoingOrderIds = useSelector((state: RootState) => state.orders.ongoingOrderIds || []);
@@ -107,7 +108,15 @@ const TablesDashboardScreen: React.FC = () => {
         mergedTableNames: table.mergedTableNames,
         totalSeats: table.totalSeats,
       }));
-      setFirebaseTables(tablesArray);
+      // Compute stable hash to avoid redundant state updates that can trigger loops
+      const hashParts = tablesArray
+        .map(t => ({ id: t.id, isActive: t.isActive, isMerged: t.isMerged, isOccupied: t.isOccupied, isReserved: t.isReserved, merged: (Array.isArray(t.mergedTables) ? t.mergedTables.join(',') : '') }))
+        .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+      const nextHash = JSON.stringify(hashParts);
+      if (nextHash !== lastTablesHashRef.current) {
+        lastTablesHashRef.current = nextHash;
+        setFirebaseTables(tablesArray);
+      }
       console.log('Tables loaded from Firebase:', tablesArray.length);
       console.log('🔍 Firebase tables data:', tablesArray.map(t => ({
         id: t.id,
@@ -134,7 +143,6 @@ const TablesDashboardScreen: React.FC = () => {
     try {
       const service = createFirestoreService(restaurantId);
       const unsubscribe = service.listenToTables((tablesData: Record<string, any>) => {
-        
         const tablesArray = Object.values(tablesData).map((table: any) => ({
           id: table.id || Object.keys(tablesData).find(key => (tablesData as any)[key] === table),
           name: table.name,
@@ -157,7 +165,14 @@ const TablesDashboardScreen: React.FC = () => {
           mergedTableNames: table.mergedTableNames,
           totalSeats: table.totalSeats,
         }));
-        setFirebaseTables(tablesArray);
+        const hashParts = tablesArray
+          .map(t => ({ id: t.id, isActive: t.isActive, isMerged: t.isMerged, isOccupied: t.isOccupied, isReserved: t.isReserved, merged: (Array.isArray(t.mergedTables) ? t.mergedTables.join(',') : '') }))
+          .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+        const nextHash = JSON.stringify(hashParts);
+        if (nextHash !== lastTablesHashRef.current) {
+          lastTablesHashRef.current = nextHash;
+          setFirebaseTables(tablesArray);
+        }
       });
       return () => unsubscribe && unsubscribe();
     } catch (e) {

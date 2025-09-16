@@ -97,7 +97,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabPress }) => {
     <View style={styles.container}>
       <View style={styles.header}>
         <View style={styles.logoContainer}>
-          <Text style={styles.logo}>A</Text>
+          <Text style={styles.logo}>{(auth?.restaurantName || 'R').slice(0,1).toUpperCase()}</Text>
         </View>
         <Text style={styles.title}>{auth?.userName || 'Employee'}</Text>
         <Text style={styles.restaurantName}>{(auth?.restaurantName && auth.restaurantName !== 'Restaurant') ? auth.restaurantName : 'Restaurant Name'}</Text>

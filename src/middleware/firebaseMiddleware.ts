@@ -370,11 +370,20 @@ export const firebaseMiddleware = (store: any) => (next: any) => (action: any) =
       if (orderId) {
         setTimeout(async () => {
           try {
-            const firebaseService = getFirebaseService();
-            await firebaseService.delete(`orders/${orderId}`);
-            console.log('🔥 Firebase middleware: Order deleted from Firebase:', orderId);
-          } catch (error) {
-            console.error('❌ Firebase middleware: Error deleting order from Firebase:', error);
+            // Prefer Cloud Firestore deletion (source of truth)
+            const svc = createFirestoreService(authRestaurantId);
+            await svc.deleteOrder(orderId);
+            console.log('🔥 Firebase middleware: Order deleted from Firestore:', orderId);
+          } catch (firestoreError) {
+            console.warn('⚠️ Firebase middleware: Firestore delete failed, attempting RTDB delete:', firestoreError);
+            try {
+              // Fallback to Realtime Database deletion if needed
+              const firebaseService = getFirebaseService();
+              await firebaseService.delete(`orders/${orderId}`);
+              console.log('🔥 Firebase middleware: Order deleted from RTDB (fallback):', orderId);
+            } catch (rtdbError) {
+              console.error('❌ Firebase middleware: Error deleting order from Firebase:', rtdbError);
+            }
           }
         }, 100);
       }
@@ -516,30 +525,15 @@ export const firebaseMiddleware = (store: any) => (next: any) => (action: any) =
           // Get the merged table from state
           const mergedTable = state.tables.tablesById[mergedTableId];
           if (mergedTable) {
-            // Save the merged table to Firestore
-            await svc.setDocument('tables', mergedTableId, {
-              ...mergedTable,
-              restaurantId: authRestaurantId,
-              isOccupied: true,
-              updatedAt: new Date().toISOString()
+            // Perform atomic batch merge for tables
+            await (svc as any).atomicMergeTables({
+              mergedTable: { ...mergedTable, restaurantId: authRestaurantId, isOccupied: true },
+              originalTableIds: tableIds,
             });
-            console.log('✅ Firebase middleware: Merged table saved to Firestore:', mergedTableId);
-          }
-          
-          // Update original tables to be merged with mergerId
-          for (const tableId of tableIds) {
-            try {
-              await svc.updateTable(tableId, { 
-                isMerged: true,
-                mergerId: mergedTable.mergerId,
-                isActive: true, 
-                isOccupied: false,
-                updatedAt: new Date().toISOString()
-              });
-              console.log('✅ Firebase middleware: Original table updated in Firestore:', tableId);
-            } catch (error) {
-              console.warn('⚠️ Firebase middleware: Could not update original table:', tableId, error);
-            }
+            console.log('✅ Firebase middleware: Atomic table merge committed:', {
+              mergedTableId,
+              originalTableIds: tableIds
+            });
           }
         } catch (error) {
           console.error('❌ Firebase middleware: Error handling mergeTables:', error);
@@ -557,120 +551,43 @@ export const firebaseMiddleware = (store: any) => (next: any) => (action: any) =
           console.log('🔥 Firebase middleware: Handling unmergeTables operation');
           const svc = createFirestoreService(authRestaurantId);
           
-          // Reactivate original tables FIRST
+          // Reactivate original tables and remove merged table in a single atomic batch
+          // Prefer originalTableIds from the action payload if provided, as the reducer may
+          // have already removed merged metadata from state by the time this runs.
+          const payloadOriginalIds: string[] = Array.isArray(action.payload?.originalTableIds) ? action.payload.originalTableIds : [];
           const mergedTable = state.tables.tablesById[mergedTableId];
-          if (mergedTable?.mergedTables) {
-            console.log('🔄 Firebase middleware: Reactivating original tables:', mergedTable.mergedTables);
-            for (const tableId of mergedTable.mergedTables) {
-              try {
-                console.log('🔄 Firebase middleware: Updating table in Firestore:', {
-                  tableId,
-                  updates: { 
-                    isActive: true,
-                    isOccupied: false,
-                    updatedAt: new Date().toISOString()
-                  }
-                });
-                
-                // Update table in Firebase with complete fresh state reset
-                const updateData = { 
-                  // Reset all merge-related properties
+          const stateOriginalIds = Array.isArray(mergedTable?.mergedTables) ? mergedTable.mergedTables : [];
+          const originalIds: string[] = payloadOriginalIds.length > 0 ? payloadOriginalIds : stateOriginalIds;
+
+          if (originalIds.length > 0) {
+            await (svc as any).atomicUnmergeTables({
+              mergedTableId: mergedTableId,
+              originalTableIds: originalIds,
+            });
+            console.log('✅ Firebase middleware: Atomic table unmerge committed:', {
+              mergedTableId,
+              originalTableIds: originalIds
+            });
+
+            // Immediately update Redux state for original tables to reflect availability
+            for (const tableId of originalIds) {
+              const currentTable = state.tables.tablesById[tableId];
+              if (currentTable) {
+                store.dispatch(updateTableFromFirebase({
+                  ...currentTable,
                   isMerged: false,
-                  mergerId: null,
-                  mergedTables: null,
-                  mergedTableNames: null,
-                  totalSeats: null,
-                  
-                  // Reset to fresh available state
+                  mergerId: undefined,
+                  mergedTables: undefined,
+                  mergedTableNames: undefined,
+                  totalSeats: undefined,
                   isActive: true,
                   isOccupied: false,
-                  
-                  // Clear any reservation data
                   isReserved: false,
-                  reservedAt: null,
-                  reservedUntil: null,
-                  reservedBy: null,
-                  reservedNote: null,
-                  
-                  updatedAt: new Date().toISOString()
-                };
-                
-                await svc.updateTable(tableId, updateData);
-                
-                // Immediately update Redux state to ensure tables become active
-                const currentTable = state.tables.tablesById[tableId];
-                if (currentTable) {
-                  store.dispatch(updateTableFromFirebase({
-                    ...currentTable,
-                    // Reset all merge-related properties
-                    isMerged: false,
-                    mergerId: undefined,
-                    mergedTables: undefined,
-                    mergedTableNames: undefined,
-                    totalSeats: undefined,
-                    
-                    // Reset to fresh available state
-                    isActive: true,
-                    isOccupied: false,
-                    
-                    // Clear any reservation data
-                    isReserved: false,
-                    reservedAt: undefined,
-                    reservedUntil: undefined,
-                    reservedBy: undefined,
-                    reservedNote: undefined
-                  }));
-                }
-                
-                // Verify the update by reading the table back from Firebase
-                const allTables = await svc.getTables();
-                const updatedTable = allTables[tableId];
-                
-                // If the update didn't work, try again
-                if (updatedTable?.isActive !== true) {
-                  await svc.updateTable(tableId, { 
-                    isActive: true,
-                    updatedAt: new Date().toISOString()
-                  });
-                  
-                  // Verify again
-                  const allTablesRetry = await svc.getTables();
-                  const retryTable = allTablesRetry[tableId];
-                  console.log('🔍 Firebase middleware: Retry verification:', {
-                    tableId,
-                    isActive: retryTable?.isActive,
-                    retrySuccessful: retryTable?.isActive === true
-                  });
-                }
-              } catch (error) {
-                console.warn('⚠️ Firebase middleware: Could not reactivate original table:', tableId, error);
-              }
-            }
-          }
-          
-          // Then delete the merged table from Firestore
-          try {
-            await svc.deleteTable(mergedTableId);
-            console.log('✅ Firebase middleware: Merged table deleted from Firestore:', mergedTableId);
-          } catch (error) {
-            console.warn('⚠️ Firebase middleware: Could not delete merged table:', mergedTableId, error);
-          }
-          
-          // Final verification: Check all original tables are active in Firebase
-          if (mergedTable?.mergedTables) {
-            console.log('🔍 Firebase middleware: Final verification of unmerged tables...');
-            for (const tableId of mergedTable.mergedTables) {
-              try {
-                const allTablesFinal = await svc.getTables();
-                const finalTable = allTablesFinal[tableId];
-                console.log('🔍 Firebase middleware: Final table status:', {
-                  tableId,
-                  isActive: finalTable?.isActive,
-                  isOccupied: finalTable?.isOccupied,
-                  isActiveCorrect: finalTable?.isActive === true
-                });
-              } catch (error) {
-                console.warn('⚠️ Firebase middleware: Could not verify final table status:', tableId, error);
+                  reservedAt: undefined,
+                  reservedUntil: undefined,
+                  reservedBy: undefined,
+                  reservedNote: undefined
+                }));
               }
             }
           }

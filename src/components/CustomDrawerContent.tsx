@@ -114,7 +114,7 @@ const CustomDrawerContent: React.FC<DrawerContentComponentProps> = ({ navigation
               <Image source={{ uri: auth.logoUrl }} style={{ width: 44, height: 44, resizeMode: 'cover' }} />
             </View>
           ) : (
-            <Text style={styles.logoText}>A</Text>
+            <Text style={styles.logoText}>{(auth?.restaurantName || 'R').slice(0,1).toUpperCase()}</Text>
           )}
         </View>
         <View>

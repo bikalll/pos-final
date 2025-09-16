@@ -260,7 +260,13 @@ const OrderManagementScreen: React.FC = () => {
     }
   };
 
+  const authRole = useSelector((state: RootState) => state.auth.role);
+
   const handleCancelOrder = () => {
+    if (authRole !== 'Owner') {
+      Alert.alert('Permission Denied', 'Only owners can cancel orders.');
+      return;
+    }
     Alert.alert(
       'Cancel Order',
       'Are you sure you want to cancel this order? This will discard all items and remove it from ongoing.',

@@ -320,13 +320,15 @@ const ordersSlice = createSlice({
     ) => {
       const { mergedTableId, originalTableIds } = action.payload;
 
-      // Find the merged order
-      const mergedOrder = state.ordersById[mergedTableId];
-      if (!mergedOrder || !mergedOrder.isMergedOrder) return;
+      // Find the merged order by tableId and merged flag, then delete by its orderId
+      const mergedOrder = Object.values(state.ordersById).find(
+        (o) => o.tableId === mergedTableId && (o as any).isMergedOrder
+      ) as any;
+      if (!mergedOrder) return;
 
-      // Remove the merged order
-      delete state.ordersById[mergedTableId];
-      state.ongoingOrderIds = state.ongoingOrderIds.filter((id) => id !== mergedTableId);
+      // Remove the merged order using its actual order id
+      delete state.ordersById[mergedOrder.id];
+      state.ongoingOrderIds = state.ongoingOrderIds.filter((id) => id !== mergedOrder.id);
 
       // For fresh start: Clear ALL orders associated with the unmerged tables
       // This ensures tables start completely fresh with no previous data
