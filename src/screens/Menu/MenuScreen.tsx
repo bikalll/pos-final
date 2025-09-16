@@ -14,7 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSelector, useDispatch } from 'react-redux';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation, useNavigationContainerRef, useFocusEffect } from '@react-navigation/native';
+import { useNavigation, useNavigationContainerRef, useFocusEffect, CommonActions } from '@react-navigation/native';
 import { colors, spacing, radius } from '../../theme';
 import { RootState } from '../../redux/storeFirebase';
 import { MenuItem } from '../../redux/slices/menuSlice';
@@ -275,9 +275,8 @@ const MenuScreen: React.FC = () => {
   );
 
   const handleMenuItemPress = (item: MenuItem) => {
-    // Menu section is disabled - no ordering allowed
-    showToast('Menu ordering is currently disabled', 'warning');
-    return;
+    setSelectedItem(item);
+    setShowTableModal(true);
   };
 
   const handleViewOrder = () => {
@@ -307,27 +306,58 @@ const MenuScreen: React.FC = () => {
 
   // Multi-selection functions
   const handleLongPress = (item: MenuItem) => {
-    // Menu section is disabled - no ordering allowed
-    showToast('Menu ordering is currently disabled', 'warning');
-    return;
+    setIsMultiSelectMode(true);
+    setSelectedItems((prev) => new Set(prev).add(item.id));
   };
 
   const handleMultiSelect = (item: MenuItem) => {
-    // Menu section is disabled - no ordering allowed
-    showToast('Menu ordering is currently disabled', 'warning');
-    return;
+    setSelectedItems((prev) => {
+      const next = new Set(prev);
+      if (next.has(item.id)) next.delete(item.id);
+      else next.add(item.id);
+      return next;
+    });
   };
 
   const handleMultiOrder = () => {
-    // Menu section is disabled - no ordering allowed
-    showToast('Menu ordering is currently disabled', 'warning');
-    return;
+    if (selectedItems.size === 0) { showToast('Select items to order', 'info'); return; }
+    setShowTableModal(true);
   };
 
     const handleMultiTableSelect = (table: Table) => {
-    // Menu section is disabled - no ordering allowed
-    showToast('Menu ordering is currently disabled', 'warning');
-    return;
+    try {
+      const existingOrderId = ongoingOrderIds.find((oid: string) => {
+        const o: any = ordersById[oid];
+        return o && o.status === 'ongoing' && o.tableId === table.id;
+      });
+      let orderIdToUse = existingOrderId || '';
+      if (!orderIdToUse) {
+        const action: any = dispatch(createOrder(table.id));
+        orderIdToUse = action.payload.id;
+      }
+      const itemsToAdd = items.filter(i => selectedItems.has(i.id));
+      itemsToAdd.forEach((mi) => {
+        (dispatch as any)(addItem({
+          orderId: orderIdToUse,
+          item: {
+            menuItemId: mi.id,
+            name: mi.name,
+            description: mi.description,
+            price: mi.price,
+            quantity: 1,
+            modifiers: [],
+            orderType: (mi as any).orderType || 'KOT',
+          }
+        }));
+      });
+      setPendingOrderInfo({ orderId: orderIdToUse, tableId: table.id, isMulti: true, itemCount: itemsToAdd.length });
+      setPrintModalVisible(true);
+      setShowTableModal(false);
+      cancelMultiSelect();
+    } catch (error) {
+      console.error('Multi-order failed:', error);
+      showToast('Failed to add items. Try again.', 'error');
+    }
   };
 
   const cancelMultiSelect = () => {
@@ -442,12 +472,31 @@ const MenuScreen: React.FC = () => {
         // Navigate to Ongoing Orders so user can see it
         (navigation as any).navigate('Orders', { screen: 'OngoingOrders' });
       } else {
+        // Printing failed but still save order and mark table occupied
+        try {
+          if (restaurantId) {
+            const svc = createFirestoreService(restaurantId);
+            const payload = { ...order, id: pendingOrderInfo.orderId, restaurantId, status: 'ongoing' as const, isSaved: true } as any;
+            await svc.saveOrder(payload);
+            await svc.updateTable(pendingOrderInfo.tableId, { isOccupied: true });
+          }
+        } catch (error) {
+          console.error('Firestore save after print failure error:', error);
+        }
+        (dispatch as any)(markOrderSaved({ orderId: pendingOrderInfo.orderId }));
+        (dispatch as any)(snapshotSavedQuantities({ orderId: pendingOrderInfo.orderId }));
+        (dispatch as any)(markOrderReviewed({ orderId: pendingOrderInfo.orderId }));
+        (dispatch as any)(loadOrders());
+
         const tableName = table?.name || `Table ${pendingOrderInfo.tableId.slice(-6)}`;
         const message = pendingOrderInfo.isMulti 
-          ? `Printing failed for ${pendingOrderInfo.itemCount} items in ${tableName}. Order not saved.`
-          : `Printing failed for ${pendingOrderInfo.itemName} in ${tableName}. Order not saved.`;
-        showToast(message, 'error');
-        return;
+          ? `Placed ${pendingOrderInfo.itemCount} items in ${tableName}. Saved; print failed.`
+          : `${pendingOrderInfo.itemName} added to ${tableName}. Saved; print failed.`;
+        showToast(message, 'warning', { 
+          orderId: pendingOrderInfo.orderId, 
+          tableId: pendingOrderInfo.tableId 
+        });
+        (navigation as any).navigate('Orders', { screen: 'OngoingOrders' });
       }
     } catch (error: any) {
       console.error('Print error:', error);
@@ -587,9 +636,37 @@ const MenuScreen: React.FC = () => {
   };
 
   const handleTableSelect = async (table: Table) => {
-    // Menu section is disabled - no ordering allowed
-    showToast('Menu ordering is currently disabled', 'warning');
-    return;
+    try {
+      if (!selectedItem) { setShowTableModal(false); return; }
+      const existingOrderId = ongoingOrderIds.find((oid: string) => {
+        const o: any = ordersById[oid];
+        return o && o.status === 'ongoing' && o.tableId === table.id;
+      });
+      let orderIdToUse = existingOrderId || '';
+      if (!orderIdToUse) {
+        const action: any = dispatch(createOrder(table.id));
+        orderIdToUse = action.payload.id;
+      }
+      (dispatch as any)(addItem({
+        orderId: orderIdToUse,
+        item: {
+          menuItemId: selectedItem.id,
+          name: selectedItem.name,
+          description: selectedItem.description,
+          price: selectedItem.price,
+          quantity: 1,
+          modifiers: [],
+          orderType: (selectedItem as any).orderType || 'KOT',
+        }
+      }));
+      setPendingOrderInfo({ orderId: orderIdToUse, tableId: table.id, isMulti: false, itemName: selectedItem.name });
+      setPrintModalVisible(true);
+      setShowTableModal(false);
+      setSelectedItem(null);
+    } catch (error) {
+      console.error('Order from menu failed:', error);
+      showToast('Failed to place order. Try again.', 'error');
+    }
   };
 
   const renderMenuItem = ({ item }: { item: MenuItem }) => {
@@ -602,12 +679,12 @@ const MenuScreen: React.FC = () => {
           styles.menuItem,
           isSelected && styles.selectedMenuItem,
           isProcessing && styles.processingMenuItem,
-          styles.disabledMenuItem
+          
         ]}
         onPress={() => isMultiSelectMode ? handleMultiSelect(item) : handleMenuItemPress(item)}
         onLongPress={() => handleLongPress(item)}
         activeOpacity={0.8}
-        disabled={true}
+        
       >
         {/* Selection Indicator */}
         {isMultiSelectMode && (
@@ -647,9 +724,9 @@ const MenuScreen: React.FC = () => {
 
         {/* Order Button - Only show when not in multi-select mode */}
         {!isMultiSelectMode && (
-          <View style={[styles.orderButton, styles.disabledOrderButton]}>
-            <Ionicons name="close-circle" size={24} color="white" />
-            <Text style={styles.orderButtonText}>Disabled</Text>
+          <View style={styles.orderButton}>
+            <Ionicons name="add-circle" size={24} color="white" />
+            <Text style={styles.orderButtonText}>Add</Text>
           </View>
         )}
       </TouchableOpacity>
@@ -697,29 +774,24 @@ const MenuScreen: React.FC = () => {
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Menu</Text>
-        <Text style={styles.subtitle}>Menu ordering is currently disabled</Text>
-        <View style={styles.disabledBanner}>
-          <Ionicons name="warning" size={16} color={colors.warning} />
-          <Text style={styles.disabledText}>Ordering functionality is temporarily unavailable</Text>
-        </View>
+        <Text style={styles.subtitle}>Tap an item to add to a table</Text>
       </View>
 
       <View style={styles.filters}>
         <TextInput 
-          placeholder="Search disabled..." 
+          placeholder="Search menu..." 
           placeholderTextColor={colors.textSecondary} 
           value={search} 
           onChangeText={setSearch} 
-          style={[styles.search, styles.disabledInput]} 
-          editable={false}
+          style={styles.search}
         />
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
           {categories.map(c => (
             <TouchableOpacity 
               key={c} 
-              style={[styles.categoryChip, categoryFilter === c && styles.categoryChipActive, styles.disabledChip]} 
+              style={[styles.categoryChip, categoryFilter === c && styles.categoryChipActive]} 
               onPress={() => setCategoryFilter(c)}
-              disabled={true}
+              disabled={false}
             >
               <Text style={[styles.categoryText, categoryFilter === c && styles.categoryTextActive]}>
                 {c}
