@@ -89,6 +89,20 @@ export default function SettleCreditScreen() {
 
   const totalCreditDue = useMemo(() => visibleCreditOrders.reduce((s, it) => s + (it.creditDue || 0), 0), [visibleCreditOrders]);
 
+  // Prefill settlement amount with total due to enable processing by default
+  React.useEffect(() => {
+    if (!settleAmount && totalCreditDue > 0) {
+      setSettleAmount(totalCreditDue.toFixed(2));
+    }
+  }, [totalCreditDue]);
+
+  // Fallback: if no detailed orders yet, prefill with customer's overall credit
+  React.useEffect(() => {
+    if (!settleAmount && totalCreditDue <= 0 && (customer?.creditAmount || 0) > 0) {
+      setSettleAmount((customer!.creditAmount || 0).toFixed(2));
+    }
+  }, [customer?.creditAmount, totalCreditDue]);
+
   const allocation = useMemo(() => {
     const amount = parseFloat(settleAmount) || 0;
     let remaining = Math.min(amount, totalCreditDue);
@@ -104,11 +118,20 @@ export default function SettleCreditScreen() {
     return parts;
   }, [settleAmount, visibleCreditOrders, totalCreditDue]);
 
-  const allocatedTotal = useMemo(() => allocation.reduce((s, p) => s + p.amount, 0), [allocation]);
+  const allocatedTotal = useMemo(() => {
+    // If we have visible credit orders, sum allocated parts.
+    // Otherwise, fall back to entered amount capped by customer's credit.
+    if (visibleCreditOrders.length > 0) {
+      return allocation.reduce((s, p) => s + p.amount, 0);
+    }
+    const entered = parseFloat(settleAmount) || 0;
+    const creditCap = customer?.creditAmount || 0;
+    return Math.max(0, Math.min(entered, creditCap));
+  }, [allocation, visibleCreditOrders.length, settleAmount, customer?.creditAmount]);
 
   // Split helpers for settlement
   const getSplitTotal = () => splitPayments.reduce((sum, p) => sum + (typeof p.amount === 'number' ? p.amount : parseFloat(p.amountPaid) || 0), 0);
-  const targetSettleTotal = allocatedTotal; // enforce split == allocatedTotal
+  const targetSettleTotal = allocatedTotal;
   const splitIsValid = Math.abs(getSplitTotal() - targetSettleTotal) < 0.01;
 
   const handleOpenSplit = () => {
@@ -485,9 +508,9 @@ export default function SettleCreditScreen() {
         <TouchableOpacity 
           style={[
             styles.processButton, 
-            (allocatedTotal <= 0 || parseFloat(settleAmount) > (customer.creditAmount || 0) || (isSplitSettlement && !splitIsValid)) && styles.processButtonDisabled
+            (((parseFloat(settleAmount) || 0) <= 0 || parseFloat(settleAmount) > (customer.creditAmount || 0) || (isSplitSettlement && !splitIsValid)) && styles.processButtonDisabled)
           ]} 
-          disabled={allocatedTotal <= 0 || parseFloat(settleAmount) > (customer.creditAmount || 0) || (isSplitSettlement && !splitIsValid)} 
+          disabled={(parseFloat(settleAmount) || 0) <= 0 || parseFloat(settleAmount) > (customer.creditAmount || 0) || (isSplitSettlement && !splitIsValid)} 
           onPress={handleProcessSettlement}
         >
           <Ionicons name="checkmark-circle-outline" size={22} color={'white'} />
