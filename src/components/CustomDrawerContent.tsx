@@ -190,10 +190,9 @@ const CustomDrawerContent: React.FC<DrawerContentComponentProps> = ({ navigation
           <View style={styles.avatar}><Text style={styles.avatarText}>{(auth?.userName || 'U').slice(0,1).toUpperCase()}</Text></View>
           <View style={{ flex: 1 }}>
             <Text style={styles.userName}>{auth?.userName || 'Username'}</Text>
-            {auth?.designation && (
+            {auth?.designation ? (
               <Text style={styles.userDesignation}>{auth.designation}</Text>
-            )}
-            <Text style={styles.userRole}>{auth?.role || 'Staff'}</Text>
+            ) : null}
           </View>
           <TouchableOpacity onPress={handleLogout}>
             <Feather name="log-out" size={18} color={colors.textSecondary} />
@@ -250,8 +249,7 @@ const styles = StyleSheet.create({
   avatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.surface2, alignItems: 'center', justifyContent: 'center', marginRight: spacing.sm },
   avatarText: { color: 'white', fontWeight: 'bold' },
   userName: { color: 'white', fontWeight: '600' },
-  userDesignation: { color: colors.primary, fontSize: 11, marginTop: 1, fontStyle: 'italic' },
-  userRole: { color: colors.textSecondary, fontSize: 12, marginTop: 2 },
+  userDesignation: { color: colors.textSecondary, fontSize: 12, marginTop: 2 },
   restaurantRow: { marginBottom: spacing.sm, paddingHorizontal: spacing.sm },
   restaurantName: { color: colors.primary, fontSize: 14, fontWeight: '600', textAlign: 'center' },
   powered: { color: colors.textMuted, fontSize: 12, textAlign: 'center' },

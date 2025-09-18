@@ -91,6 +91,8 @@ function createAutoReceiptService(restaurantId: string) {
       customerPhone: order.payment?.customerPhone || "",
       customerId: (order as any).customerId || undefined,
       receiptType: (order as any).receiptType || undefined,
+      processedBy: (order as any).processedBy || undefined,
+      role: (order as any).processedRole || (order as any).role || undefined,
       timestamp: Date.now(),
       createdAt: Date.now()
     };

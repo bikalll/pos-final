@@ -51,7 +51,13 @@ export const completeOrderWithReceipt = createAsyncThunk(
             restaurantId: order.restaurantId,
             amount: order.payment.amountPaid
           });
-          await autoReceiptService.saveReceiptForOrder(order);
+          // Enrich with processor info from auth state
+          const enrichedOrder = {
+            ...order,
+            processedBy: state?.auth?.userName || 'Unknown',
+            processedRole: state?.auth?.role || 'Staff',
+          } as any;
+          await autoReceiptService.saveReceiptForOrder(enrichedOrder);
           console.log('✅ THUNK: Receipt saved successfully for order:', orderId);
         } else {
           console.log('⚠️ THUNK: Order not ready for receipt:', orderId, { 

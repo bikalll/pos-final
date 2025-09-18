@@ -38,9 +38,9 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabPress }) => {
   ];
 
   // Filter menu items based on user role
-  const filteredMenuItems = menuItems.filter(item => 
-    item.roles.includes(auth?.role || 'Staff')
-  );
+  // Treat Manager designation as Owner-equivalent for access (except attendance screen logic itself handles owners)
+  const effectiveRole = (auth?.role === 'Owner' || auth?.designation === 'Manager') ? 'Owner' : (auth?.role || 'Staff');
+  const filteredMenuItems = menuItems.filter(item => item.roles.includes(effectiveRole));
 
   const handleTabPress = (tabName: string) => {
     onTabPress(tabName);

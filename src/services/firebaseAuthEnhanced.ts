@@ -195,7 +195,8 @@ export class FirebaseAuthEnhanced {
     displayName: string,
     restaurantId: string,
     createdBy: string,
-    password?: string
+    password?: string,
+    staffRole?: 'manager' | 'staff'
   ): Promise<{ credentials: { email: string; password: string }; userMetadata: UserMetadata }> {
     try {
       // Verify that the creator is an owner
@@ -216,6 +217,22 @@ export class FirebaseAuthEnhanced {
         restaurantId,
         createdBy
       );
+
+      // Persist staff role/designation accurately (Manager or Staff)
+      const normalizedRole = (staffRole === 'manager') ? 'Manager' : 'Staff';
+      try {
+        await this.updateUserMetadata(userMetadata.uid, { designation: normalizedRole } as any);
+      } catch (e) {
+        console.warn('Failed to set designation on user metadata:', (e as Error).message);
+      }
+
+      // Update restaurant users mapping to reflect Manager/Staff instead of default
+      try {
+        const fs = createFirestoreService(restaurantId);
+        await fs.update('users', userMetadata.uid, { role: normalizedRole } as any);
+      } catch (e) {
+        console.warn('Failed to update restaurant user role to', normalizedRole, ':', (e as Error).message);
+      }
 
       return {
         credentials: { email, password: employeePassword },
@@ -285,15 +302,43 @@ export class FirebaseAuthEnhanced {
     try {
       console.log('Getting user metadata for email:', email);
       const usersRef = collection(firestore, 'users');
-      const q = query(usersRef, where('email', '==', email.toLowerCase()));
-      const querySnapshot = await getDocs(q);
-      
-      if (!querySnapshot.empty) {
-        const userDoc = querySnapshot.docs[0];
-        const userData = { uid: userDoc.id, ...userDoc.data() } as UserMetadata;
-        console.log('User metadata found by email:', userData);
+      const lower = email.toLowerCase();
+
+      // First attempt: query by lowercased email (preferred canonical form)
+      let qTry = query(usersRef, where('email', '==', lower));
+      let snap = await getDocs(qTry);
+      if (!snap.empty) {
+        const d = snap.docs[0];
+        const userData = { uid: d.id, ...d.data() } as UserMetadata;
+        console.log('User metadata found by email (lowercased match):', userData);
         return userData;
       }
+
+      // Second attempt: query by the raw provided email (handles legacy mixed-case storage)
+      if (lower !== email) {
+        qTry = query(usersRef, where('email', '==', email));
+        snap = await getDocs(qTry);
+        if (!snap.empty) {
+          const d = snap.docs[0];
+          const userData = { uid: d.id, ...d.data() } as UserMetadata;
+          console.log('User metadata found by email (raw match):', userData);
+          return userData;
+        }
+      }
+
+      // Final fallback: scan and compare case-insensitively client-side (rare, but resilient)
+      const allSnap = await getDocs(usersRef);
+      const found = allSnap.docs.find(docSnap => {
+        const data = docSnap.data() as any;
+        const e = (data.email || '').toString();
+        return e.toLowerCase() === lower;
+      });
+      if (found) {
+        const userData = { uid: found.id, ...found.data() } as UserMetadata;
+        console.log('User metadata found by email (fallback scan):', userData);
+        return userData;
+      }
+
       console.log('User metadata not found for email:', email);
       return null;
     } catch (error) {

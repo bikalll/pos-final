@@ -180,6 +180,8 @@ function CustomersStack() {
 
 function AppDrawer() {
   const userRole = useSelector((state: RootState) => state.auth.role);
+  const designation = useSelector((state: RootState) => state.auth.designation);
+  const isOwnerLevel = userRole === 'Owner' || designation === 'Manager';
   
   return (
     <Drawer.Navigator
@@ -193,12 +195,12 @@ function AppDrawer() {
     >
       <Drawer.Screen name="Dashboard" component={DashboardStack} />
       <Drawer.Screen name="Orders" component={OrdersStack} />
-      {userRole === 'Owner' && <Drawer.Screen name="Receipts" component={ReceiptsStack} />}
+      {isOwnerLevel && <Drawer.Screen name="Receipts" component={ReceiptsStack} />}
       <Drawer.Screen name="Staff" component={StaffStack} />
       <Drawer.Screen name="Inventory" component={InventoryStack} />
       <Drawer.Screen name="Customers" component={CustomersStack} />
       <Drawer.Screen name="Printer" component={PrinterOnlyStack} />
-      {userRole === 'Owner' && <Drawer.Screen name="Settings" component={SettingsStack} />}
+      {isOwnerLevel && <Drawer.Screen name="Settings" component={SettingsStack} />}
     </Drawer.Navigator>
   );
 }

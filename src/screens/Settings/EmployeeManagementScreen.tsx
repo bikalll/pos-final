@@ -186,7 +186,8 @@ const EmployeeManagementScreen: React.FC = () => {
         newEmployee.displayName.trim(),
         authState.restaurantId || '',
         authState.userId || '',
-        newEmployee.password.trim() // Pass the user-provided password
+        newEmployee.password.trim(), // Pass the user-provided password
+        newEmployee.role // Pass selected staff role ('manager' | 'staff')
       );
 
       // Create staff record in Firestore with additional details
@@ -196,8 +197,8 @@ const EmployeeManagementScreen: React.FC = () => {
         name: newEmployee.displayName.trim(),
         email: newEmployee.email.trim().toLowerCase(),
         phone: newEmployee.phone.trim(),
-        role: newEmployee.designation.trim() || 'Staff', // Use actual designation or default to Staff
-        designation: newEmployee.designation.trim() || 'Staff', // Store designation separately
+        role: (newEmployee.role === 'manager' ? 'Manager' : 'Staff'),
+        designation: newEmployee.designation.trim() || (newEmployee.role === 'manager' ? 'Manager' : 'Staff'),
         employmentType: newEmployee.employmentType,
         joinDate: Date.now(),
         isActive: true,
