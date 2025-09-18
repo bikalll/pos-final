@@ -74,7 +74,7 @@ export default function OfficeManagementScreen() {
   const [contactNumber, setContactNumber] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const canEdit = role === 'Owner';
+  const canEdit = role === 'Owner' || role === 'Manager';
 
   useEffect(() => {
     const load = async () => {
@@ -101,7 +101,7 @@ export default function OfficeManagementScreen() {
   const pickImage = async (onPicked: (url: string) => void) => {
     console.log('📷 pickImage pressed. canEdit:', canEdit);
     if (!canEdit) {
-      Alert.alert('View only', 'Only owners can change images.');
+      Alert.alert('View only', 'Only owners and managers can change images.');
       return;
     }
 
@@ -139,7 +139,7 @@ export default function OfficeManagementScreen() {
   const pickFromCamera = async (onPicked: (url: string) => void) => {
     console.log('📷 pickFromCamera pressed. canEdit:', canEdit);
     if (!canEdit) {
-      Alert.alert('View only', 'Only owners can take images.');
+      Alert.alert('View only', 'Only owners and managers can take images.');
       return;
     }
 

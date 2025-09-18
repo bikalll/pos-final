@@ -75,7 +75,7 @@ lastVisit?: number;
 createdAt?: number;
 };
 
-export type StaffRole = "Owner" | "Staff" | "Waiter";
+export type StaffRole = "Owner" | "Manager" | "Staff" | "Waiter";
 
 export type StaffMember = {
 id: string;

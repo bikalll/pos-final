@@ -181,7 +181,15 @@ function CustomersStack() {
 function AppDrawer() {
   const userRole = useSelector((state: RootState) => state.auth.role);
   const designation = useSelector((state: RootState) => state.auth.designation);
-  const isOwnerLevel = userRole === 'Owner' || designation === 'Manager';
+  const isOwnerLevel = userRole === 'Owner' || userRole === 'Manager';
+  
+  // Debug logging
+  console.log('🔍 NAVIGATION DEBUG - AppDrawer:');
+  console.log('  userRole:', userRole, '(type:', typeof userRole, ')');
+  console.log('  designation:', designation, '(type:', typeof designation, ')');
+  console.log('  isOwnerLevel:', isOwnerLevel);
+  console.log('  Should show Receipts:', isOwnerLevel);
+  console.log('  Should show Settings:', isOwnerLevel);
   
   return (
     <Drawer.Navigator

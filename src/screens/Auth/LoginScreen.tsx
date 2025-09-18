@@ -73,14 +73,16 @@ const LoginScreen: React.FC = () => {
       const userMetadata = await authService.signIn(email.trim(), password);
       console.log('✅ Sign in successful, user metadata:', userMetadata);
       
-      // Verify that the user is an owner (not an employee)
+      // Verify that the user is an owner only (managers and employees should use employee login)
       if (userMetadata.role !== 'Owner') {
-        // Sign out the user immediately since they're not an owner
+        // Sign out the user immediately since they're not authorized
         await authService.signOut();
-        if (userMetadata.role === 'employee') {
+        if (userMetadata.role === 'manager') {
+          throw new Error('This is a manager account. Please use the employee login instead.');
+        } else if (userMetadata.role === 'employee' || userMetadata.role === 'staff') {
           throw new Error('This is an employee account. Please use the employee login instead.');
         } else {
-          throw new Error('This account is not an owner account. Please contact support.');
+          throw new Error('This account is not authorized. Please contact support.');
         }
       }
       

@@ -143,11 +143,12 @@ exports.createEmployeeCredentials = functions.https.onCall(async (data, context)
       displayName: displayName,
     });
 
-    // Create user metadata
+    // Create user metadata with correct role based on staffRole
+    const userRole = (staffRole === 'manager') ? 'manager' : 'staff';
     const userMetadata = {
       uid: userRecord.uid,
       email: email.toLowerCase(),
-      role: 'employee',
+      role: userRole,
       restaurantId: restaurantId,
       displayName: displayName,
       createdAt: admin.database.ServerValue.TIMESTAMP,
@@ -164,7 +165,7 @@ exports.createEmployeeCredentials = functions.https.onCall(async (data, context)
       email: email.toLowerCase(),
       displayName: displayName,
       password: tempPassword,
-      role: 'employee',
+      role: userRole,
     };
 
   } catch (error) {
@@ -304,7 +305,7 @@ exports.deactivateUser = functions.https.onCall(async (data, context) => {
 
 /**
  * Cloud Function to get restaurant users
- * Only owners can view restaurant users
+ * Only owners and managers can view restaurant users
  */
 exports.getRestaurantUsers = functions.https.onCall(async (data, context) => {
   // Verify authentication
@@ -321,13 +322,13 @@ exports.getRestaurantUsers = functions.https.onCall(async (data, context) => {
   }
 
   try {
-    // Verify requester is an owner
+    // Verify requester is an owner or manager
     const requesterRef = db.ref(`users/${requesterUid}`);
     const requesterSnapshot = await requesterRef.once('value');
     const requesterData = requesterSnapshot.val();
 
-    if (!requesterData || requesterData.role !== 'owner') {
-      throw new functions.https.HttpsError('permission-denied', 'Only owners can view restaurant users');
+    if (!requesterData || (requesterData.role !== 'owner' && requesterData.role !== 'manager')) {
+      throw new functions.https.HttpsError('permission-denied', 'Only owners and managers can view restaurant users');
     }
 
     // Verify requester belongs to the requested restaurant

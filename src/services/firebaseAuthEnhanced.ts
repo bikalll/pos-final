@@ -88,12 +88,35 @@ export class FirebaseAuthEnhanced {
       // Initialize Firestore service with restaurant ID
       initializeFirestoreService(userMetadata.restaurantId);
 
-      // Get restaurant info
+      // Get restaurant info and resolve role from restaurant users mapping
       const firestoreService = createFirestoreService(userMetadata.restaurantId);
       const restaurantInfo = await firestoreService.getRestaurantInfo();
+
+      // Prefer role from restaurants/{restaurantId}/users/{uid}.role if present
+      let effectiveRole: any = undefined;
+      try {
+        const userMapping = await (firestoreService as any).read('users', user.uid);
+        const mappedRole = (userMapping?.role || '').toString();
+        if (mappedRole === 'Owner' || mappedRole === 'Manager' || mappedRole === 'Staff') {
+          effectiveRole = mappedRole;
+        }
+      } catch {}
+
+      if (!effectiveRole) {
+        // Fallback: map metadata.role to proper Redux role
+        if (userMetadata.role === 'Owner') {
+          effectiveRole = 'Owner';
+        } else if (userMetadata.role === 'manager') {
+          effectiveRole = 'Manager';
+        } else if (userMetadata.role === 'staff' || userMetadata.role === 'employee') {
+          effectiveRole = 'Staff';
+        } else {
+          effectiveRole = 'Staff'; // Default fallback
+        }
+      }
       
       // Dispatch login action
-      const role = userMetadata.role === 'Owner' ? 'Owner' : 'Staff';
+      const role = effectiveRole;
       console.log('🔍 LOGIN DEBUG - User metadata found:', {
         uid: userMetadata.uid,
         email: userMetadata.email,
@@ -110,14 +133,14 @@ export class FirebaseAuthEnhanced {
         restaurantId: userMetadata.restaurantId,
         restaurantName: restaurantInfo?.name || 'Restaurant'
       });
+      console.log('🔍 AUTH DEBUG - Final role being dispatched:', role, '(type:', typeof role, ')');
       
       this.dispatch(login({
         userName: userMetadata.displayName,
         role: role,
         userId: user.uid,
         restaurantId: userMetadata.restaurantId,
-        restaurantName: restaurantInfo?.name || 'Restaurant',
-        designation: userMetadata.designation
+        restaurantName: restaurantInfo?.name || 'Restaurant'
       }));
       
       console.log('✅ LOGIN DISPATCHED - Auth state should now have restaurantId:', userMetadata.restaurantId);
@@ -144,8 +167,8 @@ export class FirebaseAuthEnhanced {
       if (createdBy !== 'system') {
         // Verify that the creator is an owner
         const creatorMetadata = await this.getUserMetadata(createdBy);
-        if (!creatorMetadata || creatorMetadata.role !== 'Owner') {
-          throw new Error('Only owners can create user accounts');
+        if (!creatorMetadata || (creatorMetadata.role !== 'Owner' && creatorMetadata.role !== 'manager')) {
+          throw new Error('Only owners and managers can create user accounts');
         }
       }
 
@@ -160,7 +183,7 @@ export class FirebaseAuthEnhanced {
       const userMetadata: UserMetadata = {
         uid: user.uid,
         email: email.toLowerCase(),
-        role: role === 'owner' ? 'Owner' : role, // Convert 'owner' to 'Owner'
+        role: role === 'owner' ? 'Owner' : role, // Convert 'owner' to 'Owner', keep others as is
         restaurantId,
         displayName,
         createdAt: Date.now(),
@@ -174,11 +197,22 @@ export class FirebaseAuthEnhanced {
       // Create restaurant user mapping for both owners and employees
       // This creates a separate document in the restaurant's users collection
       const firestoreService = createFirestoreService(restaurantId);
+      
+      // Map role to proper restaurant user role
+      let restaurantRole;
+      if (role === 'owner' || role === 'Owner') {
+        restaurantRole = 'Owner';
+      } else if (role === 'manager') {
+        restaurantRole = 'Manager';
+      } else {
+        restaurantRole = 'Staff';
+      }
+      
       await firestoreService.create('users', {
         id: user.uid,
         email: email,
         restaurantId: restaurantId,
-        role: role === 'owner' || role === 'Owner' ? 'Owner' : 'Staff'
+        role: restaurantRole
       });
 
       return userMetadata;
@@ -201,42 +235,34 @@ export class FirebaseAuthEnhanced {
     try {
       // Verify that the creator is an owner
       const creatorMetadata = await this.getUserMetadata(createdBy);
-      if (!creatorMetadata || creatorMetadata.role !== 'Owner') {
-        throw new Error('Only owners can create employee accounts');
+      if (!creatorMetadata || (creatorMetadata.role !== 'Owner' && creatorMetadata.role !== 'manager')) {
+        throw new Error('Only owners and managers can create employee accounts');
       }
 
       // Use provided password or generate temporary password
       const employeePassword = password || this.generateTemporaryPassword();
 
-      // Create user account
+      // Determine the correct role for the user collection
+      const userRole = (staffRole === 'manager') ? 'manager' : 'staff';
+
+      // Create user account with correct role
       const userMetadata = await this.createUser(
         email,
         employeePassword,
         displayName,
-        'employee',
+        userRole as any, // Pass the correct role instead of hardcoded 'employee'
         restaurantId,
         createdBy
       );
 
-      // Persist staff role/designation accurately (Manager or Staff)
-      const normalizedRole = (staffRole === 'manager') ? 'Manager' : 'Staff';
-      try {
-        await this.updateUserMetadata(userMetadata.uid, { designation: normalizedRole } as any);
-      } catch (e) {
-        console.warn('Failed to set designation on user metadata:', (e as Error).message);
-      }
-
-      // Update restaurant users mapping to reflect Manager/Staff instead of default
-      try {
-        const fs = createFirestoreService(restaurantId);
-        await fs.update('users', userMetadata.uid, { role: normalizedRole } as any);
-      } catch (e) {
-        console.warn('Failed to update restaurant user role to', normalizedRole, ':', (e as Error).message);
-      }
+      // The createUser method now handles role mapping correctly, so no need for additional updates
 
       return {
         credentials: { email, password: employeePassword },
-        userMetadata
+        userMetadata: {
+          ...userMetadata,
+          role: userRole as any
+        }
       };
 
     } catch (error) {
@@ -428,8 +454,8 @@ export class FirebaseAuthEnhanced {
     try {
       // Verify that the deactivator is an owner
       const deactivatorMetadata = await this.getUserMetadata(deactivatedBy);
-      if (!deactivatorMetadata || deactivatorMetadata.role !== 'Owner') {
-        throw new Error('Only owners can deactivate accounts');
+      if (!deactivatorMetadata || (deactivatorMetadata.role !== 'Owner' && deactivatorMetadata.role !== 'manager')) {
+        throw new Error('Only owners and managers can deactivate accounts');
       }
 
       await this.updateUserMetadata(uid, { isActive: false });
@@ -444,8 +470,8 @@ export class FirebaseAuthEnhanced {
     try {
       // Verify that the reactivator is an owner
       const reactivatorMetadata = await this.getUserMetadata(reactivatedBy);
-      if (!reactivatorMetadata || reactivatorMetadata.role !== 'Owner') {
-        throw new Error('Only owners can reactivate accounts');
+      if (!reactivatorMetadata || (reactivatorMetadata.role !== 'Owner' && reactivatorMetadata.role !== 'manager')) {
+        throw new Error('Only owners and managers can reactivate accounts');
       }
 
       await this.updateUserMetadata(uid, { isActive: true });
@@ -511,13 +537,13 @@ export class FirebaseAuthEnhanced {
     }
   }
 
-  // Get all users for a restaurant (owner only)
+  // Get all users for a restaurant (owner and manager only)
   async getRestaurantUsers(restaurantId: string, requesterUid: string): Promise<UserMetadata[]> {
     try {
-      // Verify that the requester is an owner
+      // Verify that the requester is an owner or manager
       const requesterMetadata = await this.getUserMetadata(requesterUid);
-      if (!requesterMetadata || requesterMetadata.role !== 'Owner') {
-        throw new Error('Only owners can view restaurant users');
+      if (!requesterMetadata || (requesterMetadata.role !== 'Owner' && requesterMetadata.role !== 'manager')) {
+        throw new Error('Only owners and managers can view restaurant users');
       }
 
       // Get all users and filter by restaurant

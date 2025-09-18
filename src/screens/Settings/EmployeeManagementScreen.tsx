@@ -70,7 +70,7 @@ const EmployeeManagementScreen: React.FC = () => {
   }, []);
 
   const loadEmployeeData = async () => {
-    if (!authState.isLoggedIn || authState.role !== 'Owner') {
+    if (!authState.isLoggedIn || (authState.role !== 'Owner' && authState.role !== 'Manager')) {
       setIsLoading(false);
       return;
     }
@@ -102,9 +102,22 @@ const EmployeeManagementScreen: React.FC = () => {
           staff.email === user.email || staff.id === user.uid
         );
 
+        // Prioritize role from staff collection, fallback to user role
+        let finalRole: 'Owner' | 'manager' | 'staff';
+        if (staffInfo?.role) {
+          // Use role from staff collection (Manager/Staff) and convert to lowercase
+          finalRole = staffInfo.role.toLowerCase() as 'manager' | 'staff';
+        } else if (user.role === 'employee') {
+          // Fallback to staff if user role is employee
+          finalRole = 'staff';
+        } else {
+          // Use user role as is for owners
+          finalRole = user.role as 'Owner' | 'manager' | 'staff';
+        }
+
         return {
           ...user,
-          role: user.role === 'employee' ? 'staff' : user.role as 'Owner' | 'manager' | 'staff',
+          role: finalRole,
           phone: staffInfo?.phone || '',
           designation: staffInfo?.designation || staffInfo?.role || '',
           employmentType: staffInfo?.employmentType || 'full-time',
@@ -164,8 +177,8 @@ const EmployeeManagementScreen: React.FC = () => {
   const handleAddEmployee = async () => {
     if (!validateForm()) return;
     
-    if (!authState.isLoggedIn || authState.role !== 'Owner') {
-      Alert.alert('Error', 'Only owners can create employee accounts');
+    if (!authState.isLoggedIn || (authState.role !== 'Owner' && authState.role !== 'Manager')) {
+      Alert.alert('Error', 'Only owners and managers can create employee accounts');
       return;
     }
     
@@ -190,7 +203,7 @@ const EmployeeManagementScreen: React.FC = () => {
         newEmployee.role // Pass selected staff role ('manager' | 'staff')
       );
 
-      // Create staff record in Firestore with additional details
+      // Create staff record in Firestore with additional details (write unified role only)
       const firestoreService = createFirestoreService(authState.restaurantId || '');
       await firestoreService.createStaffMember({
         id: result.userMetadata.uid,
@@ -198,7 +211,6 @@ const EmployeeManagementScreen: React.FC = () => {
         email: newEmployee.email.trim().toLowerCase(),
         phone: newEmployee.phone.trim(),
         role: (newEmployee.role === 'manager' ? 'Manager' : 'Staff'),
-        designation: newEmployee.designation.trim() || (newEmployee.role === 'manager' ? 'Manager' : 'Staff'),
         employmentType: newEmployee.employmentType,
         joinDate: Date.now(),
         isActive: true,
@@ -647,12 +659,14 @@ const EmployeeManagementScreen: React.FC = () => {
           />
         </View>
         
-        <TouchableOpacity 
-          style={styles.addButton}
-          onPress={() => setShowAddModal(true)}
-        >
-          <Ionicons name="add" size={24} color={colors.textPrimary} />
-        </TouchableOpacity>
+        {(authState.role === 'Owner' || authState.role === 'Manager') && (
+          <TouchableOpacity 
+            style={styles.addButton}
+            onPress={() => setShowAddModal(true)}
+          >
+            <Ionicons name="add" size={24} color={colors.textPrimary} />
+          </TouchableOpacity>
+        )}
       </View>
 
 
@@ -944,51 +958,56 @@ const EmployeeManagementScreen: React.FC = () => {
                 <Text style={styles.menuActionText}>View Details</Text>
               </TouchableOpacity>
               
-              <TouchableOpacity
-                style={styles.menuAction}
-                onPress={() => {
-                  setShowEmployeeMenu(false);
-                  handleEditEmployee(selectedEmployeeForMenu!);
-                }}
-              >
-                <Ionicons name="create" size={20} color={colors.textPrimary} />
-                <Text style={styles.menuActionText}>Edit Employee</Text>
-              </TouchableOpacity>
-              
-              {selectedEmployeeForMenu?.isActive ? (
-                <TouchableOpacity
-                  style={[styles.menuAction, styles.menuActionWarning]}
-                  onPress={() => {
-                    setShowEmployeeMenu(false);
-                    handleDeactivateEmployee(selectedEmployeeForMenu!.uid);
-                  }}
-                >
-                  <Ionicons name="pause-circle" size={20} color={colors.warning} />
-                  <Text style={[styles.menuActionText, styles.menuActionWarningText]}>Deactivate</Text>
-                </TouchableOpacity>
-              ) : (
-                <TouchableOpacity
-                  style={[styles.menuAction, styles.menuActionSuccess]}
-                  onPress={() => {
-                    setShowEmployeeMenu(false);
-                    handleActivateEmployee(selectedEmployeeForMenu!.uid);
-                  }}
-                >
-                  <Ionicons name="play-circle" size={20} color={colors.success} />
-                  <Text style={[styles.menuActionText, styles.menuActionSuccessText]}>Activate</Text>
-                </TouchableOpacity>
+              {/* Only show edit/delete options for owners and managers */}
+              {(authState.role === 'Owner' || authState.role === 'Manager') && (
+                <>
+                  <TouchableOpacity
+                    style={styles.menuAction}
+                    onPress={() => {
+                      setShowEmployeeMenu(false);
+                      handleEditEmployee(selectedEmployeeForMenu!);
+                    }}
+                  >
+                    <Ionicons name="create" size={20} color={colors.textPrimary} />
+                    <Text style={styles.menuActionText}>Edit Employee</Text>
+                  </TouchableOpacity>
+                  
+                  {selectedEmployeeForMenu?.isActive ? (
+                    <TouchableOpacity
+                      style={[styles.menuAction, styles.menuActionWarning]}
+                      onPress={() => {
+                        setShowEmployeeMenu(false);
+                        handleDeactivateEmployee(selectedEmployeeForMenu!.uid);
+                      }}
+                    >
+                      <Ionicons name="pause-circle" size={20} color={colors.warning} />
+                      <Text style={[styles.menuActionText, styles.menuActionWarningText]}>Deactivate</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity
+                      style={[styles.menuAction, styles.menuActionSuccess]}
+                      onPress={() => {
+                        setShowEmployeeMenu(false);
+                        handleActivateEmployee(selectedEmployeeForMenu!.uid);
+                      }}
+                    >
+                      <Ionicons name="play-circle" size={20} color={colors.success} />
+                      <Text style={[styles.menuActionText, styles.menuActionSuccessText]}>Activate</Text>
+                    </TouchableOpacity>
+                  )}
+                  
+                  <TouchableOpacity
+                    style={[styles.menuAction, styles.menuActionDanger]}
+                    onPress={() => {
+                      setShowEmployeeMenu(false);
+                      handleDeleteEmployee(selectedEmployeeForMenu!.uid);
+                    }}
+                  >
+                    <Ionicons name="trash" size={20} color={colors.danger} />
+                    <Text style={[styles.menuActionText, styles.menuActionDangerText]}>Delete</Text>
+                  </TouchableOpacity>
+                </>
               )}
-              
-              <TouchableOpacity
-                style={[styles.menuAction, styles.menuActionDanger]}
-                onPress={() => {
-                  setShowEmployeeMenu(false);
-                  handleDeleteEmployee(selectedEmployeeForMenu!.uid);
-                }}
-              >
-                <Ionicons name="trash" size={20} color={colors.danger} />
-                <Text style={[styles.menuActionText, styles.menuActionDangerText]}>Delete</Text>
-              </TouchableOpacity>
             </View>
           </View>
         </TouchableOpacity>

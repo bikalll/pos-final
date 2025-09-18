@@ -686,7 +686,7 @@ const OrderConfirmationScreen: React.FC = () => {
               <View style={{ height: 1, backgroundColor: colors.outline, marginVertical: spacing.xs }} />
               {/* Cancel Order (owners only) */}
               <TouchableOpacity style={styles.optionsMenuItem} onPress={() => { 
-                if (authRole !== 'Owner') { Alert.alert('Permission Denied', 'Only owners can cancel orders.'); setShowOptionsMenu(false); return; }
+                if (authRole !== 'Owner' && authRole !== 'Manager') { Alert.alert('Permission Denied', 'Only owners and managers can cancel orders.'); setShowOptionsMenu(false); return; }
                 Alert.alert('Cancel Order', 'Are you sure you want to cancel this order?', [
                   { text: 'No', style: 'cancel' },
                   { text: 'Yes, Cancel', style: 'destructive', onPress: () => { 

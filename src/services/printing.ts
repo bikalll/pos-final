@@ -817,6 +817,7 @@ export class PrintService {
         time: new Date(order.createdAt).toLocaleTimeString(),
         table: table?.name || order.tableId,
         steward: stewardName,
+        processedBy: order.processedBy,
         items: order.items.map((item: any) => ({
           name: item.name,
           quantity: item.quantity,
@@ -1235,7 +1236,11 @@ export class PrintService {
       text += `${data.ticketId}\n`;
       text += `${data.date} ${data.time}\n`;
       text += `Table ${data.table}\n`;
-      text += 'Steward: Maam\n';
+      if (data.processedBy?.role && data.processedBy?.username) {
+        text += `${data.processedBy.role}:${data.processedBy.username}\n`;
+      } else {
+        text += 'Processed By: Staff\n';
+      }
       text += '------------------------------\n';
       text += 'Item                    Qty\n';
       text += '------------------------------\n';
@@ -1263,7 +1268,11 @@ export class PrintService {
     lines.push(`${receipt.date} ${receipt.time}`);
     lines.push(`Table ${receipt.tableNumber}`);
     lines.push('Cashier: ' + (receipt.cashier || 'POS'));
-    if ((receipt as any).steward) lines.push('Steward: ' + (receipt as any).steward);
+    if ((receipt as any).processedBy?.role && (receipt as any).processedBy?.username) {
+      lines.push(`${(receipt as any).processedBy.role}:${(receipt as any).processedBy.username}`);
+    } else if ((receipt as any).steward) {
+      lines.push('Steward: ' + (receipt as any).steward);
+    }
     lines.push('------------------------------');
     lines.push('Item                         Total');
     lines.push('------------------------------');

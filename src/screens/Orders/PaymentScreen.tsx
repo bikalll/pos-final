@@ -63,7 +63,7 @@ const PaymentScreen: React.FC = () => {
   // Use Firestore-scoped customers (Customers screen manages Redux replacement); keep local copy as fallback
   const customers = useSelector((state: RootState) => state.customers.customersById);
   const tables = useSelector((state: RootState) => state.tables.tablesById);
-  const { restaurantId } = useSelector((state: RootState) => state.auth);
+  const { restaurantId, role, userName } = useSelector((state: RootState) => state.auth);
   
   // Safety check flag for undefined order (avoid early return before hooks)
   const isOrderMissing = !order;
@@ -386,12 +386,21 @@ const PaymentScreen: React.FC = () => {
     try {
       const { getFirebaseService } = require('../../services/firebaseService');
       const svc = getFirebaseService();
-      const payload = { ...order, status: 'completed', restaurantId, saved: true } as any;
-      svc.saveOrder({ ...order, status: 'completed', restaurantId, saved: true } as any);
+      const payload = { 
+        ...order, 
+        status: 'completed', 
+        restaurantId, 
+        saved: true,
+        processedBy: {
+          role: role || 'Staff',
+          username: userName || 'Unknown'
+        }
+      } as any;
+      svc.saveOrder(payload);
       try {
         const { createFirestoreService } = require('../../services/firestoreService');
         const fsSvc = createFirestoreService(restaurantId);
-        fsSvc.saveOrder({ ...order, status: 'completed', restaurantId, saved: true } as any);
+        fsSvc.saveOrder(payload);
       } catch {}
     } catch {}
 
@@ -637,6 +646,28 @@ const PaymentScreen: React.FC = () => {
 
     // Complete order and save receipt
     (dispatch as any)(completeOrderWithReceipt({ orderId, restaurantId }));
+    
+    // Persist to Firebase with role and username data
+    try {
+      const { getFirebaseService } = require('../../services/firebaseService');
+      const svc = getFirebaseService();
+      const payload = { 
+        ...order, 
+        status: 'completed', 
+        restaurantId, 
+        saved: true,
+        processedBy: {
+          role: role || 'Staff',
+          username: userName || 'Unknown'
+        }
+      } as any;
+      svc.saveOrder(payload);
+      try {
+        const { createFirestoreService } = require('../../services/firestoreService');
+        const fsSvc = createFirestoreService(restaurantId);
+        fsSvc.saveOrder(payload);
+      } catch {}
+    } catch {}
 
     // Unmerge tables and orders if this was a merged order
     if (order.isMergedOrder && order.tableId) {

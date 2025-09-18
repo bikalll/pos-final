@@ -99,15 +99,18 @@ const EmployeeLoginScreen: React.FC = () => {
         throw new Error('Employee does not belong to the specified owner\'s restaurant');
       }
       
-      // Verify the user is actually an employee
-      if (userMetadata.role !== 'employee') {
-        // Sign out the user immediately since they're not an employee
+      // Verify the user is not an owner (owners should use main login screen)
+      if (userMetadata.role === 'Owner') {
+        // Sign out the user immediately since they're an owner
         await authService.signOut();
-        if (userMetadata.role === 'Owner') {
-          throw new Error('This is an owner account. Please use the owner login instead.');
-        } else {
-          throw new Error('This account is not an employee account. Please use the owner login instead.');
-        }
+        throw new Error('This is an owner account. Please use the main login screen instead.');
+      }
+      
+      // Allow managers, staff, and employees to proceed
+      if (userMetadata.role !== 'manager' && userMetadata.role !== 'staff' && userMetadata.role !== 'employee') {
+        // Sign out the user immediately since they're not authorized
+        await authService.signOut();
+        throw new Error('This account is not authorized for employee login. Please contact your administrator.');
       }
       
       // Login successful - user is already logged in via Redux

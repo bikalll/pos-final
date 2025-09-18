@@ -50,7 +50,7 @@ const OrderManagementScreen: React.FC = () => {
   const { orderId } = route.params as RouteParams;
   const order = useSelector((state: RootState) => state.orders.ordersById[orderId]);
   const tables = useSelector((state: RootState) => state.tables.tablesById);
-  const { restaurantId } = useSelector((state: RootState) => state.auth);
+  const { restaurantId, role, userName } = useSelector((state: RootState) => state.auth);
 
   const paymentMethods: PaymentMethod[] = [
     { id: 'cash', name: 'Cash', icon: '💰', color: '#27ae60' },
@@ -160,6 +160,28 @@ const OrderManagementScreen: React.FC = () => {
 
     // Complete order and save receipt; Firestore save is handled centrally by middleware
     dispatch(completeOrderWithReceipt({ orderId, restaurantId }));
+    
+    // Persist to Firebase with role and username data
+    try {
+      const { getFirebaseService } = require('../../services/firebaseService');
+      const svc = getFirebaseService();
+      const payload = { 
+        ...order, 
+        status: 'completed', 
+        restaurantId, 
+        saved: true,
+        processedBy: {
+          role: role || 'Staff',
+          username: userName || 'Unknown'
+        }
+      } as any;
+      svc.saveOrder(payload);
+      try {
+        const { createFirestoreService } = require('../../services/firestoreService');
+        const fsSvc = createFirestoreService(restaurantId);
+        fsSvc.saveOrder(payload);
+      } catch {}
+    } catch {}
 
     // Show success and automatically print receipt
     Alert.alert(
@@ -263,8 +285,8 @@ const OrderManagementScreen: React.FC = () => {
   const authRole = useSelector((state: RootState) => state.auth.role);
 
   const handleCancelOrder = () => {
-    if (authRole !== 'Owner') {
-      Alert.alert('Permission Denied', 'Only owners can cancel orders.');
+    if (authRole !== 'Owner' && authRole !== 'Manager') {
+      Alert.alert('Permission Denied', 'Only owners and managers can cancel orders.');
       return;
     }
     Alert.alert(

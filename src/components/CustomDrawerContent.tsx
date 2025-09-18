@@ -142,7 +142,7 @@ const CustomDrawerContent: React.FC<DrawerContentComponentProps> = ({ navigation
           onPress={() => goTo('Orders', { screen: 'OngoingOrders' })}
           isActive={current === 'Orders'}
         />
-        {auth?.role === 'Owner' && (
+        {(auth?.role === 'Owner' || auth?.role === 'Manager') && (
           <DrawerItem
             label="Receipts"
             icon={<Ionicons name="receipt-outline" size={20} color={colors.textPrimary} />}
@@ -170,7 +170,7 @@ const CustomDrawerContent: React.FC<DrawerContentComponentProps> = ({ navigation
           onPress={() => goTo('Printer')}
           isActive={current === 'Printer'}
         />
-        {auth?.role === 'Owner' && (
+        {(auth?.role === 'Owner' || auth?.role === 'Manager') && (
           <DrawerItem
             label="Settings"
             icon={<Ionicons name="settings-outline" size={20} color={colors.textPrimary} />}
@@ -190,8 +190,8 @@ const CustomDrawerContent: React.FC<DrawerContentComponentProps> = ({ navigation
           <View style={styles.avatar}><Text style={styles.avatarText}>{(auth?.userName || 'U').slice(0,1).toUpperCase()}</Text></View>
           <View style={{ flex: 1 }}>
             <Text style={styles.userName}>{auth?.userName || 'Username'}</Text>
-            {auth?.designation ? (
-              <Text style={styles.userDesignation}>{auth.designation}</Text>
+            {auth?.role ? (
+              <Text style={styles.userDesignation}>{auth.role}</Text>
             ) : null}
           </View>
           <TouchableOpacity onPress={handleLogout}>

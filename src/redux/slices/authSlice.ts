@@ -30,6 +30,10 @@ initialState,
       designation?: string;
       logoUrl?: string;
     }>) => {
+      console.log('🔍 REDUX DEBUG - Login action received:');
+      console.log('  payload.role:', action.payload.role, '(type:', typeof action.payload.role, ')');
+      console.log('  current state.role:', state.role, '(type:', typeof state.role, ')');
+      
       state.isLoggedIn = true;
       state.userName = action.payload.userName;
       state.role = action.payload.role || state.role;
@@ -38,6 +42,8 @@ initialState,
       state.restaurantName = action.payload.restaurantName;
       state.designation = action.payload.designation;
       state.logoUrl = action.payload.logoUrl;
+      
+      console.log('  final state.role:', state.role, '(type:', typeof state.role, ')');
     },
     logout: (state) => {
       state.isLoggedIn = false;

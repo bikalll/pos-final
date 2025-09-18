@@ -373,6 +373,8 @@ export const blePrinter = {
 		discount?: number;
 		total: number;
 		payment?: { method: string; amountPaid: number; change: number } | null;
+		processedBy?: { role: string; username: string };
+		steward?: string;
 	}): Promise<void> {
 		if (!this.isSupported()) {
 			if (TEMPORARILY_DISABLE_BLUETOOTH) {
@@ -450,6 +452,8 @@ export const blePrinter = {
 		isPreReceipt?: boolean;
 		address?: string;
 		panVat?: string;
+		processedBy?: { role: string; username: string };
+		steward?: string;
 	}): Promise<void> {
 		if (!this.isSupported()) {
 			if (TEMPORARILY_DISABLE_BLUETOOTH) {
@@ -559,7 +563,11 @@ export const blePrinter = {
 			if (data.panVat) await BluetoothEscposPrinter.printText(`PAN: ${data.panVat}\n`, {});
 			await BluetoothEscposPrinter.printText(`${data.date} ${data.time}\n`, {});
 			await BluetoothEscposPrinter.printText(`Table ${data.table}\n`, {});
-			if (data.steward) await BluetoothEscposPrinter.printText(`Steward: ${data.steward}\n`, {});
+			if (data.processedBy?.role && data.processedBy?.username) {
+				await BluetoothEscposPrinter.printText(`${data.processedBy.role}:${data.processedBy.username}\n`, {});
+			} else if (data.steward) {
+				await BluetoothEscposPrinter.printText(`Steward: ${data.steward}\n`, {});
+			}
 			await BluetoothEscposPrinter.printText('------------------------------\n', {});
 			
 			// Print items in table format
@@ -652,6 +660,7 @@ export const blePrinter = {
 		estimatedTime: string;
 		specialInstructions?: string;
 		stewardName?: string;
+		processedBy?: { role: string; username: string };
 	}): Promise<void> {
 		if (!this.isSupported()) {
 			if (TEMPORARILY_DISABLE_BLUETOOTH) {
@@ -666,7 +675,11 @@ export const blePrinter = {
 				printContent += `${data.ticketId}\n`;
 				printContent += `${data.date} ${data.time}\n`;
 				printContent += `Table ${data.table}\n`;
-				if (data.stewardName) printContent += `Steward: ${data.stewardName}\n`;
+				if (data.processedBy?.role && data.processedBy?.username) {
+					printContent += `${data.processedBy.role}:${data.processedBy.username}\n`;
+				} else if (data.stewardName) {
+					printContent += `Steward: ${data.stewardName}\n`;
+				}
 				if (data.specialInstructions) printContent += `Notes: ${data.specialInstructions}\n`;
 				printContent += '------------------------------\n';
 				printContent += 'Item               Qty\n';
@@ -728,7 +741,11 @@ export const blePrinter = {
 			await BluetoothEscposPrinter.printText(`${data.ticketId}\n`, {});
 			await BluetoothEscposPrinter.printText(`${data.date} ${data.time}\n`, {});
 			await BluetoothEscposPrinter.printText(`Table ${data.table}\n`, {});
-			if (data.stewardName) { await BluetoothEscposPrinter.printText(`Steward: ${data.stewardName}\n`, {}); }
+			if (data.processedBy?.role && data.processedBy?.username) {
+				await BluetoothEscposPrinter.printText(`${data.processedBy.role}:${data.processedBy.username}\n`, {});
+			} else if (data.stewardName) {
+				await BluetoothEscposPrinter.printText(`Steward: ${data.stewardName}\n`, {});
+			}
 			if (data.specialInstructions) { await BluetoothEscposPrinter.printText(`Notes: ${data.specialInstructions}\n`, {}); }
 			await BluetoothEscposPrinter.printText('------------------------------\n', {});
 			
@@ -987,6 +1004,7 @@ export const blePrinter = {
 		items: Array<{ name: string; quantity: number; price: number; orderType: string }>;
 		estimatedTime: string;
 		specialInstructions?: string;
+		processedBy?: { role: string; username: string };
 	}): Promise<void> {
 		if (!this.isSupported()) {
 			if (TEMPORARILY_DISABLE_BLUETOOTH) {
@@ -1001,8 +1019,11 @@ export const blePrinter = {
 				printContent += `${data.ticketId}\n`;
 				printContent += `${data.date} ${data.time}\n`;
 				printContent += `Table ${data.table}\n`;
-				printContent += 'Steward: Maam\n';
-				printContent += 'Customer: Deepak Ghimire\n';
+				if (data.processedBy?.role && data.processedBy?.username) {
+					printContent += `${data.processedBy.role}:${data.processedBy.username}\n`;
+				} else {
+					printContent += 'Processed By: Staff\n';
+				}
 				printContent += '------------------------------\n';
 				printContent += 'Item                    Qty\n';
 				printContent += '------------------------------\n';
@@ -1063,8 +1084,11 @@ export const blePrinter = {
 			await BluetoothEscposPrinter.printText(`${data.ticketId}\n`, {});
 			await BluetoothEscposPrinter.printText(`${data.date} ${data.time}\n`, {});
 			await BluetoothEscposPrinter.printText(`Table ${data.table}\n`, {});
-			await BluetoothEscposPrinter.printText('Steward: Maam\n', {});
-			await BluetoothEscposPrinter.printText('Customer: Deepak Ghimire\n', {});
+			if (data.processedBy?.role && data.processedBy?.username) {
+				await BluetoothEscposPrinter.printText(`${data.processedBy.role}:${data.processedBy.username}\n`, {});
+			} else {
+				await BluetoothEscposPrinter.printText('Processed By: Staff\n', {});
+			}
 			await BluetoothEscposPrinter.printText('------------------------------\n', {});
 			
 			// Set alignment to left for items
@@ -1112,6 +1136,7 @@ export const blePrinter = {
 		items: Array<{ name: string; quantity: number; price: number; orderType: string }>;
 		estimatedTime: string;
 		specialInstructions?: string;
+		processedBy?: { role: string; username: string };
 	}): Promise<void> {
 		if (!this.isSupported()) {
 			throw new Error('Bluetooth printing module not available');
@@ -1174,6 +1199,7 @@ export const blePrinter = {
 		items: Array<{ name: string; quantity: number; price: number; orderType: string }>;
 		estimatedTime: string;
 		specialInstructions?: string;
+		processedBy?: { role: string; username: string };
 	}): Promise<void> {
 		if (!this.isSupported()) {
 			throw new Error('Bluetooth printing module not available');
@@ -1236,6 +1262,7 @@ export const blePrinter = {
 		items: Array<{ name: string; quantity: number; price: number; orderType: string }>;
 		estimatedTime: string;
 		specialInstructions?: string;
+		processedBy?: { role: string; username: string };
 	}): Promise<void> {
 		try {
 			console.log('🖨️ Starting combined tickets print:', {
