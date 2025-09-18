@@ -1127,6 +1127,22 @@ export function createFirestoreService(restaurantId: string) {
     }
   }
 
+  // Users operations (for restaurant users mapping)
+  async function getUsers(): Promise<Record<string, any>> {
+    try {
+      const q = query(collection(db, "restaurants", currentRestaurantId, "users"));
+      const snap = await getDocs(q);
+      const out: Record<string, any> = {};
+      snap.forEach(docSnap => {
+        out[docSnap.id] = { id: docSnap.id, ...docSnap.data() };
+      });
+      return out;
+    } catch (error) {
+      console.error('Firestore getUsers error:', error);
+      return {};
+    }
+  }
+
   async function createStaffMember(staff: any): Promise<string> {
     return create('staff', staff);
   }
@@ -1219,6 +1235,7 @@ export function createFirestoreService(restaurantId: string) {
     getOrders, createOrder, updateOrder, deleteOrder, saveOrder, getOngoingOrders, getCompletedOrders, completeOrderMove,
     getCustomers, createCustomer, updateCustomer, deleteCustomer,
     getStaffMembers, createStaffMember, updateStaffMember, deleteStaffMember,
+    getUsers,
     getInventoryItems, createInventoryItem, updateInventoryItem, deleteInventoryItem,
     listenToInventory,
     getInventoryCategories, createInventoryCategory,

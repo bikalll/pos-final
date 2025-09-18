@@ -54,8 +54,10 @@ export const completeOrderWithReceipt = createAsyncThunk(
           // Enrich with processor info from auth state
           const enrichedOrder = {
             ...order,
-            processedBy: state?.auth?.userName || 'Unknown',
-            processedRole: state?.auth?.role || 'Staff',
+            processedBy: {
+              role: state?.auth?.role || 'Staff',
+              username: state?.auth?.userName || 'Unknown'
+            }
           } as any;
           await autoReceiptService.saveReceiptForOrder(enrichedOrder);
           console.log('✅ THUNK: Receipt saved successfully for order:', orderId);

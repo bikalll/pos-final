@@ -42,7 +42,15 @@ export const receiptMiddleware: Middleware<{}, RootState> = (store) => (next) =>
           
           if (autoReceiptService) {
             console.log('🔄 Receipt middleware: Saving receipt for order:', orderId);
-            await autoReceiptService.saveReceiptForOrder(order);
+            // Enrich with processor info from auth state
+            const enrichedOrder = {
+              ...order,
+              processedBy: {
+                role: state?.auth?.role || 'Staff',
+                username: state?.auth?.userName || 'Unknown'
+              }
+            } as any;
+            await autoReceiptService.saveReceiptForOrder(enrichedOrder);
             console.log('✅ Receipt middleware: Receipt saved successfully for order:', orderId);
           } else {
             console.error('❌ Receipt middleware: Cannot save receipt - no service available');

@@ -261,8 +261,8 @@ export default function SettleCreditScreen() {
       allocation.forEach((part) => {
         const originalOrder = ordersById[part.orderId];
         if (originalOrder && originalOrder.status === 'ongoing') {
-          // Complete the original order
-          dispatch(completeOrder({ orderId: part.orderId }));
+          // Complete the original order with processedBy data
+          dispatch(completeOrderWithReceipt({ orderId: part.orderId, restaurantId }));
         }
       });
       

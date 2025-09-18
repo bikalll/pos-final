@@ -818,6 +818,7 @@ export class PrintService {
         table: table?.name || order.tableId,
         steward: stewardName,
         processedBy: order.processedBy,
+        role: order.role,
         items: order.items.map((item: any) => ({
           name: item.name,
           quantity: item.quantity,
@@ -1236,8 +1237,18 @@ export class PrintService {
       text += `${data.ticketId}\n`;
       text += `${data.date} ${data.time}\n`;
       text += `Table ${data.table}\n`;
-      if (data.processedBy?.role && data.processedBy?.username) {
-        text += `${data.processedBy.role}:${data.processedBy.username}\n`;
+      if (data.processedBy) {
+        if (typeof data.processedBy === 'object' && data.processedBy.role && data.processedBy.username) {
+          // New format: {role: "Staff", username: "John"}
+          text += `${data.processedBy.role} - ${data.processedBy.username}\n`;
+        } else if (typeof data.processedBy === 'string') {
+          // Old format: just username string, check for separate role field
+          const role = data.role || 'Staff';
+          text += `${role} - ${data.processedBy}\n`;
+        } else if (data.processedBy.role) {
+          // Partial format: {role: "Staff"}
+          text += `${data.processedBy.role} - Unknown\n`;
+        }
       } else {
         text += 'Processed By: Staff\n';
       }
@@ -1268,8 +1279,19 @@ export class PrintService {
     lines.push(`${receipt.date} ${receipt.time}`);
     lines.push(`Table ${receipt.tableNumber}`);
     lines.push('Cashier: ' + (receipt.cashier || 'POS'));
-    if ((receipt as any).processedBy?.role && (receipt as any).processedBy?.username) {
-      lines.push(`${(receipt as any).processedBy.role}:${(receipt as any).processedBy.username}`);
+    if ((receipt as any).processedBy) {
+      const processedBy = (receipt as any).processedBy;
+      if (typeof processedBy === 'object' && processedBy.role && processedBy.username) {
+        // New format: {role: "Staff", username: "John"}
+        lines.push(`${processedBy.role} - ${processedBy.username}`);
+      } else if (typeof processedBy === 'string') {
+        // Old format: just username string, check for separate role field
+        const role = (receipt as any).role || 'Staff';
+        lines.push(`${role} - ${processedBy}`);
+      } else if (processedBy.role) {
+        // Partial format: {role: "Staff"}
+        lines.push(`${processedBy.role} - Unknown`);
+      }
     } else if ((receipt as any).steward) {
       lines.push('Steward: ' + (receipt as any).steward);
     }

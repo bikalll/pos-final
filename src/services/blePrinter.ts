@@ -374,6 +374,7 @@ export const blePrinter = {
 		total: number;
 		payment?: { method: string; amountPaid: number; change: number } | null;
 		processedBy?: { role: string; username: string };
+		role?: string;
 		steward?: string;
 	}): Promise<void> {
 		if (!this.isSupported()) {
@@ -453,6 +454,7 @@ export const blePrinter = {
 		address?: string;
 		panVat?: string;
 		processedBy?: { role: string; username: string };
+		role?: string;
 		steward?: string;
 	}): Promise<void> {
 		if (!this.isSupported()) {
@@ -563,8 +565,18 @@ export const blePrinter = {
 			if (data.panVat) await BluetoothEscposPrinter.printText(`PAN: ${data.panVat}\n`, {});
 			await BluetoothEscposPrinter.printText(`${data.date} ${data.time}\n`, {});
 			await BluetoothEscposPrinter.printText(`Table ${data.table}\n`, {});
-			if (data.processedBy?.role && data.processedBy?.username) {
-				await BluetoothEscposPrinter.printText(`${data.processedBy.role}:${data.processedBy.username}\n`, {});
+			if (data.processedBy) {
+				if (typeof data.processedBy === 'object' && data.processedBy.role && data.processedBy.username) {
+					// New format: {role: "Staff", username: "John"}
+					await BluetoothEscposPrinter.printText(`${data.processedBy.role} - ${data.processedBy.username}\n`, {});
+				} else if (typeof data.processedBy === 'string') {
+					// Old format: just username string, check for separate role field
+					const role = data.role || 'Staff';
+					await BluetoothEscposPrinter.printText(`${role} - ${data.processedBy}\n`, {});
+				} else if (data.processedBy.role) {
+					// Partial format: {role: "Staff"}
+					await BluetoothEscposPrinter.printText(`${data.processedBy.role} - Unknown\n`, {});
+				}
 			} else if (data.steward) {
 				await BluetoothEscposPrinter.printText(`Steward: ${data.steward}\n`, {});
 			}
@@ -661,6 +673,7 @@ export const blePrinter = {
 		specialInstructions?: string;
 		stewardName?: string;
 		processedBy?: { role: string; username: string };
+		role?: string;
 	}): Promise<void> {
 		if (!this.isSupported()) {
 			if (TEMPORARILY_DISABLE_BLUETOOTH) {
@@ -675,8 +688,18 @@ export const blePrinter = {
 				printContent += `${data.ticketId}\n`;
 				printContent += `${data.date} ${data.time}\n`;
 				printContent += `Table ${data.table}\n`;
-				if (data.processedBy?.role && data.processedBy?.username) {
-					printContent += `${data.processedBy.role}:${data.processedBy.username}\n`;
+				if (data.processedBy) {
+					if (typeof data.processedBy === 'object' && data.processedBy.role && data.processedBy.username) {
+						// New format: {role: "Staff", username: "John"}
+						printContent += `${data.processedBy.role} - ${data.processedBy.username}\n`;
+					} else if (typeof data.processedBy === 'string') {
+						// Old format: just username string, check for separate role field
+						const role = data.role || 'Staff';
+						printContent += `${role} - ${data.processedBy}\n`;
+					} else if (data.processedBy.role) {
+						// Partial format: {role: "Staff"}
+						printContent += `${data.processedBy.role} - Unknown\n`;
+					}
 				} else if (data.stewardName) {
 					printContent += `Steward: ${data.stewardName}\n`;
 				}
@@ -741,8 +764,18 @@ export const blePrinter = {
 			await BluetoothEscposPrinter.printText(`${data.ticketId}\n`, {});
 			await BluetoothEscposPrinter.printText(`${data.date} ${data.time}\n`, {});
 			await BluetoothEscposPrinter.printText(`Table ${data.table}\n`, {});
-			if (data.processedBy?.role && data.processedBy?.username) {
-				await BluetoothEscposPrinter.printText(`${data.processedBy.role}:${data.processedBy.username}\n`, {});
+			if (data.processedBy) {
+				if (typeof data.processedBy === 'object' && data.processedBy.role && data.processedBy.username) {
+					// New format: {role: "Staff", username: "John"}
+					await BluetoothEscposPrinter.printText(`${data.processedBy.role} - ${data.processedBy.username}\n`, {});
+				} else if (typeof data.processedBy === 'string') {
+					// Old format: just username string, check for separate role field
+					const role = data.role || 'Staff';
+					await BluetoothEscposPrinter.printText(`${role} - ${data.processedBy}\n`, {});
+				} else if (data.processedBy.role) {
+					// Partial format: {role: "Staff"}
+					await BluetoothEscposPrinter.printText(`${data.processedBy.role} - Unknown\n`, {});
+				}
 			} else if (data.stewardName) {
 				await BluetoothEscposPrinter.printText(`Steward: ${data.stewardName}\n`, {});
 			}
@@ -1005,6 +1038,7 @@ export const blePrinter = {
 		estimatedTime: string;
 		specialInstructions?: string;
 		processedBy?: { role: string; username: string };
+		role?: string;
 	}): Promise<void> {
 		if (!this.isSupported()) {
 			if (TEMPORARILY_DISABLE_BLUETOOTH) {
@@ -1019,8 +1053,18 @@ export const blePrinter = {
 				printContent += `${data.ticketId}\n`;
 				printContent += `${data.date} ${data.time}\n`;
 				printContent += `Table ${data.table}\n`;
-				if (data.processedBy?.role && data.processedBy?.username) {
-					printContent += `${data.processedBy.role}:${data.processedBy.username}\n`;
+				if (data.processedBy) {
+					if (typeof data.processedBy === 'object' && data.processedBy.role && data.processedBy.username) {
+						// New format: {role: "Staff", username: "John"}
+						printContent += `${data.processedBy.role} - ${data.processedBy.username}\n`;
+					} else if (typeof data.processedBy === 'string') {
+						// Old format: just username string, check for separate role field
+						const role = data.role || 'Staff';
+						printContent += `${role} - ${data.processedBy}\n`;
+					} else if (data.processedBy.role) {
+						// Partial format: {role: "Staff"}
+						printContent += `${data.processedBy.role} - Unknown\n`;
+					}
 				} else {
 					printContent += 'Processed By: Staff\n';
 				}
@@ -1084,8 +1128,18 @@ export const blePrinter = {
 			await BluetoothEscposPrinter.printText(`${data.ticketId}\n`, {});
 			await BluetoothEscposPrinter.printText(`${data.date} ${data.time}\n`, {});
 			await BluetoothEscposPrinter.printText(`Table ${data.table}\n`, {});
-			if (data.processedBy?.role && data.processedBy?.username) {
-				await BluetoothEscposPrinter.printText(`${data.processedBy.role}:${data.processedBy.username}\n`, {});
+			if (data.processedBy) {
+				if (typeof data.processedBy === 'object' && data.processedBy.role && data.processedBy.username) {
+					// New format: {role: "Staff", username: "John"}
+					await BluetoothEscposPrinter.printText(`${data.processedBy.role} - ${data.processedBy.username}\n`, {});
+				} else if (typeof data.processedBy === 'string') {
+					// Old format: just username string, check for separate role field
+					const role = data.role || 'Staff';
+					await BluetoothEscposPrinter.printText(`${role} - ${data.processedBy}\n`, {});
+				} else if (data.processedBy.role) {
+					// Partial format: {role: "Staff"}
+					await BluetoothEscposPrinter.printText(`${data.processedBy.role} - Unknown\n`, {});
+				}
 			} else {
 				await BluetoothEscposPrinter.printText('Processed By: Staff\n', {});
 			}
@@ -1137,6 +1191,7 @@ export const blePrinter = {
 		estimatedTime: string;
 		specialInstructions?: string;
 		processedBy?: { role: string; username: string };
+		role?: string;
 	}): Promise<void> {
 		if (!this.isSupported()) {
 			throw new Error('Bluetooth printing module not available');
@@ -1200,6 +1255,7 @@ export const blePrinter = {
 		estimatedTime: string;
 		specialInstructions?: string;
 		processedBy?: { role: string; username: string };
+		role?: string;
 	}): Promise<void> {
 		if (!this.isSupported()) {
 			throw new Error('Bluetooth printing module not available');
@@ -1263,6 +1319,7 @@ export const blePrinter = {
 		estimatedTime: string;
 		specialInstructions?: string;
 		processedBy?: { role: string; username: string };
+		role?: string;
 	}): Promise<void> {
 		try {
 			console.log('🖨️ Starting combined tickets print:', {

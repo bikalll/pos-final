@@ -74,7 +74,7 @@ const FirebaseRealtimeDemo: React.FC = () => {
 
   // Demo: Complete an order
   const handleCompleteOrder = (orderId: string) => {
-    dispatch(completeOrder({ orderId }));
+    dispatch(completeOrderWithReceipt({ orderId, restaurantId: 'demo' }));
     Alert.alert('Order Completed', `Order ${orderId} has been completed. This will update in real-time for all users.`);
   };
 
