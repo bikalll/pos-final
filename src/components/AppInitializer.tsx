@@ -11,6 +11,15 @@ import { initializeAutoReceiptService, clearAutoReceiptService } from '../servic
 import { initializeFirebaseService } from '../services/firebaseService';
 import { NavigationContainerRefWithCurrent } from '@react-navigation/native';
 
+// Core Optimization Services
+import { listenerManager } from '../services/ListenerManager';
+import { optimizedListenerManager } from '../services/OptimizedListenerManager';
+import { performanceMonitor } from '../services/PerformanceMonitor';
+import { periodicCleanupService } from '../services/PeriodicCleanupService';
+import { dataCleanupService } from '../services/DataCleanupService';
+import { optimizedFirebaseService } from '../services/OptimizedFirebaseService';
+import { navigationStateManager } from '../services/NavigationStateManager';
+
 const AppInitializer: React.FC = () => {
   const dispatch = useDispatch();
   const tableIds = useSelector((state: RootState) => state.tables.tableIds);
@@ -33,7 +42,62 @@ const AppInitializer: React.FC = () => {
       // Only initialize other services if user is logged in
       if (!isLoggedIn) {
         console.log('AppInitializer: User not logged in, skipping other services initialization');
+        
+        // Cleanup optimization services when user logs out
+        console.log('🧹 AppInitializer: Cleaning up optimization services on logout');
+        optimizedListenerManager?.setRestaurant(null);
+        listenerManager?.setRestaurant(null);
+        dataCleanupService?.stop();
+        periodicCleanupService?.stop();
+        optimizedFirebaseService?.cleanup();
+        performanceMonitor?.reset();
+        navigationStateManager?.reset();
+        
         return;
+      }
+
+      // Initialize Core Optimization Services
+      console.log('🚀 AppInitializer: Initializing core optimization services...');
+      
+      try {
+        // Reset navigation state on login
+        navigationStateManager?.reset();
+        
+        // Set up performance monitoring with alerts
+        performanceMonitor?.onPerformanceAlert((metrics) => {
+          console.warn('⚠️ Performance Alert:', metrics);
+          const recommendations = performanceMonitor?.getRecommendations();
+          if (recommendations && recommendations.length > 0) {
+            console.log('💡 Performance Recommendations:', recommendations);
+          }
+        });
+
+        // Start performance monitoring interval
+        const performanceInterval = setInterval(() => {
+          const metrics = performanceMonitor?.getMetrics();
+          if (metrics) {
+            console.log('📊 Performance Metrics:', {
+              listeners: metrics.listenerCount,
+              reduxUpdates: metrics.reduxUpdateCount,
+              memoryUsage: Math.round(metrics.memoryUsage / 1024 / 1024) + 'MB',
+              renderTime: metrics.renderTime + 'ms',
+              firebaseCalls: metrics.firebaseCallCount
+            });
+            
+            // Auto-cleanup if needed
+            if (performanceMonitor?.needsCleanup()) {
+              console.log('🧹 Auto-cleanup triggered by performance monitor');
+              dataCleanupService?.forceCleanup();
+            }
+          }
+        }, 30000); // Check every 30 seconds
+
+        // Store interval for cleanup
+        (global as any).performanceInterval = performanceInterval;
+
+        console.log('✅ Core optimization services initialized');
+      } catch (error) {
+        console.error('❌ Error initializing optimization services:', error);
       }
 
       // Test Firebase Firestore connection
@@ -89,8 +153,21 @@ const AppInitializer: React.FC = () => {
   useEffect(() => {
     if (restaurantId && isLoggedIn) {
       try {
+        console.log('🔄 AppInitializer: Restaurant changed, re-initializing services...');
+        
         // Clear old services first
         clearAutoReceiptService();
+        
+        // Set restaurant for optimization services (triggers cleanup of old listeners)
+        if (!optimizedListenerManager?.dispatch) {
+          optimizedListenerManager?.initialize(dispatch);
+        }
+        optimizedListenerManager?.setRestaurant(restaurantId);
+        listenerManager?.setRestaurant(restaurantId);
+        
+        // Start optimization services for new restaurant
+        dataCleanupService?.start();
+        periodicCleanupService?.start();
         
         // Re-initialize Firebase service with new restaurantId
         initializeFirebaseService(restaurantId);
@@ -99,11 +176,41 @@ const AppInitializer: React.FC = () => {
         initializeRealtimeSync(restaurantId);
         initializeReceiptSync(restaurantId);
         initializeAutoReceiptService(restaurantId);
+        
+        console.log('✅ AppInitializer: Services re-initialized for new restaurant');
       } catch (error) {
         console.error('Error re-initializing services:', error);
       }
+    } else if (!restaurantId && isLoggedIn) {
+      // Cleanup when restaurant is cleared but user is still logged in
+      console.log('🧹 AppInitializer: Restaurant cleared, cleaning up services');
+      optimizedListenerManager?.setRestaurant(null);
+      listenerManager?.setRestaurant(null);
+      dataCleanupService?.stop();
+      periodicCleanupService?.stop();
     }
   }, [restaurantId, isLoggedIn]);
+
+  // Cleanup on component unmount
+  useEffect(() => {
+    return () => {
+      console.log('🧹 AppInitializer: Component unmounting, cleaning up...');
+      
+      // Clear performance monitoring interval
+      if ((global as any).performanceInterval) {
+        clearInterval((global as any).performanceInterval);
+        (global as any).performanceInterval = null;
+      }
+      
+      // Stop optimization services
+      dataCleanupService?.stop();
+      periodicCleanupService?.stop();
+      optimizedFirebaseService?.cleanup();
+      
+      // Reset performance monitor
+      performanceMonitor?.reset();
+    };
+  }, []);
 
   return null; // This component doesn't render anything
 };

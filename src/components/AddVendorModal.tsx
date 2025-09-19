@@ -118,78 +118,84 @@ const AddVendorModal: React.FC<AddVendorModalProps> = ({
           style={styles.keyboardView}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
-          {/* Compact Header (match AddTransaction) */}
+          {/* Compact Header */}
           <View style={styles.header}>
             <TouchableOpacity onPress={handleClose} disabled={loading} style={styles.closeButton}>
-              <Ionicons name="close" size={20} color={colors.textSecondary} />
+              <Ionicons name="close" size={20} color={colors.textPrimary} />
             </TouchableOpacity>
             <Text style={styles.title}>Add Vendor</Text>
-            <View style={styles.placeholder} />
+            <TouchableOpacity
+              style={styles.saveButton}
+              onPress={handleSubmit}
+              disabled={loading}
+            >
+              <Text style={styles.saveButtonText}>
+                {loading ? 'Saving...' : 'Save'}
+              </Text>
+            </TouchableOpacity>
           </View>
 
           <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-            <Text style={styles.subtitle}>Fill in the details for the new vendor.</Text>
-
-            {/* Form Fields */}
+            {/* Compact Form */}
             <View style={styles.form}>
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>Vendor Name</Text>
+                <Text style={styles.label}>Vendor Name *</Text>
                 <TextInput
                   style={styles.input}
                   value={formData.vendorName}
                   onChangeText={(value) => handleInputChange('vendorName', value)}
                   placeholder="Enter vendor name"
-                  placeholderTextColor={colors.textSecondary}
+                  placeholderTextColor={colors.textMuted}
                   editable={!loading}
                 />
               </View>
 
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>Contact</Text>
+                <Text style={styles.label}>Contact *</Text>
                 <TextInput
                   style={styles.input}
                   value={formData.contact}
                   onChangeText={(value) => handleInputChange('contact', value)}
-                  placeholder="Enter contact information"
-                  placeholderTextColor={colors.textSecondary}
+                  placeholder="Phone number or email"
+                  placeholderTextColor={colors.textMuted}
                   keyboardType="phone-pad"
                   editable={!loading}
                 />
               </View>
 
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>Address</Text>
+                <Text style={styles.label}>Address *</Text>
                 <TextInput
                   style={[styles.input, styles.textArea]}
                   value={formData.address}
                   onChangeText={(value) => handleInputChange('address', value)}
-                  placeholder="Enter address"
-                  placeholderTextColor={colors.textSecondary}
+                  placeholder="Enter full address"
+                  placeholderTextColor={colors.textMuted}
                   multiline
-                  numberOfLines={3}
+                  numberOfLines={2}
                   textAlignVertical="top"
                   editable={!loading}
                 />
               </View>
 
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>Supplies</Text>
+                <Text style={styles.label}>Supplies *</Text>
                 <TextInput
                   style={styles.input}
                   value={formData.supplies}
                   onChangeText={(value) => handleInputChange('supplies', value)}
-                  placeholder="e.g. Vegetables, Dairy, Meat"
-                  placeholderTextColor={colors.textSecondary}
+                  placeholder="Vegetables, Dairy, Meat..."
+                  placeholderTextColor={colors.textMuted}
                   editable={!loading}
                 />
                 <Text style={styles.helpText}>
-                  Separate multiple supplies with commas
+                  Separate with commas
                 </Text>
               </View>
             </View>
           </ScrollView>
 
-          {/* Compact Actions (match AddTransaction) */}
+          {/* Bottom Action Buttons */}
           <View style={styles.actionsRow}>
             <TouchableOpacity
               style={styles.cancelButton}
@@ -199,7 +205,7 @@ const AddVendorModal: React.FC<AddVendorModalProps> = ({
               <Text style={styles.cancelButtonText}>Cancel</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.button, styles.saveButton]}
+              style={styles.saveButtonBottom}
               onPress={handleSubmit}
               disabled={loading}
             >
@@ -227,36 +233,37 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    paddingVertical: spacing.sm,
     borderBottomWidth: 1,
     borderBottomColor: colors.outline,
     backgroundColor: colors.surface,
   },
   closeButton: {
-    padding: spacing.xs,
+    padding: spacing.sm,
   },
   title: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 16,
+    fontWeight: '600',
     color: colors.textPrimary,
   },
-  placeholder: {
-    width: 28,
+  saveButton: {
+    backgroundColor: colors.primary,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.sm,
+  },
+  saveButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: 'white',
   },
   content: {
     flex: 1,
-    paddingHorizontal: spacing.md,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    marginTop: spacing.md,
-    marginBottom: spacing.lg,
-    textAlign: 'center',
-    lineHeight: 20,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
   },
   form: {
-    gap: spacing.lg,
+    gap: spacing.md,
   },
   inputGroup: {
     gap: spacing.sm,
@@ -281,7 +288,7 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
   },
   textArea: {
-    height: 84,
+    height: 60,
     textAlignVertical: 'top',
   },
   helpText: {
@@ -304,13 +311,12 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     alignItems: 'center',
   },
-  saveButton: {
+  saveButtonBottom: {
+    flex: 1,
     backgroundColor: colors.primary,
-  },
-  saveButtonText: {
-    color: 'white',
-    fontSize: 15,
-    fontWeight: '700',
+    paddingVertical: spacing.md,
+    borderRadius: radius.md,
+    alignItems: 'center',
   },
   cancelButton: {
     flex: 1,
@@ -325,9 +331,6 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontSize: 15,
     fontWeight: '600',
-  },
-  saveButton: {
-    flex: 1,
   },
 });
 

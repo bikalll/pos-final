@@ -19,7 +19,7 @@ import { colors, spacing, radius } from '../../theme';
 import { RootState } from '../../redux/storeFirebase';
 import { MenuItem } from '../../redux/slices/menuSlice';
 import { addItem, createOrder, markOrderSaved, snapshotSavedQuantities, markOrderReviewed, cancelEmptyOrder, loadOrders } from '../../redux/slices/ordersSliceFirebase';
-import { createFirestoreService } from '../../services/firestoreService';
+import { getOptimizedTables, getOptimizedMenuItems } from '../../services/DirectFirebaseService';
 import Toast from '../../components/Toast';
 import { PrintService } from '../../services/printing';
 
@@ -87,11 +87,8 @@ const MenuScreen: React.FC = () => {
 
       try {
         setIsLoading(true);
-        const service = createFirestoreService(restaurantId);
-        setFirestoreService(service);
-        
-        // Load menu items
-        const menuData = await service.getMenuItems();
+        // Load menu items using direct service
+        const menuData = await getOptimizedMenuItems(restaurantId);
         const menuItemsArray = Object.values(menuData).map((item: any) => ({
           id: item.id || Object.keys(menuData).find(key => menuData[key] === item),
           name: item.name,
@@ -106,8 +103,8 @@ const MenuScreen: React.FC = () => {
         }));
         setItems(menuItemsArray);
         
-        // Load tables
-        const tablesData = await service.getTables();
+        // Load tables using direct service
+        const tablesData = await getOptimizedTables(restaurantId);
         
         setFirebaseTables(tablesData);
         

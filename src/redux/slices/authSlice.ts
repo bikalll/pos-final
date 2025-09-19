@@ -1,5 +1,6 @@
 ﻿import { createSlice, PayloadAction } from "@reduxjs/toolkit";
 import { StaffRole } from "../../utils/types";
+import { appLifecycleManager } from "../../services/AppLifecycleManager";
 
 type AuthState = {
   isLoggedIn: boolean;
@@ -49,6 +50,9 @@ initialState,
       console.log('  final state.role:', state.role, '(type:', typeof state.role, ')');
     },
     logout: (state) => {
+      console.log('👤 User logout - triggering cleanup');
+      appLifecycleManager.onUserLogout();
+      
       state.isLoggedIn = false;
       state.userName = undefined;
       state.userId = undefined;
@@ -62,6 +66,9 @@ initialState,
       state.logoUrl = action.payload;
     },
     setRestaurant: (state, action: PayloadAction<{ restaurantId: string; restaurantName: string }>) => {
+      console.log('🏪 Restaurant switch - triggering cleanup');
+      appLifecycleManager.onRestaurantSwitch();
+      
       state.restaurantId = action.payload.restaurantId;
       state.restaurantName = action.payload.restaurantName;
     },

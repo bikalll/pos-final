@@ -10,7 +10,7 @@ import { loadMenuItems } from '../redux/slices/menuSliceFirebase';
 import { loadInventoryItems } from '../redux/slices/inventorySliceFirebase';
 import { loadCustomers } from '../redux/slices/customersSliceFirebase';
 import { loadStaffMembers } from '../redux/slices/staffSliceFirebase';
-import { loadAttendanceRecords } from '../redux/slices/attendanceSliceFirebase';
+import { loadAttendanceRecords } from '../redux/slices/staffSliceFirebase';
 import { loadReceipts } from '../redux/slices/receiptsSliceFirebase';
 import { resetOrders } from '../redux/slices/ordersSliceFirebase';
 

@@ -11,6 +11,7 @@ import authReducer from "./slices/authSlice";
 import tablesReducer, { initializeDefaultTables } from "./slices/tablesSlice";
 import { receiptMiddleware } from "../middleware/receiptMiddleware";
 import { firebaseMiddleware } from "../middleware/firebaseMiddleware";
+import { optimizedFirebaseMiddleware, optimizedReceiptMiddleware } from "../middleware/optimizedFirebaseMiddleware";
 
 const rootReducer = combineReducers({
   orders: ordersReducer,
@@ -32,7 +33,10 @@ const persistConfig = {
 export const store = configureStore({
   reducer: persistReducer(persistConfig, rootReducer),
   middleware: (getDefaultMiddleware) =>
-    getDefaultMiddleware({ serializableCheck: false }).concat(receiptMiddleware, firebaseMiddleware),
+    getDefaultMiddleware({ serializableCheck: false }).concat(
+      optimizedReceiptMiddleware, 
+      optimizedFirebaseMiddleware
+    ),
 });
 
 // Initialize default tables

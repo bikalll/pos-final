@@ -28,6 +28,8 @@ import {
 import { Customer } from '../../utils/types';
 import { getRealtimeSyncService } from '../../services/realtimeSyncService';
 import { createFirestoreService } from '../../services/firestoreService';
+import { useOptimizedListenerCleanup } from '../../services/OptimizedListenerManager';
+import { usePerformanceMonitor } from '../../services/PerformanceMonitor';
 
 const CustomerManagementScreen: React.FC = () => {
   const [addModalVisible, setAddModalVisible] = useState(false);
@@ -69,6 +71,10 @@ const CustomerManagementScreen: React.FC = () => {
   const [firebaseCustomers, setFirebaseCustomers] = useState<Record<string, any>>({});
   const { restaurantId } = useSelector((state: RootState) => state.auth);
   
+  // Optimized listener management and performance monitoring
+  const { addListener, cleanup, batchUpdate } = useOptimizedListenerCleanup('CustomerManagementScreen');
+  const { updateListenerCount, incrementReduxUpdates, recordRenderTime } = usePerformanceMonitor();
+  
   // Removed unscoped initial load; rely solely on restaurant-scoped Firestore subscription below
 
   // Reset state on account change and subscribe to Firestore updates for this account
@@ -78,17 +84,35 @@ const CustomerManagementScreen: React.FC = () => {
       setFirebaseCustomers({});
       return;
     }
+    
     const service = createFirestoreService(restaurantId);
     const unsubscribe = service.listenToCustomers((customers: Record<string, any>) => {
+      const startTime = performance.now();
+      
       setFirebaseCustomers(customers);
+      
+      // Use batch update for better performance
+      const customersArray = Object.values(customers);
+      batchUpdate('customers', customersArray);
+      
       // Replace Redux customers with the scoped list to avoid cross-account leftovers
       dispatch(setAllCustomers(customers as any));
+      
+      // Performance monitoring
+      const endTime = performance.now();
+      recordRenderTime(endTime - startTime);
+      incrementReduxUpdates();
     });
+    
+    if (unsubscribe) {
+      addListener('customers-realtime', unsubscribe);
+    }
+    
     return () => {
-      try { unsubscribe && unsubscribe(); } catch {}
+      cleanup();
       dispatch(resetCustomers());
     };
-  }, [restaurantId, dispatch]);
+  }, [restaurantId, dispatch, addListener, cleanup, batchUpdate, recordRenderTime, incrementReduxUpdates]);
   
   // Open the same settlement modal when navigated with settleCustomerId
   const processedSettleCustomerIdRef = useRef<string | null>(null);

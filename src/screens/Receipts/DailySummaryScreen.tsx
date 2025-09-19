@@ -14,6 +14,8 @@ import { getReceiptSyncService } from "../../services/receiptSyncService";
 import { getAutoReceiptService } from "../../services/autoReceiptService";
 import { createOrder, completeOrder, migrateOrdersWithRestaurantId } from "../../redux/slices/ordersSlice";
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import PrintSummaryDialog from "../../components/PrintSummaryDialog";
+import { ExcelExporter } from "../../utils/excelExporter";
 
 type DrawerParamList = {
   Dashboard: undefined;
@@ -42,10 +44,13 @@ interface ReceiptData {
   date: string;
   timestamp: number; // Store actual timestamp for date calculations
   orderItems: any[];
+  baseSubtotal?: number; // Base subtotal before any discounts (for gross sales)
   subtotal: number;
   tax: number;
   serviceCharge: number;
   discount: number;
+  itemDiscount?: number;
+  orderDiscount?: number;
   // Numeric net paid used for summaries
   netPaid?: number;
 }
@@ -57,6 +62,7 @@ export default function ReceiptsScreen() {
   const [selectedSortOption, setSelectedSortOption] = useState<SortOption>('today');
   const [firebaseTables, setFirebaseTables] = useState<Record<string, any>>({});
   const [firebaseReceipts, setFirebaseReceipts] = useState<Record<string, any>>({});
+  const [showPrintDialog, setShowPrintDialog] = useState(false);
   
   const navigation = useNavigation<DrawerNavigation>();
   
@@ -438,6 +444,68 @@ export default function ReceiptsScreen() {
         ? receipt.timestamp
         : (typeof receipt.createdAt === 'number' && receipt.createdAt > 0 ? receipt.createdAt : 0);
 
+      // Debug logging for discount data and baseSubtotal
+      console.log('🔍 Firebase receipt data:', {
+        receiptId: receipt.id,
+        orderId: receipt.orderId,
+        baseSubtotal: receipt.baseSubtotal,
+        subtotal: receipt.subtotal,
+        discount: receipt.discount,
+        itemDiscount: receipt.itemDiscount,
+        orderDiscount: receipt.orderDiscount,
+        rawReceipt: receipt
+      });
+
+      // Calculate baseSubtotal from items if not present in receipt
+      let baseSubtotal = receipt.baseSubtotal || 0;
+      if (!baseSubtotal && receipt.items && receipt.items.length > 0) {
+        baseSubtotal = receipt.items.reduce((sum: number, item: any) => {
+          return sum + ((item.price || 0) * (item.quantity || 0));
+        }, 0);
+        console.log('🔍 Calculated baseSubtotal from items:', {
+          receiptId: receipt.id,
+          calculatedBaseSubtotal: baseSubtotal,
+          items: receipt.items
+        });
+      }
+
+      // Calculate discount information from order if not present in receipt
+      let itemDiscount = receipt.itemDiscount || 0;
+      let orderDiscount = receipt.orderDiscount || 0;
+      let totalDiscount = receipt.discount || 0;
+      
+      if ((!itemDiscount && !orderDiscount && !totalDiscount) && relatedOrder && relatedOrder.items) {
+        // Calculate item-level discounts
+        const calculateItemTotal = (item: any) => {
+          const baseTotal = item.price * item.quantity;
+          let discount = 0;
+          if (item.discountPercentage !== undefined) discount = (baseTotal * item.discountPercentage) / 100;
+          else if (item.discountAmount !== undefined) discount = item.discountAmount;
+          return Math.max(0, baseTotal - discount);
+        };
+        
+        const orderBaseSubtotal = relatedOrder.items.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
+        const orderDiscountedSubtotal = relatedOrder.items.reduce((sum: number, item: any) => sum + calculateItemTotal(item), 0);
+        itemDiscount = Math.max(0, orderBaseSubtotal - orderDiscountedSubtotal);
+        
+         // Calculate order-level discount (applied to discounted subtotal after item discounts)
+         if (relatedOrder.discountPercentage > 0) {
+           orderDiscount = orderDiscountedSubtotal * (relatedOrder.discountPercentage / 100);
+         }
+        
+        totalDiscount = itemDiscount + orderDiscount;
+        
+        console.log('🔍 Calculated discounts from order:', {
+          receiptId: receipt.id,
+          orderId: receipt.orderId,
+          itemDiscount,
+          orderDiscount,
+          totalDiscount,
+          orderBaseSubtotal,
+          orderDiscountedSubtotal
+        });
+      }
+
       return {
         id: receipt.id,
         orderId: receipt.orderId,
@@ -449,10 +517,13 @@ export default function ReceiptsScreen() {
         splitBreakdown,
         netPaid,
         timestamp: ts,
+        baseSubtotal: baseSubtotal, // Base subtotal before any discounts
         subtotal: receipt.subtotal || 0,
         tax: receipt.tax || 0,
         serviceCharge: receipt.serviceCharge || 0,
-        discount: receipt.discount || 0,
+        discount: totalDiscount,
+        itemDiscount: itemDiscount,
+        orderDiscount: orderDiscount,
         orderItems: receipt.items || [],
         time: ts ? new Date(ts).toLocaleTimeString('en-US', { 
           hour: '2-digit', 
@@ -647,6 +718,10 @@ export default function ReceiptsScreen() {
   );
 
   const handlePrintDailySummary = async () => {
+    setShowPrintDialog(true);
+  };
+
+  const handlePrintSummary = async () => {
     try {
       Alert.alert(
         'Print Summary',
@@ -659,20 +734,67 @@ export default function ReceiptsScreen() {
         ],
         { cancelable: true }
       );
-      return;
     } catch (e: any) {
       Alert.alert('Print Failed', e.message || String(e));
+    }
+  };
+
+  const handleSaveAsExcel = async () => {
+    try {
+      const dateFilteredReceipts = filterReceiptsByDate(receipts, selectedSortOption);
+      const dateRange = getDateRangeLabel(selectedSortOption);
+      
+      const result = await ExcelExporter.exportReceiptsAsExcel(dateFilteredReceipts, dateRange);
+      
+      if (result.success) {
+        Alert.alert('Success', 'Transaction summary exported to Excel successfully!');
+      } else {
+        Alert.alert('Export Failed', result.message);
+      }
+    } catch (error: any) {
+      Alert.alert('Export Failed', error.message || 'Failed to export Excel file');
     }
   };
 
   const doPrintSummary = async (range: SortOption) => {
     try {
       const dateFilteredReceipts = filterReceiptsByDate(receipts, range);
-      const grossSales = dateFilteredReceipts.reduce((sum, r) => sum + (r.subtotal + r.tax + r.serviceCharge), 0);
-      const discounts = dateFilteredReceipts.reduce((sum, r) => sum + (r.discount || 0), 0);
-      const serviceCharge = dateFilteredReceipts.reduce((sum, r) => sum + (r.serviceCharge || 0), 0);
+      // Calculate gross sales (base subtotal before any discounts)
+      const grossSales = dateFilteredReceipts.reduce((sum, r) => {
+        const baseSubtotal = r.baseSubtotal || r.subtotal || 0;
+        console.log('🔍 Gross sales calculation for receipt:', {
+          receiptId: r.id,
+          baseSubtotal: r.baseSubtotal,
+          subtotal: r.subtotal,
+          usedValue: baseSubtotal,
+          runningSum: sum + baseSubtotal
+        });
+        return sum + baseSubtotal;
+      }, 0);
+      
+      // Calculate total discounts (discount field already contains total of all discount types)
+      const discounts = dateFilteredReceipts.reduce((sum, r) => {
+        const totalDiscount = r.discount || 0; // This already includes itemDiscount + orderDiscount
+        console.log('🔍 Receipt discount debug:', {
+          receiptId: r.id,
+          discount: r.discount,
+          itemDiscount: r.itemDiscount,
+          orderDiscount: r.orderDiscount,
+          totalDiscount,
+          note: 'discount field already contains total of all discount types',
+          warning: 'If discount shows double, check if calculation is being done twice'
+        });
+        return sum + totalDiscount;
+      }, 0);
+      console.log('🔍 Total discounts calculated:', discounts);
+      
+      // No tax or service charge provision in the app
+      const tax = 0; // No tax provision in the app
+      const serviceCharge = 0; // No service charge provision in the app
       const complementary = 0;
-      const netSales = dateFilteredReceipts.reduce((sum, r) => sum + parseFloat(r.amount.replace('Rs ', '')), 0);
+      
+      // Calculate net sales: Gross Sales - Discounts (simplified formula)
+      const netSales = grossSales - discounts;
 
       const types = ['Card', 'Cash', 'Credit'];
       const salesByType = types.map(type => ({
@@ -754,12 +876,59 @@ export default function ReceiptsScreen() {
 
   const handlePrintReceipt = async (receipt: ReceiptData) => {
     try {
-      const order = ordersById[receipt.orderId];
+      let order = ordersById[receipt.orderId];
+      
+      // If order not found in Redux, try to load from Firebase
       if (!order) {
-        Alert.alert('Error', 'Order not found for printing');
-        return;
+        console.log('🔍 Order not found in Redux, loading from Firebase...');
+        if (!restaurantId) {
+          Alert.alert('Error', 'Restaurant ID not available');
+          return;
+        }
+        
+        try {
+          const { createFirestoreService } = await import('../../services/firestoreService');
+          const service = createFirestoreService(restaurantId);
+          
+          // Try to get the order from completed orders
+          const completedOrders = await service.getCompletedOrders();
+          order = completedOrders[receipt.orderId];
+          
+          // If still not found, try ongoing orders
+          if (!order) {
+            const ongoingOrders = await service.getOngoingOrders();
+            order = ongoingOrders[receipt.orderId];
+          }
+          
+          if (!order) {
+            Alert.alert('Error', 'Order not found for printing');
+            return;
+          }
+          
+          console.log('✅ Order loaded from Firebase:', order);
+        } catch (firebaseError) {
+          console.error('Error loading order from Firebase:', firebaseError);
+          Alert.alert('Error', 'Failed to load order data for printing');
+          return;
+        }
       }
-      const table = tables[order.tableId];
+      
+      // Get table information - try Redux first, then Firebase
+      let table = tables[order.tableId];
+      if (!table) {
+        console.log('🔍 Table not found in Redux, loading from Firebase...');
+        try {
+          const { createFirestoreService } = await import('../../services/firestoreService');
+          const service = createFirestoreService(restaurantId);
+          const firebaseTables = await service.getTables();
+          table = firebaseTables[order.tableId];
+        } catch (tableError) {
+          console.error('Error loading table from Firebase:', tableError);
+          // Use a fallback table object
+          table = { id: order.tableId, name: order.tableName || 'Unknown Table' };
+        }
+      }
+      
       const { PrintService } = await import('../../services/printing');
       const result = await PrintService.printReceiptFromOrder(order, table);
       if (!result.success) {
@@ -853,6 +1022,33 @@ export default function ReceiptsScreen() {
             </Text>
           )}
         </View>
+        
+        {/* Discount Information */}
+        {(item.discount > 0 || item.itemDiscount > 0 || item.orderDiscount > 0) && (
+          <View style={{ marginBottom: 12 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 6 }}>
+              <MaterialCommunityIcons name="tag-off" size={16} color="#e74c3c" style={{ marginRight: 8 }} />
+              <Text style={{ color: "#e74c3c", fontSize: 14, fontWeight: "500" }}>Discount Applied</Text>
+            </View>
+            <View style={{ marginLeft: 24 }}>
+              {item.itemDiscount > 0 && (
+                <Text style={{ color: "#ccc", fontSize: 12, marginBottom: 2 }}>
+                  Item Discount: -Rs {item.itemDiscount.toFixed(2)}
+                </Text>
+              )}
+              {item.orderDiscount > 0 && (
+                <Text style={{ color: "#ccc", fontSize: 12, marginBottom: 2 }}>
+                  Order Discount: -Rs {item.orderDiscount.toFixed(2)}
+                </Text>
+              )}
+              {item.discount > 0 && (item.itemDiscount === 0 && item.orderDiscount === 0) && (
+                <Text style={{ color: "#ccc", fontSize: 12, marginBottom: 2 }}>
+                  Total Discount: -Rs {item.discount.toFixed(2)}
+                </Text>
+              )}
+            </View>
+          </View>
+        )}
         
         <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
           <MaterialCommunityIcons name="calendar-clock" size={16} color="#aaa" style={{ marginRight: 8 }} />
@@ -1053,6 +1249,15 @@ export default function ReceiptsScreen() {
             </View>
           )}
         </ScrollView>
+        
+        {/* Print Summary Dialog */}
+        <PrintSummaryDialog
+          visible={showPrintDialog}
+          onClose={() => setShowPrintDialog(false)}
+          onPrint={handlePrintSummary}
+          onSaveAsExcel={handleSaveAsExcel}
+          title="Export Transaction Summary"
+        />
       </SafeAreaView>
   );
 }

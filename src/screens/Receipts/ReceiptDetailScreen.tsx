@@ -121,11 +121,27 @@ const ReceiptDetailScreen: React.FC = () => {
             hasTableName: !!receipt.tableName
           });
           
-          // Reconstruct order from receipt data
-          const reconstructedOrder = {
+          // Try to load the original order from Firebase for complete discount data
+          let originalOrder = null;
+          try {
+            const completedOrders = await service.getCompletedOrders();
+            originalOrder = completedOrders[orderId];
+            if (!originalOrder) {
+              const ongoingOrders = await service.getOngoingOrders();
+              originalOrder = ongoingOrders[orderId];
+            }
+            if (originalOrder) {
+              console.log('✅ Found original order in Firebase:', originalOrder);
+            }
+          } catch (orderError) {
+            console.log('⚠️ Could not load original order, using receipt data only:', orderError);
+          }
+          
+          // Use original order data if available, otherwise reconstruct from receipt
+          const orderData = originalOrder || {
             id: orderId,
             restaurantId: receipt.restaurantId,
-            restaurantName: receipt.restaurantName || undefined, // Add restaurant name from receipt
+            restaurantName: receipt.restaurantName || undefined,
             tableId: receipt.tableId || receipt.tableName || 'unknown',
             tableName: receipt.tableName || undefined,
             status: 'completed',
@@ -134,9 +150,9 @@ const ReceiptDetailScreen: React.FC = () => {
             tax: receipt.tax || 0,
             serviceCharge: receipt.serviceCharge || 0,
             discount: receipt.discount || 0,
-            taxPercentage: 0,
-            serviceChargePercentage: 0,
-            discountPercentage: 0,
+            taxPercentage: receipt.taxPercentage || 0,
+            serviceChargePercentage: receipt.serviceChargePercentage || 0,
+            discountPercentage: receipt.discountPercentage || 0,
             payment: {
               method: receipt.paymentMethod || 'Cash',
               amount: receipt.amount || 0,
@@ -149,9 +165,19 @@ const ReceiptDetailScreen: React.FC = () => {
             createdAt: receipt.timestamp || Date.now()
           };
           
-          console.log('✅ Reconstructed order:', reconstructedOrder);
-          console.log('🔍 Reconstructed order processedBy:', reconstructedOrder.processedBy);
-          setOrder(reconstructedOrder);
+          console.log('✅ Final order data:', orderData);
+          console.log('🔍 Order discount data:', {
+            discountPercentage: orderData.discountPercentage,
+            taxPercentage: orderData.taxPercentage,
+            serviceChargePercentage: orderData.serviceChargePercentage,
+            hasItems: orderData.items?.length > 0,
+            itemDiscounts: orderData.items?.map((item: any) => ({
+              name: item.name,
+              discountPercentage: item.discountPercentage,
+              discountAmount: item.discountAmount
+            }))
+          });
+          setOrder(orderData);
         } else {
           console.error('❌ Receipt not found in Firebase for orderId:', orderId);
           setLoadError(`Receipt not found for order ID: ${orderId}`);
@@ -315,6 +341,19 @@ const ReceiptDetailScreen: React.FC = () => {
 
   const shortReceiptId = getShortReceiptId(orderId);
 
+  // Safety check to ensure order exists before calculations
+  if (!order || !order.items) {
+    console.log('⚠️ ReceiptDetailScreen: Order or items not available yet');
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorTitle}>Loading...</Text>
+          <Text style={styles.errorMessage}>Please wait while we load the receipt details.</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   const table = tables[order.tableId];
   const calculateItemTotal = (item: any) => {
     const baseTotal = item.price * item.quantity;
@@ -327,10 +366,37 @@ const ReceiptDetailScreen: React.FC = () => {
   const discountedSubtotal = order.items.reduce((sum: number, item: any) => sum + calculateItemTotal(item), 0);
   const itemDiscountsTotal = Math.max(0, baseSubtotal - discountedSubtotal);
   const subtotal = discountedSubtotal;
-  const tax = subtotal * (order.taxPercentage / 100);
-  const serviceCharge = subtotal * (order.serviceChargePercentage / 100);
-  const discount = subtotal * (order.discountPercentage / 100);
+  const tax = subtotal * ((order.taxPercentage || 0) / 100);
+  const serviceCharge = subtotal * ((order.serviceChargePercentage || 0) / 100);
+  const discount = subtotal * ((order.discountPercentage || 0) / 100);
   const total = subtotal + tax + serviceCharge - discount;
+
+  // Debug logging for discount calculations
+  console.log('🔍 ReceiptDetailScreen discount calculations:', {
+    orderId: order.id,
+    baseSubtotal,
+    discountedSubtotal,
+    itemDiscountsTotal,
+    subtotal,
+    tax,
+    serviceCharge,
+    discount,
+    total,
+    orderDiscountPercentage: order.discountPercentage,
+    orderTaxPercentage: order.taxPercentage,
+    orderServiceChargePercentage: order.serviceChargePercentage,
+    willShowItemDiscounts: itemDiscountsTotal > 0,
+    willShowOrderDiscount: order.discountPercentage > 0,
+    itemsWithDiscounts: order.items.filter((item: any) => 
+      item.discountPercentage !== undefined || item.discountAmount !== undefined
+    ).map((item: any) => ({
+      name: item.name,
+      discountPercentage: item.discountPercentage,
+      discountAmount: item.discountAmount,
+      baseTotal: item.price * item.quantity,
+      discountedTotal: calculateItemTotal(item)
+    }))
+  });
 
   const generateReceiptContent = () => {
     // Check if this is a credit settlement receipt - multiple detection methods
@@ -395,7 +461,20 @@ Powered by ARBI POS
       const nameCol = it.name.slice(0, 16).padEnd(16);
       const qtyCol = String(it.quantity).padStart(3);
       const totalCol = (it.price * it.quantity).toFixed(1).padStart(9);
-      return `${nameCol}${qtyCol}${totalCol}`;
+      let itemLine = `${nameCol}${qtyCol}${totalCol}`;
+      
+      // Add item discount line if applicable
+      if (it.discountPercentage !== undefined || it.discountAmount !== undefined) {
+        let discountText = '';
+        if (it.discountPercentage !== undefined) {
+          discountText = `  ${it.discountPercentage}% off`;
+        } else if (it.discountAmount !== undefined) {
+          discountText = `  Rs.${it.discountAmount} off`;
+        }
+        itemLine += `\n${discountText.padEnd(28)}`;
+      }
+      
+      return itemLine;
     }).join('\n');
 
     const disc = order.discountPercentage > 0 ? `Discount (${order.discountPercentage}%): -Rs. ${discount.toFixed(1)}\n` : '';
@@ -837,7 +916,7 @@ Ref Number: ${shortReceiptId}
                 {itemDiscountsTotal > 0 && (
                   <View style={styles.summaryRow}>
                     <Text style={styles.summaryLabel}>Item Discounts:</Text>
-                    <Text style={styles.summaryValue}>-{formatCurrency(itemDiscountsTotal)}</Text>
+                    <Text style={[styles.summaryValue, styles.discountValue]}>-{formatCurrency(itemDiscountsTotal)}</Text>
                   </View>
                 )}
                 {order.serviceChargePercentage > 0 && (
@@ -855,7 +934,7 @@ Ref Number: ${shortReceiptId}
                 {order.discountPercentage > 0 && (
                   <View style={styles.summaryRow}>
                     <Text style={styles.summaryLabel}>Order Discount ({order.discountPercentage}%):</Text>
-                    <Text style={styles.summaryValue}>-{formatCurrency(discount)}</Text>
+                    <Text style={[styles.summaryValue, styles.discountValue]}>-{formatCurrency(discount)}</Text>
                   </View>
                 )}
                 <View style={[styles.summaryRow, styles.totalRow]}>

@@ -18,6 +18,8 @@ import {
 } from "firebase/firestore";
 import { Unsubscribe } from "firebase/firestore";
 import { cleanOrderData, removeUndefinedValues } from '../utils/orderUtils';
+import { cacheInvalidationService } from './CacheInvalidationService';
+import { firebaseErrorHandler } from './FirebaseErrorHandler';
 
 // Legacy class-based service for backward compatibility
 export class FirestoreService {
@@ -438,6 +440,9 @@ export function createFirestoreService(restaurantId: string) {
       
       await updateDoc(tableRef, updateData);
       
+      // Invalidate table cache
+      cacheInvalidationService.invalidateByTrigger('table-update', currentRestaurantId);
+      
       console.log('✅ FirestoreService: Table updated successfully:', tableId);
     } catch (error) {
       console.warn(`Failed to update table ${tableId}:`, error);
@@ -447,66 +452,11 @@ export function createFirestoreService(restaurantId: string) {
 
   async function deleteTable(tableId: string): Promise<void> {
     await deleteDoc(tableDoc(tableId));
+    
+    // Invalidate table cache
+    cacheInvalidationService.invalidateByTrigger('table-delete', currentRestaurantId);
   }
 
-  // Atomic helpers for merge/unmerge using writeBatch
-  async function atomicMergeTables(params: { mergedTable: any; originalTableIds: string[] }): Promise<void> {
-    const { mergedTable, originalTableIds } = params;
-    const batch = writeBatch(db);
-    const now = serverTimestamp();
-
-    // Upsert merged table document
-    const mergedRef = tableDoc(mergedTable.id);
-    batch.set(mergedRef, { 
-      ...removeUndefinedValues({ ...mergedTable, restaurantId: currentRestaurantId }), 
-      updatedAt: now 
-    }, { merge: true });
-
-    // Update each original table with merge metadata
-    for (const id of originalTableIds) {
-      const ref = tableDoc(id);
-      batch.set(ref, removeUndefinedValues({
-        isMerged: true,
-        mergerId: mergedTable.mergerId,
-        isActive: true,
-        isOccupied: false,
-        updatedAt: now
-      }), { merge: true });
-    }
-
-    await batch.commit();
-  }
-
-  async function atomicUnmergeTables(params: { mergedTableId: string; originalTableIds: string[] }): Promise<void> {
-    const { mergedTableId, originalTableIds } = params;
-    const batch = writeBatch(db);
-    const now = serverTimestamp();
-
-    // Reset original tables to a fresh state
-    for (const id of originalTableIds) {
-      const ref = tableDoc(id);
-      batch.set(ref, removeUndefinedValues({
-        isMerged: false,
-        mergerId: null,
-        mergedTables: null,
-        mergedTableNames: null,
-        totalSeats: null,
-        isActive: true,
-        isOccupied: false,
-        isReserved: false,
-        reservedAt: null,
-        reservedUntil: null,
-        reservedBy: null,
-        reservedNote: null,
-        updatedAt: now
-      }), { merge: true });
-    }
-
-    // Delete the merged table document
-    batch.delete(tableDoc(mergedTableId));
-
-    await batch.commit();
-  }
 
   async function cleanupAndRecreateTables(): Promise<void> {
     // Delete all existing tables, then recreate defaults
@@ -599,7 +549,6 @@ export function createFirestoreService(restaurantId: string) {
         seats: 4,
         description: "Standard 4-seater table",
         isActive: true,
-        isMerged: false,
         isOccupied: false,
         createdAt: Date.now() 
       }, 
@@ -609,7 +558,6 @@ export function createFirestoreService(restaurantId: string) {
         seats: 4,
         description: "Standard 4-seater table",
         isActive: true,
-        isMerged: false,
         isOccupied: false,
         createdAt: Date.now() 
       },
@@ -619,7 +567,6 @@ export function createFirestoreService(restaurantId: string) {
         seats: 6,
         description: "Large 6-seater table",
         isActive: true,
-        isMerged: false,
         isOccupied: false,
         createdAt: Date.now() 
       },
@@ -629,7 +576,6 @@ export function createFirestoreService(restaurantId: string) {
         seats: 6,
         description: "Large 6-seater table",
         isActive: true,
-        isMerged: false,
         isOccupied: false,
         createdAt: Date.now() 
       }
@@ -714,17 +660,30 @@ export function createFirestoreService(restaurantId: string) {
   }
 
   async function createMenuItem(item: any): Promise<string> {
-    return create('menu', item);
+    const result = await create('menu', item);
+    
+    // Invalidate menu cache
+    cacheInvalidationService.invalidateByTrigger('menu-create', currentRestaurantId);
+    
+    return result;
   }
 
   async function updateMenuItem(itemId: string, updates: any): Promise<void> {
-    return update('menu', itemId, updates);
+    const result = await update('menu', itemId, updates);
+    
+    // Invalidate menu cache
+    cacheInvalidationService.invalidateByTrigger('menu-update', currentRestaurantId);
+    
+    return result;
   }
 
   async function deleteMenuItem(itemId: string): Promise<void> {
     try {
       const docRef = doc(db, "restaurants", currentRestaurantId, "menu", itemId);
       await deleteDoc(docRef);
+      
+      // Invalidate menu cache
+      cacheInvalidationService.invalidateByTrigger('menu-delete', currentRestaurantId);
     } catch (error) {
       console.error('Firestore deleteMenuItem error:', error);
       throw error;
@@ -782,7 +741,12 @@ export function createFirestoreService(restaurantId: string) {
   }
 
   async function createOrder(order: any): Promise<string> {
-    return create('orders', order);
+    const result = await create('orders', order);
+    
+    // Invalidate order cache
+    cacheInvalidationService.invalidateByTrigger('order-create', currentRestaurantId);
+    
+    return result;
   }
 
   async function updateOrder(orderId: string, updates: any): Promise<void> {
@@ -792,6 +756,10 @@ export function createFirestoreService(restaurantId: string) {
       const ongoingSnap = await getDoc(ongoingRef);
       if (ongoingSnap.exists()) {
         await setDoc(ongoingRef, { ...removeUndefinedValues(updates), updatedAt: serverTimestamp() }, { merge: true });
+        
+        // Invalidate order cache
+        cacheInvalidationService.invalidateByTrigger('order-update', currentRestaurantId);
+        
         return;
       }
 
@@ -800,11 +768,18 @@ export function createFirestoreService(restaurantId: string) {
       const processedSnap = await getDoc(processedRef);
       if (processedSnap.exists()) {
         await setDoc(processedRef, { ...removeUndefinedValues(updates), updatedAt: serverTimestamp() }, { merge: true });
+        
+        // Invalidate order cache
+        cacheInvalidationService.invalidateByTrigger('order-update', currentRestaurantId);
+        
         return;
       }
 
       // Neither exists: upsert into ongoingOrders by default (safe fallback)
       await setDoc(ongoingRef, { id: orderId, ...removeUndefinedValues(updates), updatedAt: serverTimestamp() }, { merge: true });
+      
+      // Invalidate order cache
+      cacheInvalidationService.invalidateByTrigger('order-update', currentRestaurantId);
     } catch (error) {
       console.error('Firestore updateOrder error:', error);
       throw error;
@@ -830,38 +805,85 @@ export function createFirestoreService(restaurantId: string) {
 
   // Upsert an order with a specific ID under restaurants/{restaurantId}/orders/{ongoingOrders|processedOrders}
   async function saveOrder(order: any): Promise<{ id: string; data: any }> {
-    try {
-      const providedId = typeof order?.id === 'string' && order.id.trim().length > 0 ? order.id.trim() : null;
-      
-      // Clean the order data to remove undefined values and ensure proper types
-      const cleanOrder = cleanOrderData({
-        ...order,
-        restaurantId: currentRestaurantId,
-        createdAt: order?.createdAt || serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-      
-      // Remove any remaining undefined values from the payload
-      const payload = removeUndefinedValues(cleanOrder);
+    const maxRetries = 5; // Increased retries
+    const baseTimeout = 30000; // 30 seconds base timeout
+    let lastError: Error | null = null;
 
-      const isOngoing = payload.status === 'ongoing' || payload.ongoing === true;
-      const targetPath = isOngoing ? ["orders", "root", "ongoingOrders"] : ["orders", "root", "processedOrders"];
-      if (providedId) {
-        const target = doc(db, "restaurants", currentRestaurantId, ...targetPath, providedId);
-        await setDoc(target, { ...payload, ongoing: isOngoing }, { merge: true });
-        // Ensure it doesn't exist in the opposite subcollection
-        const otherPath = isOngoing ? ["orders", "root", "processedOrders"] : ["orders", "root", "ongoingOrders"];
-        try { await deleteDoc(doc(db, "restaurants", currentRestaurantId, ...otherPath, providedId)); } catch {}
-        return { id: providedId, data: { id: providedId, ...payload, ongoing: isOngoing } };
-      } else {
-        const colRef = collection(db, "restaurants", currentRestaurantId, ...targetPath);
-        const refCreated = await addDoc(colRef, { ...payload, ongoing: isOngoing });
-        return { id: refCreated.id, data: { id: refCreated.id, ...payload, ongoing: isOngoing } };
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        console.log(`🔄 Firestore saveOrder attempt ${attempt + 1}/${maxRetries}`);
+        
+        const providedId = typeof order?.id === 'string' && order.id.trim().length > 0 ? order.id.trim() : null;
+        
+        // Clean the order data to remove undefined values and ensure proper types
+        const cleanOrder = cleanOrderData({
+          ...order,
+          restaurantId: currentRestaurantId,
+          createdAt: order?.createdAt || serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+        
+        // Remove any remaining undefined values from the payload
+        const payload = removeUndefinedValues(cleanOrder);
+
+        const isOngoing = payload.status === 'ongoing' || payload.ongoing === true;
+        const targetPath = isOngoing ? ["orders", "root", "ongoingOrders"] : ["orders", "root", "processedOrders"];
+        
+        // Create timeout promise with progressive timeout
+        const timeout = Math.min(baseTimeout + (attempt * 10000), 60000); // Progressive: 30s, 40s, 50s, 60s max
+        const timeoutPromise = new Promise((_, reject) => {
+          const id = setTimeout(() => reject(new Error(`Firestore write timeout (${timeout}ms)`)), timeout);
+          // Clear timeout if operation completes
+          setTimeout(() => clearTimeout(id), timeout + 1000);
+        });
+
+        let operationPromise: Promise<any>;
+        
+        if (providedId) {
+          const target = doc(db, "restaurants", currentRestaurantId, ...targetPath, providedId);
+          operationPromise = setDoc(target, { ...payload, ongoing: isOngoing }, { merge: true });
+        } else {
+          const colRef = collection(db, "restaurants", currentRestaurantId, ...targetPath);
+          operationPromise = addDoc(colRef, { ...payload, ongoing: isOngoing });
+        }
+
+        // Race between operation and timeout
+        const result = await Promise.race([operationPromise, timeoutPromise]);
+        
+        if (providedId) {
+          // Ensure it doesn't exist in the opposite subcollection
+          const otherPath = isOngoing ? ["orders", "root", "processedOrders"] : ["orders", "root", "ongoingOrders"];
+          try { 
+            await deleteDoc(doc(db, "restaurants", currentRestaurantId, ...otherPath, providedId)); 
+          } catch (e) {
+            console.warn('Failed to clean up opposite subcollection:', e);
+          }
+          console.log(`✅ Firestore saveOrder successful (attempt ${attempt + 1})`);
+          return { id: providedId, data: { id: providedId, ...payload, ongoing: isOngoing } };
+        } else {
+          console.log(`✅ Firestore saveOrder successful (attempt ${attempt + 1})`);
+          return { id: result.id, data: { id: result.id, ...payload, ongoing: isOngoing } };
+        }
+        
+      } catch (error) {
+        lastError = error as Error;
+        console.error(`❌ Firestore saveOrder attempt ${attempt + 1} failed:`, error);
+        
+        // Report error to global handler
+        firebaseErrorHandler.handleError(error as Error, 'Firestore saveOrder');
+        
+        if (attempt < maxRetries - 1) {
+          const baseDelay = Math.min(2000 * Math.pow(1.5, attempt), 10000); // Exponential backoff: 2s, 3s, 4.5s, 6.75s, 10s max
+          const jitter = Math.random() * 1000; // Add up to 1s random jitter
+          const delay = baseDelay + jitter;
+          console.log(`🔄 Retrying in ${Math.round(delay)}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
       }
-    } catch (error) {
-      console.error('Firestore saveOrder error:', error);
-      throw error;
     }
+    
+    console.error('❌ Firestore saveOrder: All retry attempts failed');
+    throw lastError || new Error('Firestore saveOrder failed after all retries');
   }
 
   // Move order to processedOrders and remove from ongoingOrders
@@ -1297,8 +1319,13 @@ export function createFirestoreService(restaurantId: string) {
       console.log('FirestoreService: Transaction data:', transactionData);
       console.log('FirestoreService: Collection path:', `restaurants/${currentRestaurantId}/vendors/${vendorId}/transactions`);
       
+      // Filter out undefined values to prevent Firebase errors
+      const filteredData = Object.fromEntries(
+        Object.entries(transactionData).filter(([_, value]) => value !== undefined)
+      );
+      
       const docRef = await addDoc(collection(db, "restaurants", currentRestaurantId, "vendors", vendorId, "transactions"), {
-        ...transactionData,
+        ...filteredData,
         vendorId,
         restaurantId: currentRestaurantId,
         createdAt: serverTimestamp(),
@@ -1313,13 +1340,24 @@ export function createFirestoreService(restaurantId: string) {
         const vendorDoc = await getDoc(doc(db, "restaurants", currentRestaurantId, "vendors", vendorId));
         if (vendorDoc.exists()) {
           const currentBalance = vendorDoc.data().balance || 0;
-          const balanceChange = transactionData.creditAmount - transactionData.paidAmount;
+          
+          // For settlements: subtract paid amount from balance
+          // For regular transactions: add credit amount to balance
+          let balanceChange;
+          if (filteredData.billNumber && filteredData.billNumber.startsWith('SETTLE-')) {
+            // Settlement transaction - subtract paid amount
+            balanceChange = -filteredData.paidAmount;
+          } else {
+            // Regular transaction - add credit amount
+            balanceChange = filteredData.creditAmount;
+          }
+          
           const newBalance = currentBalance + balanceChange;
           
           await updateVendor(vendorId, { 
             balance: newBalance
           });
-          console.log('FirestoreService: Updated vendor balance from', currentBalance, 'to', newBalance);
+          console.log('FirestoreService: Updated vendor balance from', currentBalance, 'to', newBalance, 'change:', balanceChange);
         }
       } catch (balanceError) {
         console.warn('FirestoreService: Failed to update vendor balance:', balanceError);
@@ -1414,7 +1452,6 @@ export function createFirestoreService(restaurantId: string) {
     getVendorTransactions, createVendorTransaction, updateVendorTransaction, deleteVendorTransaction,
     // extras used by UI
     setDocument, updateTable, deleteTable, cleanupAndRecreateTables,
-    atomicMergeTables, atomicUnmergeTables,
     listenToCustomers, listenToTables
     , listenToReceipts,
     listenToOngoingOrders,

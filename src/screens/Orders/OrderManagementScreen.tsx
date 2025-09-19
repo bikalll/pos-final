@@ -16,7 +16,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, radius, shadow } from '../../theme';
 import { RootState } from '../../redux/storeFirebase';
 import { setPayment, completeOrder, removeItem, updateItemQuantity, cancelOrder, completeOrderWithReceipt } from '../../redux/slices/ordersSliceFirebase';
-import { unmergeTables } from '../../redux/slices/tablesSliceFirebase';
 import { PrintService } from '../../services/printing';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { OrdersStackParamList } from '../../navigation/types';
@@ -192,6 +191,21 @@ const OrderManagementScreen: React.FC = () => {
           text: 'Print & Done',
           onPress: async () => {
             try {
+              // Calculate separate discount amounts
+              const calculateItemTotal = (item: any) => {
+                const baseTotal = item.price * item.quantity;
+                let discount = 0;
+                if (item.discountPercentage !== undefined) discount = (baseTotal * item.discountPercentage) / 100;
+                else if (item.discountAmount !== undefined) discount = item.discountAmount;
+                return Math.max(0, baseTotal - discount);
+              };
+              
+              const baseSubtotal = (order.items || []).reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
+              const discountedSubtotal = (order.items || []).reduce((sum: number, item: any) => sum + calculateItemTotal(item), 0);
+              const itemDiscountsTotal = Math.max(0, baseSubtotal - discountedSubtotal);
+              const orderDiscountPercent = order.discountPercentage || 0;
+              const orderDiscountAmount = discountedSubtotal * (orderDiscountPercent / 100);
+
               // Generate and print receipt
               const receiptData = {
                 receiptId: `R${Date.now().toString().slice(-6)}`,
@@ -203,12 +217,16 @@ const OrderManagementScreen: React.FC = () => {
                   name: item.name,
                   quantity: item.quantity,
                   price: item.price,
-                  total: item.price * item.quantity
+                  total: calculateItemTotal(item),
+                  discountPercentage: item.discountPercentage,
+                  discountAmount: item.discountAmount
                 })),
                 subtotal: calculateSubtotal(),
                 tax: calculateTax(),
                 serviceCharge: calculateServiceCharge(),
                 discount: calculateDiscount(),
+                itemDiscount: itemDiscountsTotal,
+                orderDiscount: orderDiscountAmount,
                 total: total,
                 paymentMethod: selectedPaymentMethod.name,
                 cashier: "POS System"
@@ -299,10 +317,6 @@ const OrderManagementScreen: React.FC = () => {
           style: 'destructive',
           onPress: () => {
             try {
-              const isMerged = !!order.isMergedOrder && !!tables[order.tableId]?.isMerged;
-              if (isMerged) {
-                (dispatch as any)(unmergeTables({ mergedTableId: order.tableId }));
-              }
               (dispatch as any)(cancelOrder({ orderId }));
             } catch {}
             (navigation as any).navigate('Dashboard', { screen: 'TablesDashboard' });

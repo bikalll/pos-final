@@ -117,6 +117,14 @@ const menuSlice = createSlice({
     clearError: (state) => {
       state.error = null;
     },
+    batchUpdateMenuItems: (state, action: PayloadAction<MenuItem[]>) => {
+      const menuItems = action.payload;
+      menuItems.forEach((menuItem: MenuItem) => {
+        if (menuItem.id) {
+          state.itemsById[menuItem.id] = menuItem;
+        }
+      });
+    },
   },
   extraReducers: (builder) => {
     builder
@@ -181,7 +189,8 @@ export const {
   toggleAvailability,
   updateMenuItemFromFirebase,
   removeMenuItemFromFirebase,
-  clearError
+  clearError,
+  batchUpdateMenuItems
 } = menuSlice.actions;
 
 export default menuSlice.reducer;

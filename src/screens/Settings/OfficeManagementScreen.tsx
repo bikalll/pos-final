@@ -10,6 +10,8 @@ import { RootState } from '../../redux/storeFirebase';
 import { colors, spacing, radius } from '../../theme';
 import { createFirestoreService } from '../../services/firestoreService';
 import { setLogoUrl as setAuthLogoUrl } from '../../redux/slices/authSlice';
+import { useOptimizedListenerCleanup } from '../../services/OptimizedListenerManager';
+import { usePerformanceMonitor } from '../../services/PerformanceMonitor';
 
 const IMGBB_API_KEY = 'ff7e9b429a79828004e588b651c7e041';
 
@@ -64,6 +66,10 @@ export default function OfficeManagementScreen() {
   const restaurantId = useSelector((s: RootState) => s.auth.restaurantId);
   const role = useSelector((s: RootState) => s.auth.role);
   const authUserName = useSelector((s: RootState) => s.auth.userName);
+  
+  // Optimized listener management and performance monitoring
+  const { addListener, cleanup } = useOptimizedListenerCleanup('OfficeManagementScreen');
+  const { updateListenerCount, incrementReduxUpdates, recordRenderTime } = usePerformanceMonitor();
 
   const [name, setName] = useState('');
   const [ownerName, setOwnerName] = useState('');
@@ -78,6 +84,7 @@ export default function OfficeManagementScreen() {
 
   useEffect(() => {
     if (!restaurantId) return;
+    
     const fsSvc = createFirestoreService(restaurantId);
 
     // Initial load
@@ -95,6 +102,8 @@ export default function OfficeManagementScreen() {
 
     // Real-time updates for office info
     const unsubscribe = (fsSvc as any).listenToCollection?.('restaurant', (docs: Record<string, any>) => {
+      const startTime = performance.now();
+      
       const info = docs?.info;
       if (info) {
         setName(info.name || '');
@@ -105,10 +114,21 @@ export default function OfficeManagementScreen() {
         setAddress(info.address || '');
         setContactNumber(info.contactNumber || info.phone || '');
       }
+      
+      // Performance monitoring
+      const endTime = performance.now();
+      recordRenderTime(endTime - startTime);
+      incrementReduxUpdates();
     });
 
-    return () => { try { unsubscribe && unsubscribe(); } catch {} };
-  }, [restaurantId, authUserName]);
+    if (unsubscribe) {
+      addListener('office-realtime', unsubscribe);
+    }
+
+    return () => {
+      cleanup();
+    };
+  }, [restaurantId, authUserName, addListener, cleanup, recordRenderTime, incrementReduxUpdates]);
 
   const pickImage = async (onPicked: (url: string) => void) => {
     console.log('📷 pickImage pressed. canEdit:', canEdit);

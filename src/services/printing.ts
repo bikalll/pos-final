@@ -20,11 +20,15 @@ export interface ReceiptData {
     quantity: number;
     price: number;
     total: number;
+    discountPercentage?: number;
+    discountAmount?: number;
   }>;
   subtotal: number;
   tax: number;
   serviceCharge: number;
   discount: number;
+  itemDiscount?: number;
+  orderDiscount?: number;
   total: number;
   paymentMethod: string;
   cashier: string;
@@ -183,6 +187,14 @@ export function generateReceiptHTML(receipt: ReceiptData): string {
               <td>Rs ${item.price.toFixed(2)}</td>
               <td>Rs ${item.total.toFixed(2)}</td>
             </tr>
+            ${(item.discountPercentage !== undefined || item.discountAmount !== undefined) ? `
+            <tr style="color: #666; font-size: 11px;">
+              <td colspan="3" style="padding-left: 20px;">
+                ${item.discountPercentage !== undefined ? `${item.discountPercentage}% off` : `Rs ${item.discountAmount} off`}
+              </td>
+              <td style="color: #e74c3c;">-Rs ${((item.price * item.quantity) - item.total).toFixed(2)}</td>
+            </tr>
+            ` : ''}
           `).join('')}
         </tbody>
       </table>
@@ -192,10 +204,24 @@ export function generateReceiptHTML(receipt: ReceiptData): string {
           <span>Sub Total:</span>
           <span>Rs ${receipt.subtotal.toFixed(2)}</span>
         </div>
+        ${(receipt.itemDiscount ?? 0) > 0 ? `
+        <div class="total-row">
+          <span>Item Discount:</span>
+          <span style="color: #e74c3c;">-Rs ${receipt.itemDiscount.toFixed(2)}</span>
+        </div>
+        ` : ''}
+        ${(receipt.orderDiscount ?? 0) > 0 ? `
+        <div class="total-row">
+          <span>Order Discount:</span>
+          <span style="color: #e74c3c;">-Rs ${receipt.orderDiscount.toFixed(2)}</span>
+        </div>
+        ` : ''}
+        ${(receipt.discount ?? 0) > 0 && (receipt.itemDiscount ?? 0) === 0 && (receipt.orderDiscount ?? 0) === 0 ? `
         <div class="total-row">
           <span>Discount:</span>
-          <span>Rs ${receipt.discount.toFixed(2)}</span>
+          <span style="color: #e74c3c;">-Rs ${receipt.discount.toFixed(2)}</span>
         </div>
+        ` : ''}
         <div class="total-row" style="font-weight: bold; font-size: 14px;">
           <span>Grand Total:</span>
           <span>Rs ${receipt.total.toFixed(2)}</span>
@@ -780,12 +806,24 @@ export class PrintService {
         }
       } catch {}
 
-      // Calculate totals
-      const subtotal = order.items.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
+      // Calculate totals with separate discount calculations
+      const calculateItemTotal = (item: any) => {
+        const baseTotal = item.price * item.quantity;
+        let discount = 0;
+        if (item.discountPercentage !== undefined) discount = (baseTotal * item.discountPercentage) / 100;
+        else if (item.discountAmount !== undefined) discount = item.discountAmount;
+        return Math.max(0, baseTotal - discount);
+      };
+      
+      const baseSubtotal = order.items.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
+      const discountedSubtotal = order.items.reduce((sum: number, item: any) => sum + calculateItemTotal(item), 0);
+      const itemDiscountsTotal = Math.max(0, baseSubtotal - discountedSubtotal);
+      const orderDiscountPercent = order.discountPercentage || 0;
+      const orderDiscountAmount = discountedSubtotal * (orderDiscountPercent / 100);
+      const subtotal = Math.max(0, discountedSubtotal - orderDiscountAmount);
       const tax = subtotal * (order.taxPercentage / 100);
       const serviceCharge = subtotal * (order.serviceChargePercentage / 100);
-      const discount = subtotal * (order.discountPercentage / 100);
-      const total = subtotal + tax + serviceCharge - discount;
+      const total = subtotal + tax + serviceCharge;
 
       // Print via Bluetooth
       const splitPayments = Array.isArray(order.payment?.splitPayments) ? order.payment.splitPayments.map((sp: any) => ({ method: sp.method, amount: Number(sp.amount) || 0 })) : undefined;
@@ -801,14 +839,18 @@ export class PrintService {
         items: order.items.map((item: any) => ({
           name: item.name,
           quantity: item.quantity,
-          price: item.price
+          price: item.price,
+          discountPercentage: item.discountPercentage,
+          discountAmount: item.discountAmount
         })),
         taxLabel: `Tax (${order.taxPercentage}%)`,
         serviceLabel: `Service (${order.serviceChargePercentage}%)`,
-        subtotal,
+        subtotal: baseSubtotal,
         tax,
         service: serviceCharge,
-        discount: order.discountPercentage > 0 ? discount : 0,
+        discount: itemDiscountsTotal + orderDiscountAmount,
+        itemDiscount: itemDiscountsTotal,
+        orderDiscount: orderDiscountAmount,
         total,
         payment: order.payment ? {
           method: order.payment.method,
@@ -850,26 +892,32 @@ export class PrintService {
       const { blePrinter } = await import('./blePrinter');
       const { bluetoothManager } = await import('./bluetoothManager');
       
-      const connectionStatus = await this.checkPrinterConnection();
-      if (!connectionStatus.connected) {
-        return {
-          success: false,
-          message: connectionStatus.message,
-          fallback: 'Would you like to save or share a pre-receipt file instead?'
-        };
+      console.log('🖨️ Starting pre-receipt print process...');
+      
+      // Validate order data
+      if (!order || !order.items || !Array.isArray(order.items) || order.items.length === 0) {
+        throw new Error('Invalid order data: No items found in order');
       }
 
-      // Skip connection test for pre-receipt printing to avoid timeout issues
-      // The connection status is already checked above via checkPrinterConnection()
+      // Calculate totals with proper null checks
+      const subtotal = order.items.reduce((sum: number, item: any) => {
+        if (!item || typeof item.price !== 'number' || typeof item.quantity !== 'number') {
+          console.warn('Invalid item data:', item);
+          return sum;
+        }
+        return sum + (item.price * item.quantity);
+      }, 0);
+      
+      if (subtotal <= 0) {
+        throw new Error('Invalid order data: Order total is zero or negative');
+      }
 
-      // Calculate totals
-      const subtotal = order.items.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
-      const tax = subtotal * (order.taxPercentage / 100);
-      const serviceCharge = subtotal * (order.serviceChargePercentage / 100);
-      const discount = subtotal * (order.discountPercentage / 100);
+      const tax = subtotal * ((order.taxPercentage || 0) / 100);
+      const serviceCharge = subtotal * ((order.serviceChargePercentage || 0) / 100);
+      const discount = subtotal * ((order.discountPercentage || 0) / 100);
       const total = subtotal + tax + serviceCharge - discount;
 
-      await blePrinter.printReceipt({
+      const receiptData = {
         restaurantName: 'ARBI POS',
         receiptId: `PR${Date.now()}`,
         date: new Date(order.createdAt).toLocaleDateString(),
@@ -881,36 +929,63 @@ export class PrintService {
           quantity: item.quantity,
           price: item.price
         })),
-        taxLabel: `Tax (0%)`,
-        serviceLabel: `Service (0%)`,
+        taxLabel: `Tax (${order.taxPercentage || 0}%)`,
+        serviceLabel: `Service (${order.serviceChargePercentage || 0}%)`,
         subtotal,
-        tax: 0,
-        service: 0,
+        tax,
+        service: serviceCharge,
         discount,
         total,
         payment: null,
         isPreReceipt: true,
+      };
+
+      console.log('🖨️ Pre-receipt data prepared:', {
+        receiptId: receiptData.receiptId,
+        table: receiptData.table,
+        itemsCount: receiptData.items.length,
+        total: receiptData.total
       });
+
+      // Try to print directly - let blePrinter handle connection checks and fallbacks
+      await blePrinter.printReceipt(receiptData);
 
       return {
         success: true,
-        message: 'Pre-receipt sent to printer successfully'
+        message: 'Pre-receipt printed successfully'
       };
     } catch (error: any) {
-      console.error('Pre-receipt print failed:', error);
+      console.error('❌ Pre-receipt print failed:', error);
+      
+      // Provide specific error messages for common issues
       let errorMessage = error.message;
-      if (error.message.includes('connection')) {
-        errorMessage = 'Printer connection lost. Please reconnect your printer.';
+      let fallbackMessage = 'Would you like to save the pre-receipt as a file instead?';
+      
+      if (error.message.includes('connection') || error.message.includes('No device connected')) {
+        errorMessage = 'Printer not connected. Please connect a Bluetooth thermal printer first.';
+        fallbackMessage = 'Would you like to save the pre-receipt as a file or try connecting a printer?';
       } else if (error.message.includes('permission')) {
-        errorMessage = 'Bluetooth permissions required. Please grant permissions in settings.';
+        errorMessage = 'Bluetooth permissions required. Please grant permissions in device settings.';
+        fallbackMessage = 'Would you like to save the pre-receipt as a file instead?';
       } else if (error.message.includes('timeout')) {
         errorMessage = 'Printer connection timeout. Check if printer is turned on and in range.';
+        fallbackMessage = 'Would you like to save the pre-receipt as a file instead?';
+      } else if (error.message.includes('Bluetooth printing not available')) {
+        errorMessage = 'Bluetooth printing is not available on this device.';
+        fallbackMessage = 'Would you like to save the pre-receipt as a file instead?';
+      } else if (error.message.includes('saved to:')) {
+        // This is actually a success case where file was saved
+        return {
+          success: true,
+          message: `Pre-receipt saved successfully: ${error.message.split('saved to: ')[1]}`,
+          fallback: 'File saved successfully'
+        };
       }
 
       return {
         success: false,
         message: `Failed to print pre-receipt: ${errorMessage}`,
-        fallback: 'Would you like to save or share a pre-receipt file instead?'
+        fallback: fallbackMessage
       };
     }
   }
@@ -1268,6 +1343,17 @@ export class PrintService {
       const nameQty = this.padEnd(`${it.name} x${it.quantity}`, 22);
       const total = (it.total).toFixed(1).padStart(8);
       lines.push(`${nameQty}${total}`);
+      
+      // Add item discount line if applicable
+      if (it.discountPercentage !== undefined || it.discountAmount !== undefined) {
+        let discountText = '';
+        if (it.discountPercentage !== undefined) {
+          discountText = `  ${it.discountPercentage}% off`;
+        } else if (it.discountAmount !== undefined) {
+          discountText = `  Rs.${it.discountAmount} off`;
+        }
+        lines.push(this.padEnd(discountText, 30));
+      }
     }
     lines.push('------------------------------');
     lines.push(`Sub Total: ${receipt.subtotal.toFixed(1)}`);

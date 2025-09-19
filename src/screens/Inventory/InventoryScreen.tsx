@@ -17,6 +17,8 @@ import { colors, spacing, radius, shadow } from '../../theme';
 import { useSelector } from 'react-redux';
 import { RootState } from '../../redux/storeFirebase';
 import { createFirestoreService } from '../../services/firestoreService';
+import { useOptimizedListenerCleanup } from '../../services/OptimizedListenerManager';
+import { usePerformanceMonitor } from '../../services/PerformanceMonitor';
 
 interface InventoryItem {
   id: string;
@@ -41,6 +43,10 @@ const InventoryScreen: React.FC = () => {
   const { restaurantId } = useSelector((s: RootState) => s.auth);
   const [firestoreService, setFirestoreService] = useState<any>(null);
   
+  // Optimized listener management and performance monitoring
+  const { addListener, cleanup } = useOptimizedListenerCleanup('InventoryScreen');
+  const { updateListenerCount, incrementReduxUpdates, recordRenderTime } = usePerformanceMonitor();
+  
   const [newItem, setNewItem] = useState({
     name: '',
     category: '',
@@ -59,13 +65,16 @@ const InventoryScreen: React.FC = () => {
 
   useEffect(() => {
     if (!restaurantId) return;
+    
     const service = createFirestoreService(restaurantId);
     setFirestoreService(service);
-    let unsubscribe: (() => void) | undefined;
+    
     (async () => {
       await loadInventoryData(service);
       try {
-        unsubscribe = service.listenToInventory?.((items: Record<string, any>) => {
+        const unsubscribe = service.listenToInventory?.((items: Record<string, any>) => {
+          const startTime = performance.now();
+          
           const mapped: InventoryItem[] = Object.values(items).map((it: any) => ({
             id: it.id,
             name: it.name,
@@ -78,12 +87,28 @@ const InventoryScreen: React.FC = () => {
             lastUpdated: it.lastUpdated || Date.now(),
             isActive: it.isActive !== false,
           }));
+          
           setInventoryItems(mapped);
+          
+          // Performance monitoring
+          const endTime = performance.now();
+          recordRenderTime(endTime - startTime);
+          incrementReduxUpdates();
         });
-      } catch {}
+        
+        if (unsubscribe) {
+          addListener('inventory-realtime', unsubscribe);
+        }
+      } catch (error) {
+        console.error('Inventory listener setup failed:', error);
+      }
     })();
-    return () => { try { unsubscribe && unsubscribe(); } catch {} };
-  }, [restaurantId]);
+    
+    // Cleanup on unmount
+    return () => {
+      cleanup();
+    };
+  }, [restaurantId, addListener, cleanup, recordRenderTime, incrementReduxUpdates]);
 
   const loadInventoryData = async (service = firestoreService) => {
     if (!service) return;

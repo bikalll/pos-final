@@ -69,6 +69,8 @@ export const receiptMiddleware: Middleware<{}, RootState> = (store) => (next) =>
               tax: tax,
               serviceCharge: serviceCharge,
               discount: totalDiscount,
+              itemDiscount: itemDiscountsTotal,
+              orderDiscount: orderDiscountAmount,
               processedBy: {
                 role: state?.auth?.role || 'Staff',
                 username: state?.auth?.userName || 'Unknown'

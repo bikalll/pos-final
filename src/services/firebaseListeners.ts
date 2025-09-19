@@ -27,7 +27,7 @@ import {
 import { 
   updateAttendanceRecordFromFirebase, 
   removeAttendanceRecordFromFirebase 
-} from '../redux/slices/attendanceSliceFirebase';
+} from '../redux/slices/staffSliceFirebase';
 import { 
   updateReceiptFromFirebase, 
   removeReceiptFromFirebase 
@@ -53,8 +53,9 @@ export class FirebaseListenersService {
           const restaurantId = state?.auth?.restaurantId;
           const firestore = mod.createFirestoreService(restaurantId);
           const ordersUnsubscribe = firestore.listenToOngoingOrders((orders) => {
+            const batchService = getBatchUpdateService(this.dispatch);
             Object.values(orders).forEach(order => {
-              this.dispatch(updateOrderFromFirebase(order));
+              batchService.batchUpdateOrder(order);
             });
           });
           this.listeners.set('orders', ordersUnsubscribe);
@@ -67,37 +68,38 @@ export class FirebaseListenersService {
 
       // Tables listener
       const tablesUnsubscribe = firebaseService.listenToTables((tables) => {
+        const batchService = getBatchUpdateService(this.dispatch);
         Object.values(tables).forEach(table => {
-          this.dispatch(updateTableFromFirebase(table));
+          batchService.batchUpdateTable(table);
         });
       });
       this.listeners.set('tables', tablesUnsubscribe);
 
       // Menu items listener
       const menuUnsubscribe = firebaseService.listenToMenuItems((menuItems) => {
+        const batchService = getBatchUpdateService(this.dispatch);
         Object.values(menuItems).forEach(menuItem => {
-          this.dispatch(updateMenuItemFromFirebase(menuItem));
+          batchService.batchUpdateMenuItem(menuItem);
         });
       });
       this.listeners.set('menu', menuUnsubscribe);
 
       // Inventory listener
       const inventoryUnsubscribe = firebaseService.listenToInventoryItems((items) => {
+        const batchService = getBatchUpdateService(this.dispatch);
         Object.values(items).forEach(item => {
-          this.dispatch(updateInventoryItemFromFirebase(item));
+          batchService.batchUpdateInventoryItem(item);
         });
       });
       this.listeners.set('inventory', inventoryUnsubscribe);
 
       // Customers listener
       const customersUnsubscribe = firebaseService.listenToCustomers((customers) => {
+        const batchService = getBatchUpdateService(this.dispatch);
         Object.values(customers).forEach(customer => {
           // Extra safety check: ensure customer belongs to current restaurant
           if (!customer.restaurantId || customer.restaurantId === this.restaurantId) {
-            this.dispatch({
-              ...updateCustomerFromFirebase(customer),
-              meta: { restaurantId: this.restaurantId }
-            });
+            batchService.batchUpdateCustomer(customer);
           } else {
             console.warn('🚫 Filtered out cross-account customer in FirebaseListenersService:', customer.id, 'Expected:', this.restaurantId, 'Got:', customer.restaurantId);
           }

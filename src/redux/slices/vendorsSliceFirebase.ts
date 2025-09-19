@@ -19,9 +19,11 @@ export interface VendorTransaction {
   id: string;
   vendorId: string;
   billNumber: string;
-  creditAmount: number;
+  totalAmount: number;
   paidAmount: number;
-  paymentMethod: 'Cash' | 'F.Pay' | 'Cheque';
+  creditAmount: number; // This will be calculated as totalAmount - paidAmount
+  paymentMethod: 'Cash' | 'F.Pay' | 'Cheque' | 'Card' | 'Bank Transfer' | 'Fonepay' | 'Wallet';
+  chequeNumber?: string; // Optional, only for Cheque payments
   date: any;
   createdAt: any;
   updatedAt: any;
@@ -302,9 +304,20 @@ const vendorsSlice = createSlice({
         state.loading = false;
         // Update transactions for the specific vendor
         const { vendorId, transactions } = action.payload;
+        
+        // First, remove all existing transactions for this vendor
+        Object.keys(state.transactions).forEach(transactionId => {
+          if (state.transactions[transactionId].vendorId === vendorId) {
+            delete state.transactions[transactionId];
+          }
+        });
+        
+        // Then add the new transactions
         Object.values(transactions).forEach((transaction: VendorTransaction) => {
           state.transactions[transaction.id] = transaction;
         });
+        
+        console.log('Redux: Fetched transactions for vendor:', vendorId, 'Count:', Object.values(transactions).length);
       })
       .addCase(fetchVendorTransactions.rejected, (state, action) => {
         state.loading = false;
@@ -325,9 +338,19 @@ const vendorsSlice = createSlice({
         // Update vendor balance
         const vendorId = action.payload.vendorId;
         if (state.vendors[vendorId]) {
-          const balanceChange = action.payload.creditAmount - action.payload.paidAmount;
+          // For settlements: subtract paid amount from balance
+          // For regular transactions: add credit amount to balance
+          let balanceChange;
+          if (action.payload.billNumber && action.payload.billNumber.startsWith('SETTLE-')) {
+            // Settlement transaction - subtract paid amount
+            balanceChange = -action.payload.paidAmount;
+          } else {
+            // Regular transaction - add credit amount
+            balanceChange = action.payload.creditAmount;
+          }
+          
           state.vendors[vendorId].balance += balanceChange;
-          console.log('Redux: Updated vendor balance:', state.vendors[vendorId].balance);
+          console.log('Redux: Updated vendor balance:', state.vendors[vendorId].balance, 'change:', balanceChange);
         }
       })
       .addCase(createVendorTransaction.rejected, (state, action) => {

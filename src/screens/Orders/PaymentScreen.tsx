@@ -16,9 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, radius, shadow } from '../../theme';
 import { RootState, store } from '../../redux/storeFirebase';
 import { setPayment, completeOrder, setOrderCustomer, completeOrderWithReceipt } from '../../redux/slices/ordersSlice';
-import { unmergeOrders } from '../../redux/slices/ordersSliceFirebase';
 import { addOrUpdateCustomer, incrementVisitCount, updateCustomer, updateCreditAmount } from '../../redux/slices/customersSlice';
-import { unmergeTables } from '../../redux/slices/tablesSliceFirebase';
 import { PaymentInfo, Customer, Order } from '../../utils/types';
 import { PrintService } from '../../services/printing';
 import { getRealtimeSyncService } from '../../services/realtimeSyncService';
@@ -404,100 +402,6 @@ const PaymentScreen: React.FC = () => {
       } catch {}
     } catch {}
 
-    // Unmerge tables if this was a merged order
-    if (order.isMergedOrder && order.tableId) {
-      // Check if the tableId is actually a merged table
-      const table = tables[order.tableId];
-      if (table?.isMerged && table.mergedTables) {
-        console.log('🔄 Unmerging tables after payment completion:', {
-          mergedTableId: order.tableId,
-          originalTableIds: table.mergedTables,
-          mergedTableName: table.name
-        });
-        
-        // Unmerge both tables and orders
-        console.log('📤 Dispatching unmergeTables action...');
-        dispatch(unmergeTables({ mergedTableId: order.tableId, originalTableIds: table.mergedTables } as any));
-        
-        console.log('📤 Dispatching unmergeOrders action...');
-        dispatch(unmergeOrders({ 
-          mergedTableId: order.tableId, 
-          originalTableIds: table.mergedTables 
-        }));
-        
-        console.log('✅ Unmerge actions dispatched successfully');
-        
-        // Add a small delay to check the state after unmerge
-        setTimeout(() => {
-          const currentState = store.getState() as any;
-          const currentTables = currentState.tables.tablesById;
-          console.log('🔍 State after unmerge (500ms delay):', {
-            originalTableIds: table.mergedTables || [],
-            tableStatuses: (table.mergedTables || []).map((id: string) => ({
-              id,
-              isActive: currentTables[id]?.isActive,
-              isOccupied: currentTables[id]?.isOccupied,
-              exists: !!currentTables[id]
-            }))
-          });
-        }, 500);
-        
-        // Add a longer delay to check if real-time sync picks up the changes
-        setTimeout(() => {
-          const currentState = store.getState() as any;
-          const currentTables = currentState.tables.tablesById;
-          console.log('🔍 State after unmerge (2s delay):', {
-            originalTableIds: table.mergedTables || [],
-            tableStatuses: (table.mergedTables || []).map((id: string) => ({
-              id,
-              isActive: currentTables[id]?.isActive,
-              isOccupied: currentTables[id]?.isOccupied,
-              exists: !!currentTables[id]
-            }))
-          });
-          
-          // Force refresh tables from Firebase if they're still inactive
-          const inactiveTables = (table.mergedTables || []).filter((id: string) => 
-            currentTables[id] && currentTables[id].isActive === false
-          );
-          
-          if (inactiveTables.length > 0) {
-            console.log('🔄 Some tables are still inactive, forcing refresh from Firebase:', inactiveTables);
-            // Dispatch a manual refresh action to reload tables from Firebase
-            dispatch({ type: 'tables/refreshFromFirebase' });
-          }
-          
-          // Show success message for unmerge
-          Alert.alert(
-            'Tables Unmerged',
-            'The merged tables have been successfully unmerged. You can now place new orders on individual tables.',
-            [
-              {
-                text: 'OK',
-                onPress: () => {
-                  // Navigate to dashboard to show the unmerged tables
-                  (navigation as any).navigate('Dashboard', { screen: 'TablesDashboard' });
-                }
-              }
-            ]
-          );
-        }, 2000);
-      } else {
-        console.log('⚠️ Order marked as merged but table not found or not merged:', {
-          orderId: order.id,
-          tableId: order.tableId,
-          tableExists: !!table,
-          isMerged: table?.isMerged,
-          hasMergedTables: !!table?.mergedTables
-        });
-      }
-    } else {
-      console.log('ℹ️ Order is not a merged order, skipping unmerge:', {
-        orderId: order.id,
-        isMergedOrder: order.isMergedOrder,
-        tableId: order.tableId
-      });
-    }
 
     // Don't print automatically - only print when user clicks "Print & Done"
     // printReceipt(paymentInfo);
@@ -669,25 +573,6 @@ const PaymentScreen: React.FC = () => {
       } catch {}
     } catch {}
 
-    // Unmerge tables and orders if this was a merged order
-    if (order.isMergedOrder && order.tableId) {
-      const table = tables[order.tableId];
-      if (table?.isMerged && Array.isArray(table.mergedTables) && table.mergedTables.length > 0) {
-        // Unmerge tables
-        dispatch(unmergeTables({ mergedTableId: order.tableId, originalTableIds: table.mergedTables } as any));
-        // Unmerge orders to fresh orders on original tables
-        try {
-          dispatch(unmergeOrders({ 
-            mergedTableId: order.tableId, 
-            originalTableIds: table.mergedTables 
-          }) as any);
-        } catch {}
-        // Optionally force a refresh shortly after to ensure dashboard reflects changes
-        setTimeout(() => {
-          try { dispatch({ type: 'tables/refreshFromFirebase' } as any); } catch {}
-        }, 800);
-      }
-    }
 
     // Don't print automatically - only print when user clicks "Print & Done"
     // printReceipt(paymentInfo);

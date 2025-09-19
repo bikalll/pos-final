@@ -30,7 +30,16 @@
     "expo:export": "expo export",
     "expo:publish": "expo publish",
     "expo:build:clean": "expo prebuild --clean && expo run:android",
-    "expo:build:ios-clean": "expo prebuild --clean && expo run:ios"
+    "expo:build:ios-clean": "expo prebuild --clean && expo run:ios",
+    "test:all": "node scripts/test-runner.js all",
+    "test:smoke": "node scripts/test-runner.js smoke",
+    "test:functionality": "node scripts/test-runner.js functionality",
+    "test:performance": "node scripts/test-runner.js performance",
+    "test:edgecase": "node scripts/test-runner.js edgecase",
+    "test:monitor": "node scripts/test-runner.js monitor",
+    "test:watch": "npm run test:monitor",
+    "test:comprehensive": "node scripts/comprehensive-test-executor.js",
+    "test:phase7": "npm run test:comprehensive"
   },
   "dependencies": {
     "@expo/vector-icons": "^14.0.2",

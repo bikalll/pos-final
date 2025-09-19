@@ -83,6 +83,8 @@ export const completeOrderWithReceipt = createAsyncThunk(
             tax: tax,
             serviceCharge: serviceCharge,
             discount: totalDiscount,
+            itemDiscount: itemDiscountsTotal,
+            orderDiscount: orderDiscountAmount,
             restaurantName: state?.auth?.restaurantName || 'Restaurant',
             processedBy: order.processedBy || {
               role: state?.auth?.role || 'Staff',
@@ -121,12 +123,12 @@ const ordersSlice = createSlice({
   initialState,
   reducers: {
     createOrder: {
-        prepare: (tableId: string, restaurantId: string, mergedTableIds?: string[]) => ({
-          payload: { id: generateId(), tableId, restaurantId, mergedTableIds },
+        prepare: (tableId: string, restaurantId: string) => ({
+          payload: { id: generateId(), tableId, restaurantId },
         }),
       reducer: (
         state,
-        action: PayloadAction<{ id: string; tableId: string; restaurantId: string; mergedTableIds?: string[] }>
+        action: PayloadAction<{ id: string; tableId: string; restaurantId: string }>
       ) => {
         const order: Order = {
           id: action.payload.id,
@@ -137,8 +139,6 @@ const ordersSlice = createSlice({
           discountPercentage: 0,
           serviceChargePercentage: 0,
           taxPercentage: 0,
-          mergedTableIds: action.payload.mergedTableIds,
-          isMergedOrder: !!action.payload.mergedTableIds,
           createdAt: Date.now(),
         };
         state.ordersById[order.id] = order;
@@ -300,107 +300,6 @@ const ordersSlice = createSlice({
       }
       (order as any).savedQuantities = snapshot;
     },
-    mergeOrders: (
-      state,
-      action: PayloadAction<{
-        tableIds: string[];
-        mergedTableId: string;
-        mergedTableName: string;
-      }>
-    ) => {
-      const { tableIds, mergedTableId, mergedTableName } = action.payload;
-
-      // Find all ongoing orders for the tables being merged
-      const ordersToMerge = state.ongoingOrderIds
-        .map((id) => state.ordersById[id])
-        .filter((order) => order && tableIds.includes(order.tableId));
-
-      if (ordersToMerge.length === 0) return;
-
-      // Create a new merged order
-      const mergedOrder: Order = {
-        id: generateId(),
-        tableId: mergedTableId,
-        mergedTableIds: tableIds,
-        isMergedOrder: true,
-        status: "ongoing",
-        items: [],
-        discountPercentage: 0,
-        serviceChargePercentage: 0,
-        taxPercentage: 0,
-        createdAt: Date.now(),
-        restaurantId: ordersToMerge[0]?.restaurantId || ''
-      };
-
-      // Consolidate all items from existing orders
-      ordersToMerge.forEach((order) => {
-        order.items.forEach((item) => {
-          const existingItem = mergedOrder.items.find(
-            (i) => i.menuItemId === item.menuItemId
-          );
-          if (existingItem) {
-            existingItem.quantity += item.quantity;
-            // Merge modifiers if they exist
-            if (item.modifiers && existingItem.modifiers) {
-              existingItem.modifiers = [
-                ...new Set([...existingItem.modifiers, ...item.modifiers]),
-              ];
-            }
-          } else {
-            mergedOrder.items.push({ ...item });
-          }
-        });
-      });
-
-      // Add the merged order
-      state.ordersById[mergedOrder.id] = mergedOrder;
-      state.ongoingOrderIds.unshift(mergedOrder.id);
-
-      // Remove the original orders
-      ordersToMerge.forEach((order) => {
-        delete state.ordersById[order.id];
-        state.ongoingOrderIds = state.ongoingOrderIds.filter((id) => id !== order.id);
-      });
-    },
-    unmergeOrders: (
-      state,
-      action: PayloadAction<{ mergedTableId: string; originalTableIds: string[] }>
-    ) => {
-      const { mergedTableId, originalTableIds } = action.payload;
-
-      // Find the merged order by tableId and merged flag, then delete by its orderId
-      const mergedOrder = Object.values(state.ordersById).find(
-        (o) => o.tableId === mergedTableId && (o as any).isMergedOrder
-      ) as any;
-      if (!mergedOrder) return;
-
-      // Remove the merged order using its actual order id
-      delete state.ordersById[mergedOrder.id];
-      state.ongoingOrderIds = state.ongoingOrderIds.filter((id) => id !== mergedOrder.id);
-
-      // For fresh start: Clear ALL orders associated with the unmerged tables
-      // This ensures tables start completely fresh with no previous data
-      originalTableIds.forEach((tableId) => {
-        // Find and remove any existing orders for this table
-        const existingOrderIds = state.ongoingOrderIds.filter(id => {
-          const order = state.ordersById[id];
-          return order && order.tableId === tableId;
-        });
-        
-        // Remove all existing orders for this table
-        existingOrderIds.forEach(orderId => {
-          delete state.ordersById[orderId];
-        });
-        
-        // Remove from ongoing order IDs
-        state.ongoingOrderIds = state.ongoingOrderIds.filter(id => !existingOrderIds.includes(id));
-        
-        console.log('🔄 Cleared all orders for unmerged table:', {
-          tableId,
-          removedOrderIds: existingOrderIds
-        });
-      });
-    },
   },
 });
 
@@ -416,8 +315,6 @@ export const {
   cancelEmptyOrder,
   changeOrderTable,
   setOrderCustomer,
-  mergeOrders,
-  unmergeOrders,
   snapshotSavedQuantities,
   markOrderSaved,
   markOrderReviewed,

@@ -7,15 +7,12 @@ import { Order } from './types';
 export function cleanOrderData(order: Order): Order {
   return {
     ...order,
-    // Ensure mergedTableIds is either an array or null, not undefined
-    mergedTableIds: order.mergedTableIds && Array.isArray(order.mergedTableIds) ? order.mergedTableIds : null,
     // Ensure other optional fields are properly handled
     customerName: order.customerName || null,
     customerPhone: order.customerPhone || null,
     payment: order.payment || null,
     savedQuantities: order.savedQuantities || {},
     // Ensure boolean fields are properly set
-    isMergedOrder: order.isMergedOrder || false,
     isSaved: order.isSaved || false,
     isReviewed: order.isReviewed || false,
     // Ensure items array is preserved

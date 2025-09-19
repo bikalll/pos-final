@@ -35,4 +35,4 @@ CHANGES AND HOW TO USE THEM
   2. Optional: enter customer name/phone (required if any Credit is used)
   3. To split: tap Split Bill, add payment lines and amounts until totals match; tap Proceed Payment
   4. Tap Process Payment. Choose Done or Print & Done to print the receipt
-- Notes: Merged table orders automatically unmerge after completing payment. Configure printers in Settings > Printer Setup.
+- Notes: Configure printers in Settings > Printer Setup.

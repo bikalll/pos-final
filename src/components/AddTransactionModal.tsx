@@ -34,9 +34,10 @@ const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
   const dispatch = useDispatch();
   const [formData, setFormData] = useState({
     billNumber: '',
-    creditAmount: '',
+    totalAmount: '',
     paidAmount: '',
     paymentMethod: 'Cash' as 'Cash' | 'F.Pay' | 'Cheque',
+    chequeNumber: '',
   });
   const [loading, setLoading] = useState(false);
 
@@ -45,6 +46,37 @@ const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
       ...prev,
       [field]: value,
     }));
+  };
+
+  const handlePaidAmountChange = (value: string) => {
+    const totalAmount = parseFloat(formData.totalAmount) || 0;
+    const paidAmount = parseFloat(value) || 0;
+    
+    // Prevent entering paid amount greater than purchase amount
+    if (paidAmount > totalAmount && totalAmount > 0) {
+      Alert.alert('Invalid Amount', 'Paid amount cannot be more than purchase amount');
+      return;
+    }
+    
+    // Only allow the input if it's valid
+    setFormData(prev => ({
+      ...prev,
+      paidAmount: value,
+    }));
+  };
+
+  // Calculate credit amount automatically
+  const calculateCreditAmount = () => {
+    const totalAmount = parseFloat(formData.totalAmount) || 0;
+    const paidAmount = parseFloat(formData.paidAmount) || 0;
+    return totalAmount - paidAmount;
+  };
+
+  // Check if paid amount is invalid
+  const isPaidAmountInvalid = () => {
+    const totalAmount = parseFloat(formData.totalAmount) || 0;
+    const paidAmount = parseFloat(formData.paidAmount) || 0;
+    return paidAmount > totalAmount && totalAmount > 0;
   };
 
   const handlePaymentMethodChange = (method: 'Cash' | 'F.Pay' | 'Cheque') => {
@@ -60,8 +92,8 @@ const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
       Alert.alert('Error', 'Please enter bill number');
       return;
     }
-    if (!formData.creditAmount.trim()) {
-      Alert.alert('Error', 'Please enter credit amount');
+    if (!formData.totalAmount.trim()) {
+      Alert.alert('Error', 'Please enter purchase amount');
       return;
     }
     if (!formData.paidAmount.trim()) {
@@ -69,17 +101,29 @@ const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
       return;
     }
 
-    const creditAmount = parseFloat(formData.creditAmount);
+    const totalAmount = parseFloat(formData.totalAmount);
     const paidAmount = parseFloat(formData.paidAmount);
 
-    if (isNaN(creditAmount) || creditAmount < 0) {
-      Alert.alert('Error', 'Please enter a valid credit amount');
+    if (isNaN(totalAmount) || totalAmount < 0) {
+      Alert.alert('Error', 'Please enter a valid purchase amount');
       return;
     }
     if (isNaN(paidAmount) || paidAmount < 0) {
       Alert.alert('Error', 'Please enter a valid paid amount');
       return;
     }
+    if (paidAmount > totalAmount) {
+      Alert.alert('Error', 'Paid amount cannot be more than purchase amount');
+      return;
+    }
+
+    // Validate cheque number if payment method is Cheque
+    if (formData.paymentMethod === 'Cheque' && !formData.chequeNumber.trim()) {
+      Alert.alert('Error', 'Please enter cheque number for cheque payment');
+      return;
+    }
+
+    const creditAmount = calculateCreditAmount();
 
     setLoading(true);
     try {
@@ -93,14 +137,23 @@ const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
         date: new Date(),
       });
 
-      const result = await dispatch(createVendorTransaction({
+      // Prepare transaction data, filtering out undefined values
+      const transactionData: any = {
         vendorId: vendor.id,
         billNumber: formData.billNumber.trim(),
-        creditAmount,
+        totalAmount,
         paidAmount,
+        creditAmount,
         paymentMethod: formData.paymentMethod,
         date: new Date(),
-      }) as any);
+      };
+
+      // Only include chequeNumber if payment method is Cheque and value exists
+      if (formData.paymentMethod === 'Cheque' && formData.chequeNumber.trim()) {
+        transactionData.chequeNumber = formData.chequeNumber.trim();
+      }
+
+      const result = await dispatch(createVendorTransaction(transactionData) as any);
 
       console.log('Transaction creation result:', result);
 
@@ -111,9 +164,10 @@ const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
       // Reset form
       setFormData({
         billNumber: '',
-        creditAmount: '',
+        totalAmount: '',
         paidAmount: '',
         paymentMethod: 'Cash',
+        chequeNumber: '',
       });
 
       onTransactionAdded();
@@ -129,9 +183,10 @@ const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
     if (!loading) {
       setFormData({
         billNumber: '',
-        creditAmount: '',
+        totalAmount: '',
         paidAmount: '',
         paymentMethod: 'Cash',
+        chequeNumber: '',
       });
       onClose();
     }
@@ -154,11 +209,18 @@ const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
             <TouchableOpacity onPress={handleClose} disabled={loading} style={styles.closeButton}>
               <Ionicons name="close" size={20} color={colors.textSecondary} />
             </TouchableOpacity>
-            <Text style={styles.title}>Add Transaction</Text>
+            <Text style={styles.title}>Add Transaction for {vendor.vendorName}</Text>
             <View style={styles.placeholder} />
           </View>
 
-          <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+          <ScrollView 
+            style={styles.content} 
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.scrollContent}
+          >
+            {/* Subtitle */}
+            <Text style={styles.subtitle}>Record a new invoice and payment for this vendor.</Text>
+            
             {/* Compact Form */}
             <View style={styles.form}>
               {/* Bill Number */}
@@ -177,11 +239,11 @@ const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
               {/* Amounts Row */}
               <View style={styles.amountsRow}>
                 <View style={styles.amountInput}>
-                  <Text style={styles.label}>Credit</Text>
+                  <Text style={styles.label}>Purchase Amount</Text>
                   <TextInput
                     style={styles.input}
-                    value={formData.creditAmount}
-                    onChangeText={(value) => handleInputChange('creditAmount', value)}
+                    value={formData.totalAmount}
+                    onChangeText={(value) => handleInputChange('totalAmount', value)}
                     placeholder="0"
                     placeholderTextColor={colors.textSecondary}
                     keyboardType="numeric"
@@ -189,11 +251,14 @@ const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
                   />
                 </View>
                 <View style={styles.amountInput}>
-                  <Text style={styles.label}>Paid</Text>
+                  <Text style={styles.label}>Paid Amount</Text>
                   <TextInput
-                    style={styles.input}
+                    style={[
+                      styles.input,
+                      isPaidAmountInvalid() && styles.invalidInput
+                    ]}
                     value={formData.paidAmount}
-                    onChangeText={(value) => handleInputChange('paidAmount', value)}
+                    onChangeText={handlePaidAmountChange}
                     placeholder="0"
                     placeholderTextColor={colors.textSecondary}
                     keyboardType="numeric"
@@ -226,6 +291,41 @@ const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
                   ))}
                 </View>
               </View>
+
+              {/* Cheque Number Input - Only show when payment method is Cheque */}
+              {formData.paymentMethod === 'Cheque' && (
+                <View style={styles.inputRow}>
+                  <Text style={styles.label}>Cheque Number *</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={formData.chequeNumber}
+                    onChangeText={(value) => handleInputChange('chequeNumber', value)}
+                    placeholder="Enter cheque number"
+                    placeholderTextColor={colors.textSecondary}
+                    editable={!loading}
+                  />
+                </View>
+              )}
+
+              {/* Credit Amount Display */}
+              <View style={styles.creditDisplayRow}>
+                <Text style={styles.label}>Balance for this transaction</Text>
+                <View style={styles.creditDisplay}>
+                  <Text style={styles.balanceAmountText}>
+                    Rs {calculateCreditAmount().toFixed(2)}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Previous Credit Display */}
+              <View style={styles.creditDisplayRow}>
+                <Text style={styles.label}>Previous Credit</Text>
+                <View style={styles.creditDisplay}>
+                  <Text style={styles.creditAmountText}>
+                    Rs {(vendor.balance || 0).toFixed(2)}
+                  </Text>
+                </View>
+              </View>
             </View>
           </ScrollView>
 
@@ -244,7 +344,7 @@ const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
               disabled={loading}
             >
               <Text style={styles.saveButtonText}>
-                {loading ? 'Saving...' : 'Save'}
+                {loading ? 'Saving...' : 'Save Transaction'}
               </Text>
             </TouchableOpacity>
           </View>
@@ -288,6 +388,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,
   },
+  scrollContent: {
+    paddingBottom: spacing.xl,
+  },
+  subtitle: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    marginBottom: spacing.lg,
+    textAlign: 'center',
+  },
   form: {
     gap: spacing.lg,
   },
@@ -301,6 +410,28 @@ const styles = StyleSheet.create({
   amountInput: {
     flex: 1,
     gap: spacing.sm,
+  },
+  creditDisplayRow: {
+    gap: spacing.sm,
+  },
+  creditDisplay: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.outline,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+  },
+  creditAmountText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.textPrimary,
+  },
+  balanceAmountText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#FF4444', // Red color for balance
   },
   paymentSection: {
     gap: spacing.sm,
@@ -319,6 +450,10 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
     fontSize: 16,
     color: colors.textPrimary,
+  },
+  invalidInput: {
+    borderColor: '#FF4444',
+    borderWidth: 2,
   },
   paymentButtons: {
     flexDirection: 'row',

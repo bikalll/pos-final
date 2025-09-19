@@ -20,6 +20,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import { RootState } from '../../redux/storeFirebase';
 import { colors, spacing, radius, shadow } from '../../theme';
 import { createFirestoreService } from '../../services/firestoreService';
+import { useOptimizedListenerCleanup } from '../../services/OptimizedListenerManager';
 
 type TablesDashboardNavigationProp = NativeStackNavigationProp<any, 'TablesDashboard'>;
 
@@ -31,8 +32,6 @@ interface Table {
   currentOrderId?: string;
   totalAmount?: number;
   customerCount?: number;
-  isMerged?: boolean;
-  mergedTableNames?: string[];
   totalSeats?: number;
 }
 
@@ -50,6 +49,9 @@ const TablesDashboardScreen: React.FC = () => {
   const customers = useSelector((state: RootState) => (state as any).customers?.customersById || {});
   const { restaurantId } = useSelector((state: RootState) => state.auth);
   const dispatch = useDispatch();
+  
+  // Use optimized listener management with batch updates
+  const { addListener, removeListener, cleanup, batchUpdate } = useOptimizedListenerCleanup('TablesDashboardScreen');
 
   // Reservation modal state
   const [reservationModalVisible, setReservationModalVisible] = useState(false);
@@ -101,16 +103,11 @@ const TablesDashboardScreen: React.FC = () => {
         reservedUntil: table.reservedUntil,
         reservedBy: table.reservedBy,
         reservedNote: table.reservedNote,
-        // Merge fields
-        isMerged: table.isMerged || false,
-        mergerId: table.mergerId,
-        mergedTables: table.mergedTables,
-        mergedTableNames: table.mergedTableNames,
         totalSeats: table.totalSeats,
       }));
       // Compute stable hash to avoid redundant state updates that can trigger loops
       const hashParts = tablesArray
-        .map(t => ({ id: t.id, isActive: t.isActive, isMerged: t.isMerged, isOccupied: t.isOccupied, isReserved: t.isReserved, merged: (Array.isArray(t.mergedTables) ? t.mergedTables.join(',') : '') }))
+        .map(t => ({ id: t.id, isActive: t.isActive, isOccupied: t.isOccupied, isReserved: t.isReserved }))
         .sort((a, b) => String(a.id).localeCompare(String(b.id)));
       const nextHash = JSON.stringify(hashParts);
       if (nextHash !== lastTablesHashRef.current) {
@@ -121,7 +118,6 @@ const TablesDashboardScreen: React.FC = () => {
       console.log('🔍 Firebase tables data:', tablesArray.map(t => ({
         id: t.id,
         name: t.name,
-        isMerged: t.isMerged,
         isOccupied: t.isOccupied,
         isActive: t.isActive
       })));
@@ -137,48 +133,70 @@ const TablesDashboardScreen: React.FC = () => {
     loadTables();
   }, [restaurantId]);
 
-  // Realtime Firestore listener for tables (keeps isOccupied in sync)
+  // Realtime Firestore listener for tables with optimized management and batch updates
   useEffect(() => {
     if (!restaurantId) return;
-    try {
-      const service = createFirestoreService(restaurantId);
-      const unsubscribe = service.listenToTables((tablesData: Record<string, any>) => {
-        const tablesArray = Object.values(tablesData).map((table: any) => ({
-          id: table.id || Object.keys(tablesData).find(key => (tablesData as any)[key] === table),
-          name: table.name,
-          seats: table.seats,
-          description: table.description || '',
-          isActive: table.isActive !== false,
-          createdAt: table.createdAt,
-          restaurantId: table.restaurantId,
-          isOccupied: !!table.isOccupied,
-          // Reservation fields
-          isReserved: table.isReserved || false,
-          reservedAt: table.reservedAt,
-          reservedUntil: table.reservedUntil,
-          reservedBy: table.reservedBy,
-          reservedNote: table.reservedNote,
-          // Merge fields
-          isMerged: table.isMerged || false,
-          mergerId: table.mergerId,
-          mergedTables: table.mergedTables,
-          mergedTableNames: table.mergedTableNames,
-          totalSeats: table.totalSeats,
-        }));
-        const hashParts = tablesArray
-          .map(t => ({ id: t.id, isActive: t.isActive, isMerged: t.isMerged, isOccupied: t.isOccupied, isReserved: t.isReserved, merged: (Array.isArray(t.mergedTables) ? t.mergedTables.join(',') : '') }))
-          .sort((a, b) => String(a.id).localeCompare(String(b.id)));
-        const nextHash = JSON.stringify(hashParts);
-        if (nextHash !== lastTablesHashRef.current) {
-          lastTablesHashRef.current = nextHash;
-          setFirebaseTables(tablesArray);
-        }
-      });
-      return () => unsubscribe && unsubscribe();
-    } catch (e) {
-      console.warn('Failed to start tables realtime listener:', (e as Error).message);
+    
+    const setupListener = () => {
+      try {
+        const service = createFirestoreService(restaurantId);
+        return service.listenToTables((tablesData: Record<string, any>) => {
+          console.log('📡 Real-time tables update received:', Object.keys(tablesData).length);
+          
+          const tablesArray = Object.values(tablesData).map((table: any) => ({
+            id: table.id || Object.keys(tablesData).find(key => (tablesData as any)[key] === table),
+            name: table.name,
+            seats: table.seats,
+            description: table.description || '',
+            isActive: table.isActive !== false,
+            createdAt: table.createdAt,
+            restaurantId: table.restaurantId,
+            isOccupied: !!table.isOccupied,
+            // Reservation fields
+            isReserved: table.isReserved || false,
+            reservedAt: table.reservedAt,
+            reservedUntil: table.reservedUntil,
+            reservedBy: table.reservedBy,
+            reservedNote: table.reservedNote,
+            totalSeats: table.totalSeats,
+          }));
+          
+          // Use batch update for better performance
+          batchUpdate('tables', tablesArray);
+          
+          const hashParts = tablesArray
+            .map(t => ({ id: t.id, isActive: t.isActive, isOccupied: t.isOccupied, isReserved: t.isReserved }))
+            .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+          const nextHash = JSON.stringify(hashParts);
+          if (nextHash !== lastTablesHashRef.current) {
+            lastTablesHashRef.current = nextHash;
+            setFirebaseTables(tablesArray);
+          }
+        });
+      } catch (e) {
+        console.warn('Failed to start tables realtime listener:', (e as Error).message);
+        return null;
+      }
+    };
+
+    const unsubscribe = setupListener();
+    if (unsubscribe) {
+      addListener('tables-realtime', unsubscribe);
     }
-  }, [restaurantId]);
+    
+    return () => {
+      if (unsubscribe) {
+        removeListener('tables-realtime');
+      }
+    };
+  }, [restaurantId, addListener, removeListener, batchUpdate]);
+
+  // Automatic cleanup on unmount
+  useEffect(() => {
+    return () => {
+      cleanup();
+    };
+  }, [cleanup]);
 
   // Refresh data when screen comes into focus
   useFocusEffect(
@@ -204,28 +222,8 @@ const TablesDashboardScreen: React.FC = () => {
     const individualTables: any[] = [];
     
     firebaseTables.forEach(table => {
-      if (table.isMerged && table.mergerId) {
-        // This is a merged table - group it with others having the same mergerId
-        if (!mergerGroups[table.mergerId]) {
-          mergerGroups[table.mergerId] = [];
-        }
-        mergerGroups[table.mergerId].push(table);
-      } else if (table.isMerged && !table.mergerId) {
-        // Legacy merged table without mergerId - treat as individual
+      if (table.isActive) {
         individualTables.push(table);
-      } else if (table.isActive) {
-        // Regular active table - check if it's part of a merged group
-        const isPartOfMergedGroup = firebaseTables.some(otherTable => 
-          otherTable.isMerged && 
-          otherTable.mergerId &&
-          otherTable.mergedTables && 
-          Array.isArray(otherTable.mergedTables) &&
-          otherTable.mergedTables.includes(table.id)
-        );
-        
-        if (!isPartOfMergedGroup) {
-          individualTables.push(table);
-        }
       }
     });
     
@@ -235,17 +233,6 @@ const TablesDashboardScreen: React.FC = () => {
     // Add individual tables
     filteredTables.push(...individualTables);
     
-    // Add merged table groups (only show the main merged table, not individual components)
-    Object.values(mergerGroups).forEach(group => {
-      // Find the main merged table (the one with mergedTables array)
-      const mainMergedTable = group.find(table => table.mergedTables && Array.isArray(table.mergedTables));
-      if (mainMergedTable) {
-        filteredTables.push(mainMergedTable);
-      } else {
-        // Fallback: add all tables in the group
-        filteredTables.push(...group);
-      }
-    });
     
     
     const convertedTables: Table[] = filteredTables
@@ -254,25 +241,12 @@ const TablesDashboardScreen: React.FC = () => {
         const occupiedActive = !!table.isOccupied;
         
         
-        if (table.isMerged) {
-          const status = occupiedActive ? 'occupied' as const : reservedActive ? 'reserved' as const : 'available' as const;
-          return {
-            id: table.id,
-            number: parseInt(table.name.replace(/\D/g, '')) || 1,
-            capacity: table.totalSeats || table.seats,
-            status,
-            isMerged: true,
-            mergedTableNames: table.mergedTableNames,
-            totalSeats: table.totalSeats || table.seats,
-          };
-        } else {
-          return {
-            id: table.id,
-            number: parseInt(table.name.replace(/\D/g, '')) || 1,
-            capacity: table.seats,
-            status: occupiedActive ? 'occupied' as const : reservedActive ? 'reserved' as const : 'available' as const,
-          };
-        }
+        return {
+          id: table.id,
+          number: parseInt(table.name.replace(/\D/g, '')) || 1,
+          capacity: table.seats,
+          status: occupiedActive ? 'occupied' as const : reservedActive ? 'reserved' as const : 'available' as const,
+        };
       });
 
     setTables(convertedTables);
@@ -315,8 +289,6 @@ const TablesDashboardScreen: React.FC = () => {
       openReservationModal(table);
     } else if (table.status === 'occupied') {
       Alert.alert('Cannot Reserve', `${name} is currently occupied.`);
-    } else if (table.isMerged) {
-      Alert.alert('Cannot Reserve', `${name} is a merged table.`);
     }
   };
 
@@ -526,18 +498,6 @@ const TablesDashboardScreen: React.FC = () => {
         <Text style={styles.remainingTime}>{getRemainingLabel(table.id)}</Text>
       )}
       
-      {/* Show merged table information */}
-      {table.isMerged && table.mergedTableNames && (
-        <View style={styles.mergedInfo}>
-          <Text style={styles.mergedLabel}>Merged Tables:</Text>
-          <Text style={styles.mergedTables}>
-            {table.mergedTableNames.join(' + ')}
-          </Text>
-          <Text style={styles.totalSeats}>
-            Total Seats: {table.totalSeats || table.capacity}
-          </Text>
-        </View>
-      )}
       
       <TouchableOpacity 
         style={[styles.createOrderButton, table.status === 'reserved' && styles.createOrderButtonDisabled]}
@@ -675,7 +635,7 @@ const TablesDashboardScreen: React.FC = () => {
                               borderRadius: radius.md,
                               borderWidth: 1,
                               borderColor: isSelected ? colors.primary : colors.outline,
-                              backgroundColor: isSelected ? colors.primary + '10' : colors.surface,
+                              backgroundColor: isSelected ? `${colors.primary}10` : colors.surface,
                               marginBottom: spacing.xs,
                             }}
                           >
@@ -936,7 +896,11 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     borderWidth: 1,
     borderColor: colors.outline,
-    ...shadow.card,
+    shadowColor: shadow.card.shadowColor,
+    shadowOffset: shadow.card.shadowOffset,
+    shadowOpacity: shadow.card.shadowOpacity,
+    shadowRadius: shadow.card.shadowRadius,
+    elevation: shadow.card.elevation,
     marginBottom: spacing.md,
   },
   tableCardReserved: {
@@ -993,7 +957,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   mergedInfo: {
-    backgroundColor: colors.primary + '10',
+    backgroundColor: `${colors.primary}10`,
     borderRadius: radius.md,
     padding: spacing.md,
     marginBottom: spacing.md,
@@ -1006,9 +970,7 @@ const styles = StyleSheet.create({
     color: colors.primary,
     marginBottom: spacing.xs,
   },
-  mergedTables: {
-    fontSize: 14,
-    fontWeight: '500',
+  mergedTableName: {
     color: colors.textPrimary,
     marginBottom: spacing.xs,
   },
@@ -1027,7 +989,11 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     width: '90%',
     padding: spacing.lg,
-    ...shadow.card,
+    shadowColor: shadow.card.shadowColor,
+    shadowOffset: shadow.card.shadowOffset,
+    shadowOpacity: shadow.card.shadowOpacity,
+    shadowRadius: shadow.card.shadowRadius,
+    elevation: shadow.card.elevation,
   },
   reservationTitle: {
     fontSize: 18,
@@ -1051,7 +1017,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   dayToggleActive: {
-    backgroundColor: colors.primary + '10',
+    backgroundColor: `${colors.primary}10`,
     borderColor: colors.primary,
   },
   dayToggleText: {
@@ -1085,7 +1051,7 @@ const styles = StyleSheet.create({
     marginLeft: spacing.xs,
   },
   ampmToggleActive: {
-    backgroundColor: colors.info + '10',
+    backgroundColor: `${colors.info}10`,
     borderColor: colors.info,
   },
   ampmText: {
@@ -1153,7 +1119,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   actionItemDestructive: {
-    backgroundColor: colors.danger + '10',
+    backgroundColor: `${colors.danger}10`,
   },
   actionIcon: {
     marginRight: spacing.sm,
@@ -1163,7 +1129,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  // Shared modal header styles for consistency
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',

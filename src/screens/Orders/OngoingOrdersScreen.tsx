@@ -13,8 +13,11 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSelector, useDispatch } from 'react-redux';
 import { RootState } from '../../redux/storeFirebase';
 import { colors, spacing, radius } from '../../theme';
+import { getOptimizedTables } from '../../services/DirectFirebaseService';
 import { createFirestoreService } from '../../services/firestoreService';
+import { getBatchUpdateService } from '../../services/BatchUpdateService';
 import { getFirebaseService } from '../../services/firebaseService';
+import { useListenerCleanup } from '../../services/ListenerManager';
 import { loadOrders, updateOrderFromFirebase, removeOrderFromFirebase } from '../../redux/slices/ordersSliceFirebase';
 
 const OngoingOrdersScreen: React.FC = () => {
@@ -32,6 +35,9 @@ const OngoingOrdersScreen: React.FC = () => {
   const ordersById = useSelector((state: RootState) => state.orders.ordersById || {});
   const tables = useSelector((state: RootState) => state.tables.tablesById || {});
   const { restaurantId } = useSelector((state: RootState) => state.auth);
+  
+  // Use centralized listener management
+  const { addListener, removeListener, cleanup } = useListenerCleanup('OngoingOrdersScreen');
 
   // Helper function to get table name
   const getTableName = (tableId: string) => {
@@ -42,10 +48,9 @@ const OngoingOrdersScreen: React.FC = () => {
     // First try Firebase tables
     const firebaseTable = firebaseTables[tableId];
     if (firebaseTable) {
-      console.log('✅ Found Firebase table:', firebaseTable.name, 'isMerged:', firebaseTable.isMerged);
-      // For merged tables, show the merged name
-      if (firebaseTable.isMerged && firebaseTable.name) {
-        console.log('✅ Returning merged table name:', firebaseTable.name);
+      console.log('✅ Found Firebase table:', firebaseTable.name);
+      if (firebaseTable.name) {
+        console.log('✅ Returning table name:', firebaseTable.name);
         return firebaseTable.name;
       }
       return firebaseTable.name;
@@ -54,10 +59,9 @@ const OngoingOrdersScreen: React.FC = () => {
     // Then try Redux store tables
     const table = tables[tableId];
     if (table) {
-      console.log('✅ Found Redux table:', table.name, 'isMerged:', table.isMerged);
-      // For merged tables, show the merged name
-      if (table.isMerged && table.name) {
-        console.log('✅ Returning merged table name from Redux:', table.name);
+      console.log('✅ Found Redux table:', table.name);
+      if (table.name) {
+        console.log('✅ Returning table name from Redux:', table.name);
         return table.name;
       }
       return table.name;
@@ -87,51 +91,8 @@ const OngoingOrdersScreen: React.FC = () => {
       const order: any = ordersById[orderId];
       const isValid = order && order.status === 'ongoing' && isToday(order.createdAt);
       
-      // Debug merged orders
-      if (order && order.isMergedOrder) {
-        console.log('🔍 Found merged order:', {
-          id: order.id,
-          tableId: order.tableId,
-          isMergedOrder: order.isMergedOrder,
-          mergedTableIds: order.mergedTableIds,
-          itemsCount: (order.items || [])?.length || 0,
-          status: order.status,
-          createdAt: order.createdAt
-        });
-      }
       
-      // Filter out orders that are part of a merged table
-      if (order && !order.isMergedOrder) {
-        // Check if this order's table is part of any merged order
-        const mergedOrders = Object.values(ordersById).filter((otherOrder: any) => 
-          otherOrder && otherOrder.isMergedOrder
-        );
-        
-        console.log('🔍 Checking if order is part of merged table:', {
-          orderId: order.id,
-          tableId: order.tableId,
-          mergedOrdersCount: mergedOrders.length,
-          mergedOrders: mergedOrders.map((mo: any) => ({
-            id: mo.id,
-            tableId: mo.tableId,
-            mergedTableIds: mo.mergedTableIds
-          }))
-        });
-        
-        const isPartOfMergedTable = mergedOrders.some((otherOrder: any) => 
-          otherOrder.mergedTableIds && 
-          Array.isArray(otherOrder.mergedTableIds) &&
-          otherOrder.mergedTableIds.includes(order.tableId)
-        );
-        
-        if (isPartOfMergedTable) {
-          console.log('🚫 Filtering out order that is part of merged table:', {
-            orderId: order.id,
-            tableId: order.tableId,
-            isMergedOrder: order.isMergedOrder
-          });
-          return false;
-        }
+      if (order) {
         
         // Additional check: if the table is marked as inactive in Firebase, don't show orders for it
         const firebaseTable = firebaseTables[order.tableId];
@@ -171,47 +132,17 @@ const OngoingOrdersScreen: React.FC = () => {
     visibleOngoingOrders: visibleOngoingOrders.length,
     ongoingOrderIds: ongoingOrders,
     ordersById: Object.keys(ordersById),
-    mergedOrders: Object.values(ordersById).filter((o: any) => o?.isMergedOrder),
     visibleOrdersDetails: visibleOngoingOrders.map(id => {
       const order = ordersById[id];
       return {
         id,
         tableId: order?.tableId,
-        isMergedOrder: order?.isMergedOrder,
         status: order?.status,
         tableName: order ? getTableName(order.tableId) : 'N/A'
       };
     })
   });
 
-  // Clean up orders that shouldn't exist (part of merged tables)
-  useEffect(() => {
-    const ordersToRemove: string[] = [];
-    
-    Object.values(ordersById).forEach((order: any) => {
-      if (order && !order.isMergedOrder) {
-        // Check if this order's table is part of any merged order
-        const mergedOrders = Object.values(ordersById).filter((otherOrder: any) => 
-          otherOrder && otherOrder.isMergedOrder
-        );
-        
-        const isPartOfMergedTable = mergedOrders.some((otherOrder: any) => 
-          otherOrder.mergedTableIds && 
-          Array.isArray(otherOrder.mergedTableIds) &&
-          otherOrder.mergedTableIds.includes(order.tableId)
-        );
-        
-        if (isPartOfMergedTable) {
-          ordersToRemove.push(order.id);
-        }
-      }
-    });
-    
-    // Remove the orders
-    ordersToRemove.forEach(orderId => {
-      dispatch(removeOrderFromFirebase(orderId));
-    });
-  }, [ordersById, dispatch, ongoingOrders]);
 
   // Load initial data and set up Firebase listeners
   useEffect(() => {
@@ -224,24 +155,47 @@ const OngoingOrdersScreen: React.FC = () => {
         // Load initial orders from Firebase
         dispatch(loadOrders() as any);
         
-        // Load tables from Firebase
-        const service = createFirestoreService(restaurantId);
-        const tablesData = await service.getTables();
-        console.log('🔥 Firebase tables loaded:', tablesData);
+        // Load tables from Firebase using new service
+        console.log('🔄 [DEBUG] Loading tables initially for restaurant:', restaurantId);
+        console.log('🔄 [DEBUG] getOptimizedTables function type:', typeof getOptimizedTables);
+        
+        if (typeof getOptimizedTables !== 'function') {
+          console.error('❌ [DEBUG] getOptimizedTables is not a function during initial load! Type:', typeof getOptimizedTables);
+          console.error('❌ [DEBUG] Trying fallback to DirectFirebaseService...');
+          
+          // Try fallback to DirectFirebaseService
+          try {
+            const { getOptimizedTables: directGetOptimizedTables } = await import('../../services/DirectFirebaseService');
+            if (typeof directGetOptimizedTables === 'function') {
+              console.log('✅ [DEBUG] Using DirectFirebaseService fallback');
+              const tablesData = await directGetOptimizedTables(restaurantId);
+              console.log('🔥 [DEBUG] Firebase tables loaded initially (fallback):', tablesData);
+              setFirebaseTables(tablesData);
+              return;
+            }
+          } catch (fallbackError) {
+            console.error('❌ [DEBUG] Fallback also failed:', fallbackError);
+          }
+          
+          throw new Error(`getOptimizedTables is not a function during initial load - it is ${typeof getOptimizedTables}`);
+        }
+        
+        const tablesData = await getOptimizedTables(restaurantId);
+        console.log('🔥 [DEBUG] Firebase tables loaded initially:', tablesData);
         setFirebaseTables(tablesData);
         
-        // Set up real-time listener for ongoing orders (Firestore)
+        // Set up real-time listener for ongoing orders (Firestore) using centralized management
+        const service = createFirestoreService(restaurantId);
         const unsubscribe = service.listenToOngoingOrders((orders) => {
           console.log('🔥 Firestore real-time ongoing orders:', Object.keys(orders).length);
-          Object.values(orders).forEach((order: any) => dispatch(updateOrderFromFirebase(order)));
+          const batchService = getBatchUpdateService(dispatch);
+          Object.values(orders).forEach((order: any) => batchService.batchUpdateOrder(order));
         });
         
-        setIsLoading(false);
+        // Register listener with centralized management
+        addListener('ongoing-orders', unsubscribe);
         
-        // Cleanup listener on unmount
-        return () => {
-          unsubscribe();
-        };
+        setIsLoading(false);
       } catch (error) {
         console.error('Error initializing data:', error);
         setIsLoading(false);
@@ -251,20 +205,53 @@ const OngoingOrdersScreen: React.FC = () => {
     initializeData();
   }, [restaurantId, dispatch]);
 
+  // Automatic cleanup on unmount
+  useEffect(() => {
+    return () => {
+      cleanup();
+    };
+  }, [cleanup]);
+
   const onRefresh = async () => {
     setRefreshing(true);
     try {
       // Reload orders from Firebase
       dispatch(loadOrders() as any);
       
-      // Reload tables from Firebase
+      // Reload tables from Firebase using new service
       if (restaurantId) {
-        const service = createFirestoreService(restaurantId);
-        const tablesData = await service.getTables();
+        console.log('🔄 [DEBUG] Attempting to refresh tables for restaurant:', restaurantId);
+        console.log('🔄 [DEBUG] getOptimizedTables function type:', typeof getOptimizedTables);
+        console.log('🔄 [DEBUG] getOptimizedTables function:', getOptimizedTables);
+        
+        if (typeof getOptimizedTables !== 'function') {
+          console.error('❌ [DEBUG] getOptimizedTables is not a function! Type:', typeof getOptimizedTables);
+          console.error('❌ [DEBUG] Trying fallback to DirectFirebaseService...');
+          
+          // Try fallback to DirectFirebaseService
+          try {
+            const { getOptimizedTables: directGetOptimizedTables } = await import('../../services/DirectFirebaseService');
+            if (typeof directGetOptimizedTables === 'function') {
+              console.log('✅ [DEBUG] Using DirectFirebaseService fallback for refresh');
+              const tablesData = await directGetOptimizedTables(restaurantId);
+              console.log('✅ [DEBUG] Tables refreshed successfully (fallback):', Object.keys(tablesData).length);
+              setFirebaseTables(tablesData);
+              return;
+            }
+          } catch (fallbackError) {
+            console.error('❌ [DEBUG] Fallback also failed:', fallbackError);
+          }
+          
+          throw new Error(`getOptimizedTables is not a function - it is ${typeof getOptimizedTables}`);
+        }
+        
+        const tablesData = await getOptimizedTables(restaurantId);
+        console.log('✅ [DEBUG] Tables refreshed successfully:', Object.keys(tablesData).length);
         setFirebaseTables(tablesData);
       }
     } catch (error) {
-      console.error('Error refreshing data:', error);
+      console.error('❌ [DEBUG] Error refreshing data:', error);
+      console.error('❌ [DEBUG] Error stack:', error.stack);
     } finally {
       setRefreshing(false);
     }
@@ -275,22 +262,6 @@ const OngoingOrdersScreen: React.FC = () => {
     console.log('🧹 Manual cleanup triggered');
     const ordersToRemove: string[] = [];
     
-    Object.values(ordersById).forEach((order: any) => {
-      if (order && !order.isMergedOrder) {
-        const isPartOfMergedTable = Object.values(ordersById).some((otherOrder: any) => 
-          otherOrder && 
-          otherOrder.isMergedOrder && 
-          otherOrder.mergedTableIds && 
-          Array.isArray(otherOrder.mergedTableIds) &&
-          otherOrder.mergedTableIds.includes(order.tableId)
-        );
-        
-        if (isPartOfMergedTable) {
-          console.log('🧹 Manual cleanup: Removing order:', order.id);
-          ordersToRemove.push(order.id);
-        }
-      }
-    });
     
     ordersToRemove.forEach(orderId => {
       dispatch(removeOrderFromFirebase(orderId));
@@ -340,10 +311,6 @@ const OngoingOrdersScreen: React.FC = () => {
     // First try Firebase tables
     const firebaseTable = firebaseTables[tableId];
     if (firebaseTable) {
-      // For merged tables, use totalSeats if available, otherwise seats
-      if (firebaseTable.isMerged && firebaseTable.totalSeats) {
-        return firebaseTable.totalSeats;
-      }
       if (firebaseTable.seats) {
         return firebaseTable.seats;
       }
@@ -352,10 +319,6 @@ const OngoingOrdersScreen: React.FC = () => {
     // Then try Redux store tables
     const table = tables[tableId];
     if (table) {
-      // For merged tables, use totalSeats if available, otherwise seats
-      if (table.isMerged && table.totalSeats) {
-        return table.totalSeats;
-      }
       if (table.seats) {
         return table.seats;
       }

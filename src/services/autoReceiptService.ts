@@ -102,6 +102,21 @@ function createAutoReceiptService(restaurantId: string) {
     // Get restaurant name from order or auth state
     const restaurantName = (order as any).restaurantName || (order as any).authRestaurantName || 'Restaurant';
     
+    // Calculate separate discount amounts
+    const calculateItemTotal = (item: any) => {
+      const baseTotal = item.price * item.quantity;
+      let discount = 0;
+      if (item.discountPercentage !== undefined) discount = (baseTotal * item.discountPercentage) / 100;
+      else if (item.discountAmount !== undefined) discount = item.discountAmount;
+      return Math.max(0, baseTotal - discount);
+    };
+    
+    const baseSubtotal = (order.items || []).reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
+    const discountedSubtotal = (order.items || []).reduce((sum: number, item: any) => sum + calculateItemTotal(item), 0);
+    const itemDiscountsTotal = Math.max(0, baseSubtotal - discountedSubtotal);
+    const orderDiscountPercent = (order as any)?.discountPercentage || 0;
+    const orderDiscountAmount = discountedSubtotal * (orderDiscountPercent / 100);
+
     const payload: any = {
       restaurantId: order.restaurantId || restaurantId,
       restaurantName: restaurantName, // Add restaurant name to receipt data
@@ -109,10 +124,13 @@ function createAutoReceiptService(restaurantId: string) {
       tableId: order.tableId,
       tableName: tableName, // Use looked up table name
       items: order.items || [],
-      subtotal: order.subtotal || 0,
+      baseSubtotal: baseSubtotal, // Base subtotal before any discounts (for gross sales)
+      subtotal: order.subtotal || 0, // Discounted subtotal
       tax: order.tax || 0,
       serviceCharge: order.serviceCharge || 0,
-      discount: order.discount || 0,
+      discount: (order.discount || 0) + itemDiscountsTotal + orderDiscountAmount,
+      itemDiscount: itemDiscountsTotal,
+      orderDiscount: orderDiscountAmount,
       paymentMethod: p.method || (Array.isArray(p.splitPayments) ? 'Split' : 'Cash'),
       amount: (splitAmount !== undefined ? splitAmount : (p.amountPaid ?? p.amount ?? 0)) || 0,
       splitPayments: Array.isArray(p.splitPayments) ? p.splitPayments.map((sp: any) => ({ method: sp.method, amount: Number(sp.amount) || 0 })) : undefined,

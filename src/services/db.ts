@@ -22,7 +22,9 @@ menuItemId TEXT,
 name TEXT,
 price REAL,
 quantity INTEGER,
-modifiers TEXT
+modifiers TEXT,
+discountPercentage REAL,
+discountAmount REAL
 );
 CREATE TABLE IF NOT EXISTS inventory(
 id TEXT PRIMARY KEY,
@@ -46,6 +48,26 @@ content TEXT,
 createdAt INTEGER
 );
 `);
+
+// Check if discount columns exist in order_items table, if not add them
+try {
+  const columns = database.getAllSync(`PRAGMA table_info(order_items);`);
+  const hasDiscountPercentage = columns.some((col: any) => col.name === 'discountPercentage');
+  const hasDiscountAmount = columns.some((col: any) => col.name === 'discountAmount');
+  
+  if (!hasDiscountPercentage || !hasDiscountAmount) {
+    console.log('🔄 Adding discount columns to order_items table...');
+    if (!hasDiscountPercentage) {
+      database.execSync(`ALTER TABLE order_items ADD COLUMN discountPercentage REAL;`);
+    }
+    if (!hasDiscountAmount) {
+      database.execSync(`ALTER TABLE order_items ADD COLUMN discountAmount REAL;`);
+    }
+    console.log('✅ Discount columns added successfully');
+  }
+} catch (error) {
+  console.warn('⚠️ Could not check/add discount columns:', error);
+}
 }
 
 export const Db = {
@@ -67,8 +89,8 @@ order.createdAt,
 database.runSync(`DELETE FROM order_items WHERE orderId = ?;`, [order.id]);
 for (const item of order.items) {
 database.runSync(
-`INSERT INTO order_items(orderId, menuItemId, name, price, quantity, modifiers) VALUES(?, ?, ?, ?, ?, ?);`,
-[order.id, item.menuItemId, item.name, item.price, item.quantity, JSON.stringify(item.modifiers ?? [])]
+`INSERT INTO order_items(orderId, menuItemId, name, price, quantity, modifiers, discountPercentage, discountAmount) VALUES(?, ?, ?, ?, ?, ?, ?, ?);`,
+[order.id, item.menuItemId, item.name, item.price, item.quantity, JSON.stringify(item.modifiers ?? []), item.discountPercentage ?? null, item.discountAmount ?? null]
 );
 }
 },

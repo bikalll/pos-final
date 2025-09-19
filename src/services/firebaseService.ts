@@ -22,6 +22,11 @@ import { cleanOrderData, removeUndefinedValues } from '../utils/orderUtils';
 export class FirebaseService {
   private restaurantId: string;
   private listeners: Map<string, Unsubscribe> = new Map();
+  private connectionRetryCount: number = 0;
+  private maxRetries: number = 5; // Increased retries
+  private baseTimeout: number = 30000; // Increased to 30s base timeout
+  private lastSuccessfulWrite: number = 0;
+  private connectionHealthy: boolean = true;
 
   constructor(restaurantId: string) {
     this.restaurantId = restaurantId;
@@ -35,6 +40,68 @@ export class FirebaseService {
   // Helper method to get user path
   private getUserPath(userId: string): string {
     return `restaurant_users/${userId}`;
+  }
+
+  // Connection management methods
+  private async resetConnection(): Promise<void> {
+    try {
+      console.log('🔄 Resetting Firebase connection...');
+      
+      // Clean up all existing listeners
+      this.cleanup();
+      
+      // Wait longer for cleanup to complete
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // Reset all connection state
+      this.connectionRetryCount = 0;
+      this.connectionHealthy = true;
+      this.lastSuccessfulWrite = Date.now();
+      
+      // Force garbage collection if available
+      if (global.gc) {
+        global.gc();
+      }
+      
+      console.log('✅ Firebase connection reset completed');
+    } catch (error) {
+      console.warn('Failed to reset Firebase connection:', error);
+    }
+  }
+
+  // Cleanup method to prevent connection leaks
+  public cleanup(): void {
+    console.log(`🧹 Cleaning up ${this.listeners.size} Firebase listeners...`);
+    
+    // Remove all listeners
+    this.listeners.forEach((unsubscribe, key) => {
+      try {
+        unsubscribe();
+        console.log(`✅ Removed listener: ${key}`);
+      } catch (error) {
+        console.warn(`Failed to remove listener ${key}:`, error);
+      }
+    });
+    
+    this.listeners.clear();
+    this.connectionRetryCount = 0;
+    
+    console.log('✅ Firebase cleanup completed');
+  }
+
+  // Force connection reset - public method for external use
+  public async forceReset(): Promise<void> {
+    console.log('🔧 Force resetting Firebase connection...');
+    await this.resetConnection();
+  }
+
+  // Get connection health status
+  public getConnectionHealth(): { healthy: boolean; retryCount: number; lastSuccess: number } {
+    return {
+      healthy: this.connectionHealthy,
+      retryCount: this.connectionRetryCount,
+      lastSuccess: this.lastSuccessfulWrite
+    };
   }
 
   // Generic CRUD operations
@@ -184,23 +251,61 @@ export class FirebaseService {
       const orderPath = this.getRestaurantPath(`orders/${order.id}`);
       console.log('🔥 Saving to Firebase path:', orderPath);
       
-      // Add timeout guard with retries so UI doesn't hang indefinitely on bad network
+      // Enhanced timeout guard with intelligent timeout and connection management
       const attemptWrite = async (attempt: number): Promise<void> => {
+        // Calculate timeout based on attempt and connection health
+        const baseTimeout = this.connectionHealthy ? this.baseTimeout : this.baseTimeout * 1.5;
+        const timeout = Math.min(baseTimeout + (attempt * 10000), 60000); // Progressive: 30s, 40s, 50s, 60s max
+        
+        console.log(`🔄 Attempt ${attempt + 1}/${this.maxRetries + 1} - Timeout: ${timeout}ms, Connection healthy: ${this.connectionHealthy}`);
+        
         const writePromise = set(ref(database, orderPath), orderData);
         const timeoutPromise = new Promise((_, reject) => {
-          const id = setTimeout(() => reject(new Error('Firebase write timeout (10s)')), 10000);
+          const id = setTimeout(() => reject(new Error(`Firebase write timeout (${timeout}ms)`)), timeout);
           writePromise.finally(() => clearTimeout(id));
         });
+        
         try {
           await Promise.race([writePromise, timeoutPromise]);
+          // Success - reset counters and mark connection as healthy
+          this.connectionRetryCount = 0;
+          this.lastSuccessfulWrite = Date.now();
+          this.connectionHealthy = true;
+          console.log('✅ Firebase write successful');
         } catch (e) {
-          if (attempt < 2) { // Reduced retries from 3 to 2
-            const delay = 500 * (attempt + 1); // Reduced delay from 1000ms to 500ms
-            console.warn(`saveOrder: write attempt ${attempt + 1} failed, retrying in ${delay}ms...`, (e as Error).message);
+          this.connectionRetryCount++;
+          const error = e as Error;
+          
+          if (attempt < this.maxRetries) {
+            // Calculate delay with exponential backoff and jitter
+            const baseDelay = Math.min(2000 * Math.pow(1.5, attempt), 10000); // 2s, 3s, 4.5s, 6.75s, 10s max
+            const jitter = Math.random() * 1000; // Add up to 1s random jitter
+            const delay = baseDelay + jitter;
+            
+            console.warn(`❌ saveOrder: write attempt ${attempt + 1} failed, retrying in ${Math.round(delay)}ms...`, error.message);
+            console.warn(`Connection retry count: ${this.connectionRetryCount}`);
+            
+            // Mark connection as unhealthy after multiple failures
+            if (this.connectionRetryCount > 2) {
+              this.connectionHealthy = false;
+              console.log('🔧 Connection marked as unhealthy, attempting reset...');
+              await this.resetConnection();
+            }
+            
+            // If it's been a while since last successful write, try a more aggressive reset
+            const timeSinceLastSuccess = Date.now() - this.lastSuccessfulWrite;
+            if (timeSinceLastSuccess > 60000) { // 1 minute
+              console.log('🔧 No successful writes in 1+ minutes, performing aggressive reset...');
+              await this.resetConnection();
+              this.connectionHealthy = true; // Give it another chance
+            }
+            
             await new Promise(r => setTimeout(r, delay));
             return attemptWrite(attempt + 1);
           }
-          console.error(`saveOrder: All retry attempts failed. Final error:`, (e as Error).message);
+          
+          console.error(`❌ saveOrder: All retry attempts failed. Final error:`, error.message);
+          this.connectionHealthy = false;
           throw e;
         }
       };
@@ -248,7 +353,7 @@ export class FirebaseService {
       const path = this.getRestaurantPath(`orders/${sanitized.id}`);
       const write = set(ref(database, path), sanitized);
       const timeout = new Promise((_, reject) => {
-        const id = setTimeout(() => reject(new Error('Firebase write timeout (10s)')), 10000);
+        const id = setTimeout(() => reject(new Error(`Firebase write timeout (${this.baseTimeout}ms)`)), this.baseTimeout);
         write.finally(() => clearTimeout(id));
       });
       await Promise.race([write, timeout]);
@@ -727,3 +832,9 @@ export const getFirebaseService = (): FirebaseService => {
   }
   return firebaseService;
 };
+
+// Enhanced service getter with connection management
+export function getFirebaseServiceForRestaurant(restaurantId: string): FirebaseService {
+  const { firebaseConnectionManager } = require('./FirebaseConnectionManager');
+  return firebaseConnectionManager.getService(restaurantId);
+}

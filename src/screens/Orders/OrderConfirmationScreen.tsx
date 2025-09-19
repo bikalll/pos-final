@@ -19,10 +19,10 @@ import { PrintService } from '../../services/printing';
 import { blePrinter } from '../../services/blePrinter';
 import { removeItem, updateItemQuantity, markOrderSaved, snapshotSavedQuantities, cancelOrder, changeOrderTable, applyDiscount, applyItemDiscount, removeItemDiscount, setOrderCustomer, markOrderReviewed, markOrderUnsaved, setOrderSpecialInstructions, updateOrderTableInFirebase } from '../../redux/slices/ordersSliceFirebase';
 // Removed direct customer mutations here; selection will use existing customers only
-import { unmergeTables } from '../../redux/slices/tablesSliceFirebase';
-import MergeTableModal from '../../components/MergeTableModal';
 import * as Sharing from 'expo-sharing';
 import { createFirestoreService } from '../../services/firestoreService';
+import { firebaseConnectionManager } from '../../services/FirebaseConnectionManager';
+import FirebaseDebugMonitor from '../../components/FirebaseDebugMonitor';
 
 interface RouteParams {
   orderId: string;
@@ -36,7 +36,6 @@ const OrderConfirmationScreen: React.FC = () => {
   const [isPreReceiptFlow, setIsPreReceiptFlow] = useState(false);
   const [printOptionsModalVisible, setPrintOptionsModalVisible] = useState(false);
   const [showOptionsMenu, setShowOptionsMenu] = useState(false);
-  const [mergeTableModalVisible, setMergeTableModalVisible] = useState(false);
   const [changeTableModalVisible, setChangeTableModalVisible] = useState(false);
   const [discountModalVisible, setDiscountModalVisible] = useState(false);
   const [discountType, setDiscountType] = useState<'percentage' | 'amount'>('percentage');
@@ -51,6 +50,7 @@ const OrderConfirmationScreen: React.FC = () => {
   const [firebaseTables, setFirebaseTables] = useState<Record<string, any>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [showDebugMonitor, setShowDebugMonitor] = useState(false);
   // Removed local saved state; rely on Redux flag directly
   
   const navigation = useNavigation();
@@ -129,23 +129,16 @@ const OrderConfirmationScreen: React.FC = () => {
     }
   }, [order, orderId, dispatch]);
 
-  // Handle case where order is deleted due to unmerge after payment completion
+
+  // Cleanup Firebase connections when component unmounts
   useEffect(() => {
-    if (!order && orderId && tableId) {
-      // Check if this is likely an unmerge scenario by looking for specific indicators
-      const isUnmergeScenario = !allOrdersById[orderId] && 
-        // Check if the tableId looks like a merged table ID (contains 'merged' or is a UUID-like pattern)
-        (tableId.includes('merged') || (tableId.includes('table-') && tableId.length > 20));
-      
-      if (isUnmergeScenario) {
-        console.log('🔄 Order deleted due to unmerge, redirecting to dashboard...');
-        // Add a small delay to ensure the user sees the message
-        setTimeout(() => {
-          (navigation as any).navigate('Dashboard', { screen: 'TablesDashboard' });
-        }, 2000);
+    return () => {
+      if (restaurantId) {
+        console.log('🧹 OrderConfirmationScreen: Cleaning up Firebase connections');
+        firebaseConnectionManager.cleanupService(restaurantId);
       }
-    }
-  }, [order, orderId, tableId, allOrdersById, navigation]);
+    };
+  }, [restaurantId]);
 
   // Add a retry mechanism for loading orders
   useEffect(() => {
@@ -188,10 +181,6 @@ const OrderConfirmationScreen: React.FC = () => {
       totalOrders: Object.keys(allOrdersById).length
     });
     
-    // Check if this might be due to table unmerge after payment completion
-    // Only consider it an unmerge scenario if the tableId looks like a merged table ID
-    const isUnmergeScenario = tableId && !allOrdersById[orderId] && 
-      (tableId.includes('merged') || (tableId.includes('table-') && tableId.length > 20));
     
     if (isLoading) {
       return (
@@ -207,29 +196,15 @@ const OrderConfirmationScreen: React.FC = () => {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>
-            {isUnmergeScenario ? 'Order completed and tables unmerged' : 'Order not found'}
-          </Text>
+          <Text style={styles.errorText}>Order not found</Text>
           <Text style={styles.errorSubtext}>
-            {isUnmergeScenario 
-              ? 'The merged order has been completed and tables have been unmerged. You can now place new orders on individual tables.'
-              : `Order ID: ${orderId}. This might be a temporary issue. Please try again.`
-            }
+            Order ID: {orderId}. This might be a temporary issue. Please try again.
           </Text>
           <TouchableOpacity 
             style={styles.backButton} 
-            onPress={() => {
-              if (isUnmergeScenario) {
-                // Navigate to dashboard for unmerge scenario
-                (navigation as any).navigate('Dashboard', { screen: 'TablesDashboard' });
-              } else {
-                navigation.goBack();
-              }
-            }}
+            onPress={() => navigation.goBack()}
           >
-            <Text style={styles.backButtonText}>
-              {isUnmergeScenario ? 'Go to Dashboard' : 'Go Back'}
-            </Text>
+            <Text style={styles.backButtonText}>Go Back</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -244,7 +219,6 @@ const OrderConfirmationScreen: React.FC = () => {
     orderTableId: order?.tableId,
     orderItems: order?.items?.length || 0,
     orderStatus: order?.status,
-    isMergedOrder: (order as any)?.isMergedOrder,
     tableExists: !!tables[order?.tableId || ''],
     firebaseTableExists: !!firebaseTables[order?.tableId || '']
   });
@@ -263,19 +237,15 @@ const OrderConfirmationScreen: React.FC = () => {
   // Enable settle payment strictly when order is saved
   const isSettleEnabled = orderIsSaved;
 
-  const actualTableId = order.isMergedOrder ? order.tableId : tableId;
+  const actualTableId = tableId;
   // Use Firebase table data instead of Redux
   const actualTable = firebaseTables[actualTableId] ? {
     id: actualTableId,
     name: firebaseTables[actualTableId].name,
     seats: firebaseTables[actualTableId].seats,
     description: firebaseTables[actualTableId].description,
-    isActive: firebaseTables[actualTableId].isActive,
-    isMerged: false, // Firebase tables don't have merge info yet
-    mergedTableNames: []
+    isActive: firebaseTables[actualTableId].isActive
   } : null;
-  const isMergedOrder = order.isMergedOrder;
-  const mergedTableInfo = isMergedOrder ? actualTable : null;
   
   const orderWithOrderTypes = {
     ...order,
@@ -405,14 +375,45 @@ const OrderConfirmationScreen: React.FC = () => {
         console.log(`✅ Step 1: Firestore save successful (${t}ms)`);
       } catch (error) {
         console.error('❌ Step 1: Firestore save failed:', error as any);
+        console.error('❌ Error details:', {
+          message: (error as any)?.message,
+          stack: (error as any)?.stack,
+          name: (error as any)?.name,
+          code: (error as any)?.code,
+          orderId,
+          restaurantId,
+          tableId: actualTableId
+        });
+        
         const message = (error as any)?.message || 'Unknown error';
+        const isTimeoutError = message.includes('timeout') || message.includes('Timeout');
+        
+        // If it's a timeout error, try to reset Firebase connection
+        if (isTimeoutError) {
+          console.log('🔧 Timeout detected, attempting Firebase connection reset...');
+          try {
+            const { getFirebaseService } = await import('../../services/firebaseService');
+            const firebaseService = getFirebaseService();
+            if (firebaseService && typeof firebaseService.forceReset === 'function') {
+              await firebaseService.forceReset();
+              console.log('✅ Firebase connection reset completed');
+            }
+          } catch (resetError) {
+            console.warn('Failed to reset Firebase connection:', resetError);
+          }
+        }
+        
         Alert.alert(
           'Save Error',
-          `Failed to save order to Firebase: ${message}`,
+          `Failed to save order to Firebase: ${message}${isTimeoutError ? '\n\nThis appears to be a timeout issue. Please check your internet connection and try again.' : ''}`,
           [
-            { text: 'Retry', onPress: () => finalizeSave() },
+            { text: 'Retry', onPress: () => {
+              console.log('🔄 User chose to retry after error');
+              finalizeSave();
+            }},
             { text: 'Save Locally', onPress: async () => {
                 try {
+                  console.log('🔄 User chose to save locally');
                   const { Db } = await import('../../services/db');
                   await Db.saveOrder(order);
                   (dispatch as any)(markOrderSaved({ orderId }));
@@ -420,6 +421,7 @@ const OrderConfirmationScreen: React.FC = () => {
                   setPrintModalVisible(false);
                   (navigation as any).navigate('OngoingOrders');
                 } catch (e) {
+                  console.error('❌ Local save also failed:', e);
                   Alert.alert('Local Save Error', String(e));
                 }
               }
@@ -596,20 +598,58 @@ const OrderConfirmationScreen: React.FC = () => {
     try {
       setPrintOptionsModalVisible(false);
       
+      console.log('🖨️ Starting pre-receipt print from order confirmation...');
+      
       // Use PrintService for consistent pre-receipt formatting
       const result = await PrintService.printPreReceiptFromOrder(orderWithOrderTypes, actualTable);
       
       if (result.success) {
         console.log('✅ Pre-receipt printed successfully');
-        Alert.alert('Success', 'Pre-receipt printed successfully!');
+        Alert.alert('Success', result.message);
       } else {
         console.log('❌ Pre-receipt print failed:', result.message);
-        Alert.alert('Print Failed', result.message);
+        
+        // Show more helpful error message with fallback option
+        Alert.alert(
+          'Print Failed', 
+          result.message,
+          [
+            {
+              text: 'OK',
+              style: 'default'
+            },
+            ...(result.fallback ? [{
+              text: 'Save as File',
+              onPress: async () => {
+                try {
+                  // Try to save as file using the fallback mechanism
+                  const { blePrinter } = await import('../../services/blePrinter');
+                  const filename = `pre_receipt_${Date.now()}.txt`;
+                  const filePath = await blePrinter.printToFile(JSON.stringify(orderWithOrderTypes, null, 2), filename);
+                  Alert.alert('Success', `Pre-receipt saved to: ${filePath}`);
+                } catch (fileError) {
+                  console.error('File save failed:', fileError);
+                  Alert.alert('Error', 'Failed to save pre-receipt as file.');
+                }
+              }
+            }] : [])
+          ]
+        );
       }
       
     } catch (error) {
       console.error('Error printing pre-receipt:', error);
-      Alert.alert('Print Error', 'Failed to print pre-receipt. Please try again.');
+      Alert.alert(
+        'Print Error', 
+        'Failed to print pre-receipt. Please check your printer connection and try again.',
+        [
+          { text: 'OK', style: 'default' },
+          {
+            text: 'Retry',
+            onPress: () => handlePrintPreReceiptOnly()
+          }
+        ]
+      );
     }
   };
 
@@ -672,6 +712,9 @@ const OrderConfirmationScreen: React.FC = () => {
               <TouchableOpacity style={styles.actionButton} onPress={() => setShowOptionsMenu(!showOptionsMenu)}>
                 <Ionicons name="ellipsis-vertical" size={20} color={colors.textSecondary} />
               </TouchableOpacity>
+              <TouchableOpacity style={styles.actionButton} onPress={() => setShowDebugMonitor(true)}>
+                <Ionicons name="bug" size={20} color={colors.primary} />
+              </TouchableOpacity>
             </View>
           </View>
 
@@ -682,15 +725,6 @@ const OrderConfirmationScreen: React.FC = () => {
                   <Ionicons name="add-circle" size={16} color={colors.primary} />
                 <Text style={styles.optionsMenuText}>Add Items</Text>
                 </TouchableOpacity>
-              {/* Merge Table (disabled) */}
-              <TouchableOpacity
-                style={[styles.optionsMenuItem, { opacity: 0.5 }]}
-                disabled={true}
-                onPress={() => {}}
-              >
-                <Ionicons name="git-merge" size={16} color={colors.textPrimary} />
-                <Text style={styles.optionsMenuText}>Merge Table</Text>
-              </TouchableOpacity>
               {/* Change Table (enabled) */}
               <TouchableOpacity
                 style={styles.optionsMenuItem}
@@ -727,10 +761,6 @@ const OrderConfirmationScreen: React.FC = () => {
                   { text: 'No', style: 'cancel' },
                   { text: 'Yes, Cancel', style: 'destructive', onPress: () => { 
                     try { 
-                      const isMerged = !!order.isMergedOrder && !!tables[order.tableId]?.isMerged;
-                      if (isMerged) {
-                        (dispatch as any)(unmergeTables({ mergedTableId: order.tableId }));
-                      }
                       (dispatch as any)(cancelOrder({ orderId })); 
                     } catch {}
                     (navigation as any).navigate('OngoingOrders'); 
@@ -839,12 +869,58 @@ const OrderConfirmationScreen: React.FC = () => {
                 <>
                   <TouchableOpacity style={styles.printActionButton} onPress={async () => {
                     try {
+                      console.log('🖨️ Starting pre-receipt print from main flow...');
                       const res = await PrintService.printPreReceiptFromOrder(orderWithOrderTypes, actualTable);
-                      if (!res.success) {
-                        Alert.alert('Pre-Receipt Print Failed', res.message);
+                      if (res.success) {
+                        Alert.alert('Success', res.message);
+                      } else {
+                        console.log('❌ Pre-receipt print failed:', res.message);
+                        Alert.alert(
+                          'Pre-Receipt Print Failed', 
+                          res.message,
+                          [
+                            { text: 'OK', style: 'default' },
+                            ...(res.fallback ? [{
+                              text: 'Save as File',
+                              onPress: async () => {
+                                try {
+                                  const { blePrinter } = await import('../../services/blePrinter');
+                                  const filename = `pre_receipt_${Date.now()}.txt`;
+                                  const filePath = await blePrinter.printToFile(JSON.stringify(orderWithOrderTypes, null, 2), filename);
+                                  Alert.alert('Success', `Pre-receipt saved to: ${filePath}`);
+                                } catch (fileError) {
+                                  console.error('File save failed:', fileError);
+                                  Alert.alert('Error', 'Failed to save pre-receipt as file.');
+                                }
+                              }
+                            }] : [])
+                          ]
+                        );
                       }
                     } catch (e: any) {
-                      Alert.alert('Pre-Receipt Error', e?.message || 'Failed to print pre-receipt');
+                      console.error('❌ Pre-receipt print error:', e);
+                      Alert.alert(
+                        'Pre-Receipt Error', 
+                        e?.message || 'Failed to print pre-receipt. Please check your printer connection.',
+                        [
+                          { text: 'OK', style: 'default' },
+                          {
+                            text: 'Retry',
+                            onPress: async () => {
+                              try {
+                                const res = await PrintService.printPreReceiptFromOrder(orderWithOrderTypes, actualTable);
+                                if (res.success) {
+                                  Alert.alert('Success', res.message);
+                                } else {
+                                  Alert.alert('Pre-Receipt Print Failed', res.message);
+                                }
+                              } catch (retryError) {
+                                Alert.alert('Pre-Receipt Error', retryError?.message || 'Failed to print pre-receipt');
+                              }
+                            }
+                          }
+                        ]
+                      );
                     } finally {
                       setPrintModalVisible(false);
                       setIsPreReceiptFlow(false);
@@ -1184,7 +1260,7 @@ const OrderConfirmationScreen: React.FC = () => {
             <Text style={styles.modalDescription}>Select an available table to move this order.</Text>
             <View style={{ gap: spacing.xs }}>
               {Object.values(firebaseTables)
-                .filter((t: any) => t && t.isActive && !t.isMerged)
+                .filter((t: any) => t && t.isActive)
                 .map((t: any) => {
                   const isCurrent = t.id === actualTableId;
                   const isReserved = (t as any).isReserved;
@@ -1233,7 +1309,6 @@ const OrderConfirmationScreen: React.FC = () => {
         </View>
       </Modal>
 
-      <MergeTableModal visible={mergeTableModalVisible} onClose={() => setMergeTableModalVisible(false)} baseTableId={actualTableId} />
 
       {/* Print Options Modal */}
       <Modal visible={printOptionsModalVisible} animationType="slide" transparent onRequestClose={() => setPrintOptionsModalVisible(false)}>
@@ -1261,6 +1336,12 @@ const OrderConfirmationScreen: React.FC = () => {
           </View>
         </View>
       </Modal>
+
+      {/* Firebase Debug Monitor */}
+      <FirebaseDebugMonitor 
+        visible={showDebugMonitor} 
+        onClose={() => setShowDebugMonitor(false)} 
+      />
     </SafeAreaView>
   );
 };

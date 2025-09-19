@@ -6,12 +6,12 @@ import { getFunctions, Functions } from 'firebase/functions';
 
 // Firebase configuration from google-services.json
 const firebaseConfig = {
-  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY || "AIzaSyAW7myL-mbegFCw3V0dny9Spqh4fiLZteM",
-  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN || "abcd-47f2e.firebaseapp.com",
-  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID || "abcd-47f2e",
-  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET || "abcd-47f2e.firebasestorage.app",
-  messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "495252722002",
-  appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID || "1:495252722002:android:44c296b15675261e71ea8b"
+  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY || "AIzaSyBtcCbBOLmqsGZ_IPYIz0fhqYXTcWtlWJU",
+  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN || "dbarbi-4c494.firebaseapp.com",
+  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID || "dbarbi-4c494",
+  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET || "dbarbi-4c494.firebasestorage.app",
+  messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "44854741850",
+  appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID || "1:44854741850:android:acfd13df564f7265c34163"
 };
 
 // Initialize Firebase (check if app already exists)

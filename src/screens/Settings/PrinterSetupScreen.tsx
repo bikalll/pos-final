@@ -15,6 +15,7 @@ import { colors, spacing, radius, shadow } from '../../theme';
 import { bluetoothManager, BluetoothDevice, BluetoothStatus } from '../../services/bluetoothManager';
 import { Toast } from '../../services/toastService';
 import PrinterTroubleshooter from '../../components/PrinterTroubleshooter';
+import { usePerformanceMonitor } from '../../services/PerformanceMonitor';
 
 interface PrinterSetupScreenProps {
   navigation: any;
@@ -32,6 +33,9 @@ export default function PrinterSetupScreen({ navigation }: PrinterSetupScreenPro
   const [autoConnect, setAutoConnect] = useState<boolean>(false);
   const [permissionsGranted, setPermissionsGranted] = useState<boolean>(false);
   const [showTroubleshooter, setShowTroubleshooter] = useState<boolean>(false);
+  
+  // Performance monitoring for Bluetooth operations
+  const { recordRenderTime, incrementReduxUpdates } = usePerformanceMonitor();
 
   useEffect(() => {
     initializeBluetooth();
@@ -124,9 +128,17 @@ export default function PrinterSetupScreen({ navigation }: PrinterSetupScreenPro
         return;
       }
       
+      const startTime = performance.now();
       setStatus(prev => ({ ...prev, scanning: true }));
+      
       const discoveredDevices = await bluetoothManager.scanDevices();
       setDevices(discoveredDevices);
+      
+      // Performance monitoring
+      const endTime = performance.now();
+      recordRenderTime(endTime - startTime);
+      incrementReduxUpdates();
+      
       Toast.show(`Found ${discoveredDevices.length} devices`, 'success');
     } catch (error) {
       Toast.show('Failed to scan for devices', 'error');

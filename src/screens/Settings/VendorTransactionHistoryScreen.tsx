@@ -9,7 +9,7 @@ import {
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { useSelector, useDispatch } from 'react-redux';
 import { RootState } from '../../redux/storeFirebase';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -21,6 +21,7 @@ import {
   Vendor,
   VendorTransaction,
 } from '../../redux/slices/vendorsSliceFirebase';
+import VendorSettlementModal from '../../components/VendorSettlementModal';
 import AddTransactionModal from '../../components/AddTransactionModal';
 
 const VendorTransactionHistoryScreen: React.FC = () => {
@@ -29,6 +30,7 @@ const VendorTransactionHistoryScreen: React.FC = () => {
   const dispatch = useDispatch();
   const { transactions, loading, error } = useSelector((state: RootState) => state.vendors);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showSettlementModal, setShowSettlementModal] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
   const vendor = route.params?.vendor as Vendor;
@@ -38,6 +40,17 @@ const VendorTransactionHistoryScreen: React.FC = () => {
       dispatch(fetchVendorTransactions(vendor.id) as any);
     }
   }, [dispatch, vendor?.id]);
+
+  // Refresh data when screen comes into focus
+  useFocusEffect(
+    React.useCallback(() => {
+      if (vendor?.id) {
+        console.log('Transaction History: Screen focused, refreshing data for vendor:', vendor.id);
+        dispatch(fetchVendorTransactions(vendor.id) as any);
+        dispatch(fetchVendors() as any);
+      }
+    }, [vendor?.id, dispatch])
+  );
 
   const handleRefresh = async () => {
     if (vendor?.id) {
@@ -61,6 +74,29 @@ const VendorTransactionHistoryScreen: React.FC = () => {
     if (vendor?.id) {
       dispatch(fetchVendorTransactions(vendor.id) as any);
       dispatch(fetchVendors() as any);
+    }
+  };
+
+  const handleSettleCredit = () => {
+    setShowSettlementModal(true);
+  };
+
+  const handleSettlementModalClose = () => {
+    setShowSettlementModal(false);
+  };
+
+  const handleSettlementComplete = async () => {
+    handleSettlementModalClose();
+    // Refresh both transactions and vendors to get updated balance
+    if (vendor?.id) {
+      console.log('Settlement Complete: Refreshing data for vendor:', vendor.id);
+      
+      // Add a small delay to ensure Firebase has processed the transaction
+      setTimeout(async () => {
+        await dispatch(fetchVendorTransactions(vendor.id) as any);
+        await dispatch(fetchVendors() as any);
+        console.log('Settlement Complete: Data refresh completed');
+      }, 500);
     }
   };
 
@@ -110,62 +146,57 @@ const VendorTransactionHistoryScreen: React.FC = () => {
 
   const calculateTotals = () => {
     const vendorTransactions = getVendorTransactions();
-    const totalCredit = vendorTransactions.reduce((sum, t) => sum + t.creditAmount, 0);
-    const totalPaid = vendorTransactions.reduce((sum, t) => sum + t.paidAmount, 0);
-    const totalBalance = totalCredit - totalPaid;
-    return { totalCredit, totalPaid, totalBalance };
+    
+    // Calculate total purchase amount (sum of all totalAmount)
+    const totalPurchase = vendorTransactions.reduce((sum, t) => sum + (t.totalAmount || 0), 0);
+    
+    // Use vendor.balance for outstanding balance
+    const totalCredit = vendor?.balance || 0;
+    
+    // Calculate total paid amount: Total Purchase - Outstanding Balance
+    const totalPaid = totalPurchase - totalCredit;
+    
+    console.log('Transaction History: Calculated totals:', {
+      totalPurchase,
+      totalPaid,
+      totalCredit: totalCredit,
+      vendorBalance: vendor?.balance,
+      transactionCount: vendorTransactions.length,
+      calculation: `${totalPurchase} - ${totalCredit} = ${totalPaid}`,
+      transactions: vendorTransactions.map(t => ({
+        id: t.id,
+        billNumber: t.billNumber,
+        totalAmount: t.totalAmount,
+        paidAmount: t.paidAmount,
+        creditAmount: t.creditAmount
+      }))
+    });
+    
+    return { totalPurchase, totalPaid, totalCredit };
   };
 
-  const { totalCredit, totalPaid, totalBalance } = calculateTotals();
+  const { totalPurchase, totalPaid, totalCredit } = calculateTotals();
   const vendorTransactions = getVendorTransactions();
 
-  const renderTransactionCard = (transaction: VendorTransaction) => (
-    <View key={transaction.id} style={styles.transactionCard}>
-      {/* Header Row */}
-      <View style={styles.transactionHeader}>
-        <View style={styles.transactionTitleRow}>
-          <Text style={styles.billNumberText}>{transaction.billNumber}</Text>
-          <View style={[styles.paymentMethodBadge, { backgroundColor: getPaymentMethodColor(transaction.paymentMethod) }]}>
-            <Text style={styles.paymentMethodText}>{transaction.paymentMethod}</Text>
-          </View>
-        </View>
-        <TouchableOpacity
-          style={styles.deleteButton}
-          onPress={() => handleDeleteTransaction(transaction)}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <Ionicons name="trash-outline" size={18} color={colors.error} />
-        </TouchableOpacity>
+  const renderTransactionRow = (transaction: VendorTransaction) => (
+    <View key={transaction.id} style={styles.tableRow}>
+      <Text style={styles.tableCell}>{formatDate(transaction.date)}</Text>
+      <Text style={styles.tableCell}>{transaction.billNumber}</Text>
+      <View style={styles.tableCell}>
+        <Text style={styles.tableCell}>{transaction.paymentMethod}</Text>
+        {transaction.paymentMethod === 'Cheque' && transaction.chequeNumber && (
+          <Text style={styles.chequeNumberText}>({transaction.chequeNumber})</Text>
+        )}
       </View>
-
-      {/* Date Row */}
-      <View style={styles.transactionDateRow}>
-        <Ionicons name="calendar-outline" size={16} color={colors.textSecondary} />
-        <Text style={styles.transactionDateText}>{formatDate(transaction.date)}</Text>
-      </View>
-
-      {/* Amounts Row */}
-      <View style={styles.transactionAmountsRow}>
-        <View style={styles.amountItem}>
-          <Text style={styles.amountLabel}>Credit</Text>
-          <Text style={styles.creditAmountText}>{formatCurrency(transaction.creditAmount)}</Text>
-        </View>
-        <View style={styles.amountDivider} />
-        <View style={styles.amountItem}>
-          <Text style={styles.amountLabel}>Paid</Text>
-          <Text style={styles.paidAmountText}>{formatCurrency(transaction.paidAmount)}</Text>
-        </View>
-        <View style={styles.amountDivider} />
-        <View style={styles.amountItem}>
-          <Text style={styles.amountLabel}>Balance</Text>
-          <Text style={[
-            styles.balanceAmountText,
-            { color: (transaction.creditAmount - transaction.paidAmount) >= 0 ? colors.success : colors.error }
-          ]}>
-            {formatCurrency(transaction.creditAmount - transaction.paidAmount)}
-          </Text>
-        </View>
-      </View>
+      <Text style={[styles.tableCell, styles.purchaseAmount]}>
+        {(transaction.totalAmount || transaction.creditAmount + transaction.paidAmount).toFixed(2)}
+      </Text>
+      <Text style={[styles.tableCell, styles.paidAmount]}>
+        {transaction.paidAmount.toFixed(2)}
+      </Text>
+      <Text style={[styles.tableCell, styles.balanceAmount]}>
+        {transaction.creditAmount.toFixed(2)}
+      </Text>
     </View>
   );
 
@@ -194,40 +225,37 @@ const VendorTransactionHistoryScreen: React.FC = () => {
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
         }
       >
-        {/* Header */}
-        <View style={styles.header}>
-          <View style={styles.headerTop}>
-            <TouchableOpacity
-              style={styles.backButton}
-              onPress={() => navigation.goBack()}
-            >
-              <Ionicons name="arrow-back" size={24} color={colors.textPrimary} />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.addButton} onPress={handleAddTransaction}>
-              <Ionicons name="add" size={20} color="white" />
-              <Text style={styles.addButtonText}>Add Transaction</Text>
-            </TouchableOpacity>
-          </View>
-          <View style={styles.vendorInfo}>
-            <Text style={styles.vendorName}>{vendor.vendorName}</Text>
-            <View style={styles.vendorDetailsRow}>
-              <View style={styles.vendorDetailItem}>
-                <Ionicons name="call-outline" size={14} color={colors.textSecondary} />
-                <Text style={styles.vendorContact}>{vendor.phoneNumber || 'N/A'}</Text>
-              </View>
-              <View style={styles.vendorDetailItem}>
-                <Ionicons name="location-outline" size={14} color={colors.textSecondary} />
-                <Text style={styles.vendorAddress} numberOfLines={1}>{vendor.address}</Text>
-              </View>
+
+        {/* Credit Balance Section */}
+        <View style={styles.creditBalanceCard}>
+          <View style={styles.creditBalanceHeader}>
+            <View style={styles.creditBalanceTitleRow}>
+              <Ionicons name="wallet-outline" size={16} color={colors.textPrimary} />
+              <Text style={styles.creditBalanceTitle}>Credit Balance</Text>
             </View>
+            <TouchableOpacity style={styles.settleCreditButton} onPress={handleSettleCredit}>
+              <Text style={styles.settleCreditButtonText}>Settle Credit</Text>
+            </TouchableOpacity>
           </View>
+          <Text style={styles.creditBalanceAmount}>Rs {totalCredit.toFixed(2)}</Text>
+          {totalCredit <= 0 && (
+            <Text style={styles.creditBalanceStatus}>✅ All credits settled</Text>
+          )}
+          <Text style={styles.creditBalanceDescription}>
+            This is the total outstanding amount to be paid to this vendor.
+          </Text>
         </View>
 
         {/* Transaction History */}
         <View style={styles.historyCard}>
-          <Text style={styles.historyTitle}>Transaction History</Text>
+          <View style={styles.historyHeader}>
+            <Text style={styles.historyTitle}>Transaction History</Text>
+            <TouchableOpacity style={styles.addTransactionButton} onPress={handleAddTransaction}>
+              <Ionicons name="add" size={24} color="white" />
+            </TouchableOpacity>
+          </View>
           <Text style={styles.historySubtitle}>
-            A record of all payments and credits for {vendor.vendorName}...
+            A record of all purchases and payments for this vendor.
           </Text>
 
           {loading && vendorTransactions.length === 0 ? (
@@ -256,8 +284,19 @@ const VendorTransactionHistoryScreen: React.FC = () => {
               </TouchableOpacity>
             </View>
           ) : (
-            <View style={styles.transactionsList}>
-              {vendorTransactions.map(renderTransactionCard)}
+            <View style={styles.transactionTable}>
+              {/* Table Header */}
+              <View style={styles.tableHeader}>
+                <Text style={styles.tableHeaderText}>Date</Text>
+                <Text style={styles.tableHeaderText}>Bill No.</Text>
+                <Text style={styles.tableHeaderText}>Payment</Text>
+                <Text style={styles.tableHeaderText}>Purchase</Text>
+                <Text style={styles.tableHeaderText}>Paid</Text>
+                <Text style={styles.tableHeaderText}>Balance</Text>
+              </View>
+              
+              {/* Table Rows */}
+              {vendorTransactions.map(renderTransactionRow)}
             </View>
           )}
         </View>
@@ -267,8 +306,8 @@ const VendorTransactionHistoryScreen: React.FC = () => {
           <Text style={styles.summaryTitle}>Financial Summary</Text>
           <View style={styles.summaryGrid}>
             <View style={styles.summaryItem}>
-              <Text style={styles.summaryLabel}>Total Credit</Text>
-              <Text style={styles.summaryValue}>{formatCurrency(totalCredit)}</Text>
+              <Text style={styles.summaryLabel}>Total Purchase</Text>
+              <Text style={styles.summaryValue}>{formatCurrency(totalPurchase)}</Text>
             </View>
             <View style={styles.summaryItem}>
               <Text style={styles.summaryLabel}>Total Paid</Text>
@@ -279,10 +318,13 @@ const VendorTransactionHistoryScreen: React.FC = () => {
               <Text style={[
                 styles.summaryValue,
                 styles.balanceValue,
-                { color: totalBalance >= 0 ? colors.success : colors.error }
+                { color: totalCredit > 0 ? colors.error : colors.success }
               ]}>
-                {formatCurrency(totalBalance)}
+                {formatCurrency(totalCredit)}
               </Text>
+              {totalCredit <= 0 && (
+                <Text style={styles.balanceStatus}>All settled</Text>
+              )}
             </View>
           </View>
         </View>
@@ -293,6 +335,14 @@ const VendorTransactionHistoryScreen: React.FC = () => {
         visible={showAddModal}
         onClose={handleModalClose}
         onTransactionAdded={handleTransactionAdded}
+        vendor={vendor}
+      />
+
+      {/* Settlement Modal */}
+      <VendorSettlementModal
+        visible={showSettlementModal}
+        onClose={handleSettlementModalClose}
+        onSettlementComplete={handleSettlementComplete}
         vendor={vendor}
       />
     </SafeAreaView>
@@ -309,9 +359,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
   },
   header: {
-    marginTop: spacing.lg,
-    marginBottom: spacing.xl,
-    paddingHorizontal: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.lg,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.outline,
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.textPrimary,
+  },
+  headerRight: {
+    width: 24,
   },
   headerTop: {
     flexDirection: 'row',
@@ -376,7 +439,7 @@ const styles = StyleSheet.create({
   historyCard: {
     backgroundColor: colors.surface,
     borderRadius: radius.lg,
-    padding: spacing.lg,
+    padding: spacing.xl,
     marginBottom: spacing.xl,
     borderWidth: 1,
     borderColor: colors.outline,
@@ -385,6 +448,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
+    marginHorizontal: spacing.xs,
   },
   historyTitle: {
     fontSize: 20,
@@ -455,6 +519,18 @@ const styles = StyleSheet.create({
     marginBottom: spacing.lg,
   },
   transactionDateText: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    fontWeight: '500',
+  },
+  chequeNumberRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.sm,
+  },
+  chequeNumberText: {
     fontSize: 14,
     color: colors.textSecondary,
     fontWeight: '500',
@@ -634,6 +710,139 @@ const styles = StyleSheet.create({
   balanceValue: {
     fontSize: 18,
     fontWeight: '800',
+  },
+  balanceStatus: {
+    fontSize: 12,
+    color: colors.success,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  // New styles for updated UI
+  creditBalanceCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    padding: spacing.xl,
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.lg,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  creditBalanceHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  creditBalanceTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  creditBalanceTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textPrimary,
+  },
+  settleCreditButton: {
+    backgroundColor: colors.primary,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.sm,
+  },
+  settleCreditButtonText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  creditBalanceAmount: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#FF4444',
+    marginBottom: spacing.sm,
+  },
+  creditBalanceStatus: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.success,
+    marginBottom: spacing.sm,
+  },
+  creditBalanceDescription: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    lineHeight: 18,
+  },
+  historyHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  addTransactionButton: {
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.md,
+    width: 36,
+    height: 36,
+  },
+  addTransactionButtonText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  transactionTable: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    overflow: 'hidden',
+    marginTop: spacing.xs,
+    marginHorizontal: -spacing.md,
+  },
+  tableHeader: {
+    flexDirection: 'row',
+    backgroundColor: colors.surface2,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.xs,
+  },
+  tableHeaderText: {
+    flex: 3,
+    fontSize: 9,
+    fontWeight: '600',
+    color: colors.textPrimary,
+    textAlign: 'center',
+  },
+  tableRow: {
+    flexDirection: 'row',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.xs,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.outline,
+  },
+  tableCell: {
+    flex: 3,
+    fontSize: 9,
+    color: colors.textPrimary,
+    textAlign: 'center',
+  },
+  purchaseAmount: {
+    color: '#FF4444',
+    fontWeight: '600',
+  },
+  paidAmount: {
+    color: colors.success,
+    fontWeight: '600',
+  },
+  balanceAmount: {
+    color: colors.textPrimary,
+    fontWeight: '600',
+  },
+  chequeNumberText: {
+    fontSize: 8,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    marginTop: 2,
   },
 });
 

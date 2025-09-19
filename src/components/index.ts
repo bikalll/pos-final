@@ -9,6 +9,7 @@ export { default as Icon } from './Icon';
 export { default as MenuItemForm } from './MenuItemForm';
 export { default as MenuItemImage } from './MenuItemImage';
 export { default as PrintDemo } from './PrintDemo';
+export { default as PrintSummaryDialog } from './PrintSummaryDialog';
 export { default as Sidebar } from './Sidebar';
 export { default as Toast } from './Toast';
 export { default as ReceiptSortingFilter } from './ReceiptSortingFilter';

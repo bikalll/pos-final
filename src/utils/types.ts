@@ -32,8 +32,6 @@ export type Order = {
 id: string;
 tableId: string;
 restaurantId: string; // Restaurant ID for data isolation
-mergedTableIds?: string[]; // Array of table IDs if this is a merged table order
-isMergedOrder?: boolean; // Flag to indicate if this is a merged table order
 status: OrderStatus;
 items: OrderItem[];
 discountPercentage: number;

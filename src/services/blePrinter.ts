@@ -350,7 +350,7 @@ export const blePrinter = {
 			await BluetoothEscposPrinter.printerInit();
 			await BluetoothEscposPrinter.printerAlign(getAlignment('LEFT'));
 			await BluetoothEscposPrinter.printText(text + '\n', { encoding: 'GBK' });
-			await BluetoothEscposPrinter.printAndFeed(2);
+			await BluetoothEscposPrinter.printAndFeed(6); // 0.7cm space below general text prints
 		} catch (error) {
 			console.error('Print text failed:', error);
 			throw new Error(`Print failed: ${error}`);
@@ -424,7 +424,7 @@ export const blePrinter = {
 			printContent += '\nThank you!\n';
 			
 			await BluetoothEscposPrinter.printText(printContent, { encoding: 'GBK' });
-			await BluetoothEscposPrinter.printAndFeed(3);
+			await BluetoothEscposPrinter.printAndFeed(6); // 0.7cm space below simple receipt
 			
 			console.log('✅ Simple receipt print completed successfully');
 		} catch (error) {
@@ -439,13 +439,15 @@ export const blePrinter = {
 		date: string;
 		time: string;
 		table: string;
-		items: Array<{ name: string; quantity: number; price: number }>;
+		items: Array<{ name: string; quantity: number; price: number; discountPercentage?: number; discountAmount?: number }>;
 		taxLabel: string;
 		serviceLabel: string;
 		subtotal: number;
 		tax: number;
 		service: number;
 		discount?: number;
+		itemDiscount?: number;
+		orderDiscount?: number;
 		total: number;
 		payment?: { method: string; amountPaid: number; change: number } | null;
 		// Optional split lines
@@ -498,12 +500,34 @@ export const blePrinter = {
 						const nameCol = nameWithQty.slice(0, 22).padEnd(22);
 						const totalCol = (item.price * item.quantity).toFixed(1).padStart(8);
 						printContent += `${nameCol}${totalCol}\n`;
+						
+						// Add item discount line if applicable
+						if (item.discountPercentage !== undefined || item.discountAmount !== undefined) {
+							let discountText = '';
+							if (item.discountPercentage !== undefined) {
+								discountText = `  ${item.discountPercentage}% off`;
+							} else if (item.discountAmount !== undefined) {
+								discountText = `  Rs.${item.discountAmount} off`;
+							}
+							printContent += `${discountText.padEnd(30)}\n`;
+						}
 					} else {
 						const nameCol = item.name.slice(0, 16).padEnd(16);
 						const qtyCol = item.quantity.toString().padStart(3);
 						const totalStr = (item.price * item.quantity).toFixed(1);
 						const totalCol = totalStr.padStart(9);
 						printContent += `${nameCol}${qtyCol}${totalCol}\n`;
+						
+						// Add item discount line if applicable
+						if (item.discountPercentage !== undefined || item.discountAmount !== undefined) {
+							let discountText = '';
+							if (item.discountPercentage !== undefined) {
+								discountText = `  ${item.discountPercentage}% off`;
+							} else if (item.discountAmount !== undefined) {
+								discountText = `  Rs.${item.discountAmount} off`;
+							}
+							printContent += `${discountText.padEnd(28)}\n`;
+						}
 					}
 				}
 				
@@ -634,7 +658,22 @@ export const blePrinter = {
 			
 			await BluetoothEscposPrinter.printText('------------------------------\n', {});
 			await BluetoothEscposPrinter.printText(`Sub Total: ${data.subtotal.toFixed(1)}\n`, {});
-			if ((data.discount ?? 0) > 0) await BluetoothEscposPrinter.printText(`Discount: ${(data.discount ?? 0).toFixed(1)}\n`, {});
+			
+			// Display item discounts if any
+			if ((data.itemDiscount ?? 0) > 0) {
+				await BluetoothEscposPrinter.printText(`Item Discount: -${(data.itemDiscount ?? 0).toFixed(1)}\n`, {});
+			}
+			
+			// Display order discounts if any
+			if ((data.orderDiscount ?? 0) > 0) {
+				await BluetoothEscposPrinter.printText(`Order Discount: -${(data.orderDiscount ?? 0).toFixed(1)}\n`, {});
+			}
+			
+			// Display total discount if any (for backward compatibility)
+			if ((data.discount ?? 0) > 0 && (data.itemDiscount ?? 0) === 0 && (data.orderDiscount ?? 0) === 0) {
+				await BluetoothEscposPrinter.printText(`Discount: -${(data.discount ?? 0).toFixed(1)}\n`, {});
+			}
+			
 			await BluetoothEscposPrinter.printText(`TOTAL: ${data.total.toFixed(1)}\n`, { widthtimes: 1, heighttimes: 1 });
 			
 			// Enhanced payment display for split payments with credit
@@ -686,7 +725,7 @@ export const blePrinter = {
 			}
 			await BluetoothEscposPrinter.printText('Powered by ARBI POS\n', {});
 			await BluetoothEscposPrinter.printText(`Ref Number: ${data.receiptId}\n`, {});
-			await BluetoothEscposPrinter.printAndFeed(3);
+			await BluetoothEscposPrinter.printAndFeed(6); // 0.7cm space below receipt
 		} catch (error) {
 			console.error('Print receipt failed:', error);
 			// Try fallback methods if Bluetooth fails
@@ -839,7 +878,7 @@ export const blePrinter = {
 			
 			// Feed paper
 			console.log('🖨️ Feeding paper...');
-			await BluetoothEscposPrinter.printAndFeed(3);
+			await BluetoothEscposPrinter.printAndFeed(6); // 0.7cm space below KOT
 			
 			console.log('✅ KOT print completed successfully');
 		} catch (error) {
@@ -886,7 +925,7 @@ export const blePrinter = {
 			await BluetoothEscposPrinter.printText('------------------------------\n', {});
 			await BluetoothEscposPrinter.printText(`Total Entries: ${data.totalCount}\n`, {});
 			await BluetoothEscposPrinter.printText(`Total Amount: ${data.totalAmount.toFixed(2)}\n`, { widthtimes: 1, heighttimes: 1 });
-			await BluetoothEscposPrinter.printAndFeed(3);
+			await BluetoothEscposPrinter.printAndFeed(6); // 0.7cm space below customer history
 		} catch (e) {
 			throw new Error(`Customer history print failed: ${e}`);
 		}
@@ -919,7 +958,7 @@ export const blePrinter = {
 			}
 			await BluetoothEscposPrinter.printText('------------------------------\n', {});
 			await BluetoothEscposPrinter.printText(`TOTAL DUE: ${data.totalAmount.toFixed(2)}\n`, { widthtimes: 1, heighttimes: 1 });
-			await BluetoothEscposPrinter.printAndFeed(3);
+			await BluetoothEscposPrinter.printAndFeed(6); // 0.7cm space below credit statement
 		} catch (e) {
 			throw new Error(`Credit statement print failed: ${e}`);
 		}
@@ -948,11 +987,14 @@ export const blePrinter = {
 			lines.push(`Date: ${data.date}`);
 			if (data.branch) lines.push(`Branch: ${data.branch}`);
 			lines.push('');
+			lines.push('--- DISCOUNT SUMMARY ---');
+			lines.push(`Total Discounts: Rs ${data.discounts.toFixed(2)}`);
+			lines.push('');
 			lines.push('Day Summary');
 			lines.push('');
 			lines.push('--- Sales Summary ---');
 			lines.push(`Gross Sales        ${data.grossSales.toFixed(1)}`);
-			lines.push(`Service Charge     ${data.serviceCharge.toFixed(1)}`);
+			lines.push(`Tax                0.0`);
 			lines.push(`Discounts          ${data.discounts.toFixed(1)}`);
 			lines.push(`Complementary      ${(data.complementary || 0).toFixed(1)}`);
 			lines.push(`Net Sales          ${data.netSales.toFixed(1)}`);
@@ -1008,13 +1050,17 @@ export const blePrinter = {
 			await BluetoothEscposPrinter.printText(`Print time: ${data.printTime}\n`, {});
 			await BluetoothEscposPrinter.printText(`Date: ${data.date}\n`, {});
 			if (data.branch) await BluetoothEscposPrinter.printText(`Branch: ${data.branch}\n`, {});
+			await BluetoothEscposPrinter.printText('------------------------------\n', {});
+			await BluetoothEscposPrinter.printText('DISCOUNT SUMMARY\n', {});
+			await BluetoothEscposPrinter.printText(`Total Discounts: Rs ${data.discounts.toFixed(2)}\n`, {});
+			await BluetoothEscposPrinter.printText('------------------------------\n', {});
 			await BluetoothEscposPrinter.printerAlign(getAlignment('CENTER'));
 			await BluetoothEscposPrinter.printText('Day Summary\n', { widthtimes: 1, heighttimes: 1 });
 			await BluetoothEscposPrinter.printerAlign(getAlignment('LEFT'));
 			await BluetoothEscposPrinter.printText('------------------------------\n', {});
 			await BluetoothEscposPrinter.printText('Sales Summary\n', {});
 			await BluetoothEscposPrinter.printText(`Gross Sales           ${data.grossSales.toFixed(1)}\n`, {});
-			await BluetoothEscposPrinter.printText(`Service Charge        ${data.serviceCharge.toFixed(1)}\n`, {});
+			await BluetoothEscposPrinter.printText(`Tax                   0.0\n`, {});
 			await BluetoothEscposPrinter.printText(`Discounts             ${data.discounts.toFixed(1)}\n`, {});
 			await BluetoothEscposPrinter.printText(`Complementary         ${(data.complementary || 0).toFixed(1)}\n`, {});
 			await BluetoothEscposPrinter.printText(`Net Sales             ${data.netSales.toFixed(1)}\n`, {});
@@ -1058,7 +1104,7 @@ export const blePrinter = {
 			}
 			await BluetoothEscposPrinter.printText('------------------------------\n', {});
 			await BluetoothEscposPrinter.printText('-- End --\n', {});
-			await BluetoothEscposPrinter.printAndFeed(3);
+			await BluetoothEscposPrinter.printAndFeed(6); // 0.7cm space below daily summary
 		} catch (error) {
 			console.error('Daily summary print failed:', error);
 			throw new Error(`Daily summary print failed: ${error}`);
@@ -1202,7 +1248,7 @@ export const blePrinter = {
 			
 			// Feed paper
 			console.log('🖨️ Feeding paper...');
-			await BluetoothEscposPrinter.printAndFeed(3);
+			await BluetoothEscposPrinter.printAndFeed(6); // 0.7cm space below BOT
 			
 			console.log('✅ BOT print completed successfully');
 		} catch (error) {
@@ -1273,7 +1319,7 @@ export const blePrinter = {
 			printContent += `${new Date().toLocaleTimeString()}\n`;
 			
 			await BluetoothEscposPrinter.printText(printContent, { encoding: 'GBK' });
-			await BluetoothEscposPrinter.printAndFeed(3);
+			await BluetoothEscposPrinter.printAndFeed(6); // 0.7cm space below simple KOT
 			
 			console.log('✅ Simple KOT print completed successfully');
 		} catch (error) {
@@ -1337,7 +1383,7 @@ export const blePrinter = {
 			printContent += `${new Date().toLocaleTimeString()}\n`;
 			
 			await BluetoothEscposPrinter.printText(printContent, { encoding: 'GBK' });
-			await BluetoothEscposPrinter.printAndFeed(3);
+			await BluetoothEscposPrinter.printAndFeed(6); // 0.7cm space below simple BOT
 			
 			console.log('✅ Simple BOT print completed successfully');
 		} catch (error) {

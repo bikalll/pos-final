@@ -131,32 +131,11 @@ export class RealtimeSyncService {
       Array.from(currentOrderIds).forEach((orderId: string) => {
         if (!firestoreOrderIds.has(orderId)) {
           const order = currentState.orders?.ordersById?.[orderId];
-          // Don't remove merged orders - they should stay until unmerged
-          if (order && !order.isMergedOrder) {
-            console.log('🔄 Removing order from state (no longer in Firestore):', orderId);
-            store.dispatch(removeOrderFromFirebase(orderId));
-          }
+          console.log('🔄 Removing order from state (no longer in Firestore):', orderId);
+          store.dispatch(removeOrderFromFirebase(orderId));
         }
       });
 
-      // Additional cleanup: Remove orders that are part of merged tables
-      Array.from(currentOrderIds).forEach((orderId: string) => {
-        const order = currentState.orders?.ordersById?.[orderId];
-        if (order && !order.isMergedOrder) {
-          // Check if this order's table is part of any merged order
-          const isPartOfMergedTable = Object.values(currentState.orders?.ordersById || {}).some((otherOrder: any) => 
-            otherOrder && 
-            otherOrder.isMergedOrder && 
-            otherOrder.mergedTableIds && 
-            Array.isArray(otherOrder.mergedTableIds) &&
-            otherOrder.mergedTableIds.includes(order.tableId)
-          );
-          
-          if (isPartOfMergedTable) {
-            store.dispatch(removeOrderFromFirebase(orderId));
-          }
-        }
-      });
 
       // Update occupancy flags for tables based on order status
       try {
@@ -171,12 +150,8 @@ export class RealtimeSyncService {
           const shouldBeOccupied = occupiedTableIds.has(tableId);
           const current = tablesState.tablesById?.[tableId];
           
-          // Don't override occupancy for merged tables - they should stay occupied until unmerged
-          if (current?.isMerged) {
-            return;
-          }
           
-          // Don't override isActive status - let unmerge process handle this
+          // Don't override isActive status for inactive tables
           if (current?.isActive === false) {
             return;
           }

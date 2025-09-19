@@ -12,10 +12,13 @@ export interface ReceiptData {
   date: string;
   timestamp: number;
   orderItems: any[];
+  baseSubtotal?: number; // Base subtotal before any discounts (for gross sales)
   subtotal: number;
   tax: number;
   serviceCharge: number;
   discount: number;
+  itemDiscount?: number;
+  orderDiscount?: number;
 }
 
 export const filterReceiptsByDate = (

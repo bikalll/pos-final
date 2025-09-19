@@ -20,7 +20,8 @@ import { addItem, removeItem, updateItemQuantity, createOrder, cancelOrder, mark
 import { saveOrderToFirebase } from '../../redux/slices/ordersSliceFirebase';
 import { MenuItem } from '../../redux/slices/menuSliceFirebase';
 import { colors, spacing, radius, shadow } from '../../theme';
-import { createFirestoreService } from '../../services/firestoreService';
+import { getOptimizedTables, getOptimizedMenuItems } from '../../services/DirectFirebaseService';
+import { firebaseConnectionManager } from '../../services/FirebaseConnectionManager';
 
 interface RouteParams {
   tableId: string;
@@ -75,11 +76,7 @@ const OrderTakingScreen: React.FC = () => {
     seats: firebaseTables[selectedTableId].seats,
     description: firebaseTables[selectedTableId].description,
     isActive: firebaseTables[selectedTableId].isActive,
-    isMerged: false, // Firebase tables don't have merge info yet
-    mergedTableNames: []
   } : null;
-  const isMergedTable = selectedTable?.isMerged;
-  const mergedTableNames = selectedTable?.mergedTableNames || [];
 
   // Load menu items and tables from Firebase
   useEffect(() => {
@@ -91,10 +88,8 @@ const OrderTakingScreen: React.FC = () => {
 
       try {
         setIsLoading(true);
-        const service = createFirestoreService(restaurantId);
-        
-        // Load menu items
-        const menuData = await service.getMenuItems();
+        // Load menu items using direct service
+        const menuData = await getOptimizedMenuItems(restaurantId);
         const menuItemsArray = Object.values(menuData).map((item: any) => ({
           id: item.id || Object.keys(menuData).find(key => menuData[key] === item),
           name: item.name,
@@ -109,8 +104,8 @@ const OrderTakingScreen: React.FC = () => {
         }));
         setMenuItems(menuItemsArray);
         
-        // Load tables
-        const tablesData = await service.getTables();
+        // Load tables using direct service
+        const tablesData = await getOptimizedTables(restaurantId);
         console.log('🔥 OrderTakingScreen - Firebase tables loaded:', tablesData);
         setFirebaseTables(tablesData);
         
@@ -131,8 +126,14 @@ const OrderTakingScreen: React.FC = () => {
       if (order && order.items.length === 0) {
         dispatch(cancelOrder({ orderId: order.id }));
       }
+      
+      // Cleanup Firebase connections
+      if (restaurantId) {
+        console.log('🧹 OrderTakingScreen: Cleaning up Firebase connections');
+        firebaseConnectionManager.cleanupService(restaurantId);
+      }
     };
-  }, [order, dispatch]);
+  }, [order, dispatch, restaurantId]);
 
   const categories = useMemo(() => ['All', ...Array.from(new Set(menuItems.map((i: MenuItem) => i.category)))], [menuItems]);
   
@@ -302,16 +303,6 @@ const OrderTakingScreen: React.FC = () => {
         <Text style={styles.title}>Add Items to Order</Text>
         <Text style={styles.subtitle}>Add items to the order for {selectedTable?.name || `Table ${selectedTableId?.replace('table-', '') || selectedTableId}`}</Text>
         
-        {/* Show merged table information */}
-        {isMergedTable && mergedTableNames.length > 0 && (
-          <View style={styles.mergedTableInfo}>
-            <Text style={styles.mergedTableLabel}>Merged Tables:</Text>
-            <Text style={styles.mergedTableNames}>
-              {mergedTableNames.join(' + ')}
-            </Text>
-            <Text style={styles.mergedTableSeats}>Total Seats: {selectedTable?.seats}</Text>
-          </View>
-        )}
       </View>
 
 
@@ -377,8 +368,7 @@ const OrderTakingScreen: React.FC = () => {
                   if (isSaving) return;
                   setIsSaving(true);
                   try {
-                    const mergedTableIds = isMergedTable ? (selectedTable as any)?.mergedTables : undefined;
-                    const action: any = dispatch(createOrder(selectedTableId, mergedTableIds));
+                    const action: any = dispatch(createOrder(selectedTableId));
                     const newOrderId = action.payload.id;
                     Object.values(pendingItems).forEach(({ item, quantity }) => {
                       dispatch(addItem({
@@ -414,8 +404,7 @@ const OrderTakingScreen: React.FC = () => {
                   if (isSaving) return;
                   setIsSaving(true);
                   try {
-                    const mergedTableIds = isMergedTable ? (selectedTable as any)?.mergedTables : undefined;
-                    const action: any = dispatch(createOrder(selectedTableId, mergedTableIds));
+                    const action: any = dispatch(createOrder(selectedTableId));
                     const newOrderId = action.payload.id;
                     Object.values(pendingItems).forEach(({ item, quantity }) => {
                       dispatch(addItem({
@@ -712,30 +701,6 @@ const styles = StyleSheet.create({
   emptyText: {
     color: colors.textSecondary,
     fontSize: 16,
-  },
-  mergedTableInfo: {
-    backgroundColor: colors.primary + '10',
-    borderRadius: radius.md,
-    padding: spacing.md,
-    marginTop: spacing.md,
-    borderLeftWidth: 3,
-    borderLeftColor: colors.primary,
-  },
-  mergedTableLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.primary,
-    marginBottom: spacing.xs,
-  },
-  mergedTableNames: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: colors.textPrimary,
-    marginBottom: spacing.xs,
-  },
-  mergedTableSeats: {
-    fontSize: 12,
-    color: colors.textSecondary,
   },
 });
 
