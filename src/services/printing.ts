@@ -827,6 +827,18 @@ export class PrintService {
 
       // Print via Bluetooth
       const splitPayments = Array.isArray(order.payment?.splitPayments) ? order.payment.splitPayments.map((sp: any) => ({ method: sp.method, amount: Number(sp.amount) || 0 })) : undefined;
+      
+      // Ensure processedBy is in the correct format: { role: string, username: string }
+      let processedBy = order.processedBy;
+      if (!processedBy || typeof processedBy !== 'object' || !processedBy.role || !processedBy.username) {
+        // Fallback: construct processedBy from available data
+        const state: any = store.getState?.() || {};
+        processedBy = {
+          role: order.role || state?.auth?.role || 'Staff',
+          username: order.processedBy?.username || stewardName || state?.auth?.userName || 'Unknown'
+        };
+      }
+      
       await blePrinter.printReceipt({
         restaurantName,
         receiptId: `R${Date.now()}`,
@@ -834,8 +846,7 @@ export class PrintService {
         time: new Date(order.createdAt).toLocaleTimeString(),
         table: table?.name || order.tableId,
         steward: stewardName,
-        processedBy: order.processedBy,
-        role: order.role,
+        processedBy: processedBy,
         items: order.items.map((item: any) => ({
           name: item.name,
           quantity: item.quantity,
@@ -917,13 +928,21 @@ export class PrintService {
       const discount = subtotal * ((order.discountPercentage || 0) / 100);
       const total = subtotal + tax + serviceCharge - discount;
 
+      // Ensure processedBy is in the correct format for pre-receipt
+      const state: any = (store as any)?.getState?.() || {};
+      const processedBy = {
+        role: state?.auth?.role || 'Staff',
+        username: state?.auth?.userName || 'Unknown'
+      };
+
       const receiptData = {
         restaurantName: 'ARBI POS',
         receiptId: `PR${Date.now()}`,
         date: new Date(order.createdAt).toLocaleDateString(),
         time: new Date(order.createdAt).toLocaleTimeString(),
         table: table?.name || order.tableId,
-        steward: (store as any)?.getState?.()?.auth?.userName,
+        steward: state?.auth?.userName,
+        processedBy: processedBy,
         items: order.items.map((item: any) => ({
           name: item.name,
           quantity: item.quantity,

@@ -131,6 +131,9 @@ function createAutoReceiptService(restaurantId: string) {
       discount: (order.discount || 0) + itemDiscountsTotal + orderDiscountAmount,
       itemDiscount: itemDiscountsTotal,
       orderDiscount: orderDiscountAmount,
+      discountPercentage: orderDiscountPercent, // Add order discount percentage
+      taxPercentage: (order as any)?.taxPercentage || 0, // Add tax percentage
+      serviceChargePercentage: (order as any)?.serviceChargePercentage || 0, // Add service charge percentage
       paymentMethod: p.method || (Array.isArray(p.splitPayments) ? 'Split' : 'Cash'),
       amount: (splitAmount !== undefined ? splitAmount : (p.amountPaid ?? p.amount ?? 0)) || 0,
       splitPayments: Array.isArray(p.splitPayments) ? p.splitPayments.map((sp: any) => ({ method: sp.method, amount: Number(sp.amount) || 0 })) : undefined,

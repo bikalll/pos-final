@@ -5,7 +5,7 @@ import { Order } from './types';
  * This prevents Firebase errors when saving orders with undefined properties
  */
 export function cleanOrderData(order: Order): Order {
-  return {
+  const cleanedOrder = {
     ...order,
     // Ensure other optional fields are properly handled
     customerName: order.customerName || null,
@@ -15,9 +15,40 @@ export function cleanOrderData(order: Order): Order {
     // Ensure boolean fields are properly set
     isSaved: order.isSaved || false,
     isReviewed: order.isReviewed || false,
-    // Ensure items array is preserved
-    items: order.items || [],
+    // Ensure items array is preserved with all discount fields
+    items: (order.items || []).map(item => {
+      const cleanedItem = {
+        ...item,
+        // Ensure other item fields are properly set
+        modifiers: item.modifiers || [],
+        orderType: item.orderType || 'KOT',
+      };
+      
+      // Always include discount fields, even if they are undefined/null
+      // This ensures that discount data is preserved during the save process
+      cleanedItem.discountPercentage = item.discountPercentage;
+      cleanedItem.discountAmount = item.discountAmount;
+      
+      return cleanedItem;
+    }),
   };
+  
+  // Debug logging for discount data
+  const itemsWithDiscounts = cleanedOrder.items.filter(item => 
+    item.discountPercentage !== undefined || item.discountAmount !== undefined
+  );
+  if (itemsWithDiscounts.length > 0) {
+    console.log('🧹 cleanOrderData: Found items with discounts:', {
+      orderId: cleanedOrder.id,
+      itemsWithDiscounts: itemsWithDiscounts.map(item => ({
+        name: item.name,
+        discountPercentage: item.discountPercentage,
+        discountAmount: item.discountAmount
+      }))
+    });
+  }
+  
+  return cleanedOrder;
 }
 
 /**

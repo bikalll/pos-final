@@ -825,6 +825,21 @@ export function createFirestoreService(restaurantId: string) {
         
         // Remove any remaining undefined values from the payload
         const payload = removeUndefinedValues(cleanOrder);
+        
+        // Debug discount data in final payload
+        const itemsWithDiscounts = (payload.items || []).filter((item: any) => 
+          item.discountPercentage !== undefined || item.discountAmount !== undefined
+        );
+        if (itemsWithDiscounts.length > 0) {
+          console.log('🔥 Firestore save: Items with discounts in final payload:', {
+            orderId: payload.id,
+            itemsWithDiscounts: itemsWithDiscounts.map((item: any) => ({
+              name: item.name,
+              discountPercentage: item.discountPercentage,
+              discountAmount: item.discountAmount
+            }))
+          });
+        }
 
         const isOngoing = payload.status === 'ongoing' || payload.ongoing === true;
         const targetPath = isOngoing ? ["orders", "root", "ongoingOrders"] : ["orders", "root", "processedOrders"];

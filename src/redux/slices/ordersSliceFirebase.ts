@@ -232,10 +232,28 @@ const ordersSlice = createSlice({
       }>
     ) => {
       const order = state.ordersById[action.payload.orderId];
-      if (!order) return;
+      if (!order) {
+        console.log('❌ applyItemDiscount: Order not found:', action.payload.orderId);
+        return;
+      }
       
       const item = order.items.find(i => i.menuItemId === action.payload.menuItemId);
-      if (!item) return;
+      if (!item) {
+        console.log('❌ applyItemDiscount: Item not found:', action.payload.menuItemId);
+        return;
+      }
+      
+      console.log('🔄 applyItemDiscount: Applying discount to item:', {
+        orderId: action.payload.orderId,
+        menuItemId: action.payload.menuItemId,
+        discountType: action.payload.discountType,
+        discountValue: action.payload.discountValue,
+        itemName: item.name,
+        beforeDiscount: {
+          discountPercentage: item.discountPercentage,
+          discountAmount: item.discountAmount
+        }
+      });
       
       if (action.payload.discountType === 'percentage') {
         item.discountPercentage = Math.min(100, Math.max(0, action.payload.discountValue));
@@ -248,6 +266,20 @@ const ordersSlice = createSlice({
       
       // Mark order as unsaved when item discount is applied
       (order as any).isSaved = false;
+      
+      console.log('✅ applyItemDiscount: Discount applied successfully:', {
+        orderId: action.payload.orderId,
+        itemName: item.name,
+        afterDiscount: {
+          discountPercentage: item.discountPercentage,
+          discountAmount: item.discountAmount
+        },
+        orderIsSaved: (order as any).isSaved,
+        totalItems: order.items.length,
+        itemsWithDiscounts: order.items.filter(i => 
+          i.discountPercentage !== undefined || i.discountAmount !== undefined
+        ).length
+      });
     },
     removeItemDiscount: (
       state,

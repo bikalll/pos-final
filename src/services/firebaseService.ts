@@ -248,6 +248,21 @@ export class FirebaseService {
         itemsObjectKeys: Object.keys(orderData.items || {})
       });
       
+      // Debug discount data in final payload
+      const itemsWithDiscounts = Object.values(orderData.items || {}).filter((item: any) => 
+        item.discountPercentage !== undefined || item.discountAmount !== undefined
+      );
+      if (itemsWithDiscounts.length > 0) {
+        console.log('🔥 Firebase save: Items with discounts in final payload:', {
+          orderId: orderData.id,
+          itemsWithDiscounts: itemsWithDiscounts.map((item: any) => ({
+            name: item.name,
+            discountPercentage: item.discountPercentage,
+            discountAmount: item.discountAmount
+          }))
+        });
+      }
+      
       const orderPath = this.getRestaurantPath(`orders/${order.id}`);
       console.log('🔥 Saving to Firebase path:', orderPath);
       

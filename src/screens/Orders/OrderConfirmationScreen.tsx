@@ -228,12 +228,37 @@ const OrderConfirmationScreen: React.FC = () => {
 
   // Compute deltas
   const savedQuantities: Record<string, number> = (order as any)?.savedQuantities || {};
-  const hasDelta = (order.items || []).some(
+  const hasQuantityDelta = (order.items || []).some(
     (i: any) => (i.quantity - (savedQuantities[i.menuItemId] || 0)) > 0
   );
+  
+  // Check for discount changes - if any item has discounts, consider it a change
+  const hasDiscountDelta = (order.items || []).some(
+    (i: any) => i.discountPercentage !== undefined || i.discountAmount !== undefined
+  );
+  
+  const hasDelta = hasQuantityDelta || hasDiscountDelta;
 
   // Button enable rule: enabled iff order.isSaved === false (source of truth)
   const isSaveEnabled = !orderIsSaved;
+  
+  // Debug logging for save button state
+  console.log('🔍 OrderConfirmationScreen save state:', {
+    orderId: order?.id,
+    orderIsSaved,
+    isSaveEnabled,
+    hasDelta,
+    hasQuantityDelta,
+    hasDiscountDelta,
+    itemsCount: order?.items?.length || 0,
+    itemsWithDiscounts: (order?.items || []).filter((item: any) => 
+      item.discountPercentage !== undefined || item.discountAmount !== undefined
+    ).map((item: any) => ({
+      name: item.name,
+      discountPercentage: item.discountPercentage,
+      discountAmount: item.discountAmount
+    }))
+  });
   // Enable settle payment strictly when order is saved
   const isSettleEnabled = orderIsSaved;
 
@@ -317,6 +342,8 @@ const OrderConfirmationScreen: React.FC = () => {
       isSaveEnabled,
       orderIsSaved,
       hasDelta,
+      hasQuantityDelta,
+      hasDiscountDelta,
       restaurantId
     });
     
@@ -369,7 +396,28 @@ const OrderConfirmationScreen: React.FC = () => {
           throw new Error('Restaurant ID is required');
         }
         const svc = createFirestoreService(restaurantId);
-        const payload: any = { ...order, id: orderId, restaurantId, status: 'ongoing' as const, isSaved: true, specialInstructions: (order as any).specialInstructions || modificationNotes || '' };
+        const payload: any = { 
+          ...order, 
+          id: orderId, 
+          restaurantId, 
+          status: 'ongoing' as const, 
+          isSaved: true, 
+          specialInstructions: (order as any).specialInstructions || modificationNotes || '' 
+        };
+        
+        // Debug the payload before saving
+        console.log('🔄 finalizeSave: Payload before Firestore save:', {
+          orderId: payload.id,
+          itemsCount: payload.items?.length || 0,
+          itemsWithDiscounts: (payload.items || []).filter((item: any) => 
+            item.discountPercentage !== undefined || item.discountAmount !== undefined
+          ).map((item: any) => ({
+            name: item.name,
+            discountPercentage: item.discountPercentage,
+            discountAmount: item.discountAmount
+          }))
+        });
+        
         await svc.saveOrder(payload);
         const t = Date.now() - startTime;
         console.log(`✅ Step 1: Firestore save successful (${t}ms)`);
@@ -709,8 +757,14 @@ const OrderConfirmationScreen: React.FC = () => {
               >
                 <Ionicons name="print" size={20} color={order?.isSaved ? colors.primary : colors.textMuted} />
               </TouchableOpacity>
-              <TouchableOpacity style={styles.actionButton} onPress={() => setShowOptionsMenu(!showOptionsMenu)}>
-                <Ionicons name="ellipsis-vertical" size={20} color={colors.textSecondary} />
+              <TouchableOpacity 
+                style={[styles.actionButton, !order?.isSaved && styles.actionButtonDisabled]} 
+                onPress={() => setShowOptionsMenu(!showOptionsMenu)} 
+                disabled={!order?.isSaved}
+                activeOpacity={0.7}
+                accessibilityLabel="Options Menu"
+              >
+                <Ionicons name="ellipsis-vertical" size={20} color={order?.isSaved ? colors.textSecondary : colors.textMuted} />
               </TouchableOpacity>
               <TouchableOpacity style={styles.actionButton} onPress={() => setShowDebugMonitor(true)}>
                 <Ionicons name="bug" size={20} color={colors.primary} />
