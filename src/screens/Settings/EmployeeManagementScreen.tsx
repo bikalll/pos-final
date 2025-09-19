@@ -12,14 +12,17 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { colors, spacing, radius, shadow } from '../../theme';
 import { getFirebaseAuthEnhanced, createFirebaseAuthEnhanced, UserMetadata } from '../../services/firebaseAuthEnhanced';
 import { useSelector, useDispatch } from 'react-redux';
 import { RootState } from '../../redux/storeFirebase';
 import { createFirestoreService } from '../../services/firestoreService';
+import { imgbbService } from '../../services/imgbbService';
 
 interface Employee extends Omit<UserMetadata, 'role'> {
   phone?: string;
@@ -28,6 +31,7 @@ interface Employee extends Omit<UserMetadata, 'role'> {
   isActive: boolean;
   role: 'Owner' | 'manager' | 'staff';
   employmentType?: 'full-time' | 'part-time';
+  photoURL?: string;
 }
 
 interface FormErrors {
@@ -496,6 +500,117 @@ const EmployeeManagementScreen: React.FC = () => {
     );
   };
 
+  const handleImageUpload = async (employee: Employee) => {
+    try {
+      // Request permissions
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission denied', 'Media library access is required to upload photos.');
+        return;
+      }
+
+      // Show image picker options
+      Alert.alert(
+        'Select Photo',
+        'Choose how you want to add a photo for this employee',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { 
+            text: 'Camera', 
+            onPress: () => takePhoto(employee)
+          },
+          { 
+            text: 'Photo Library', 
+            onPress: () => selectFromLibrary(employee)
+          }
+        ]
+      );
+    } catch (error) {
+      console.error('Error requesting permissions:', error);
+      Alert.alert('Error', 'Failed to request permissions. Please try again.');
+    }
+  };
+
+  const takePhoto = async (employee: Employee) => {
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission denied', 'Camera access is required to take photos.');
+        return;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets?.[0]) {
+        await uploadEmployeePhoto(employee, result.assets[0]);
+      }
+    } catch (error) {
+      console.error('Error taking photo:', error);
+      Alert.alert('Error', 'Failed to take photo. Please try again.');
+    }
+  };
+
+  const selectFromLibrary = async (employee: Employee) => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets?.[0]) {
+        await uploadEmployeePhoto(employee, result.assets[0]);
+      }
+    } catch (error) {
+      console.error('Error selecting from library:', error);
+      Alert.alert('Error', 'Failed to select photo. Please try again.');
+    }
+  };
+
+  const uploadEmployeePhoto = async (employee: Employee, asset: ImagePicker.ImagePickerAsset) => {
+    try {
+      setIsSubmitting(true);
+      
+      // Convert to base64 and upload to ImgBB
+      const base64 = await imgbbService.ensureBase64FromAsset(asset);
+      const uploadResult = await imgbbService.uploadImage(base64);
+      
+      // Update employee photo in Firebase
+      let authService;
+      try {
+        authService = getFirebaseAuthEnhanced();
+      } catch (error) {
+        authService = createFirebaseAuthEnhanced(dispatch);
+      }
+      
+      await authService.updateUserMetadata(employee.uid, { photoURL: uploadResult.url } as any);
+      
+      // Update local state
+      setEmployees(prev => 
+        prev.map(emp => 
+          emp.uid === employee.uid 
+            ? { ...emp, photoURL: uploadResult.url }
+            : emp
+        )
+      );
+      
+      Alert.alert('Success', 'Employee photo updated successfully!');
+    } catch (error) {
+      console.error('Error uploading photo:', error);
+      Alert.alert('Error', 'Failed to upload photo. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const renderEmployee = ({ item }: { item: Employee }) => (
     <View style={[styles.employeeCard, !item.isActive && styles.inactiveEmployeeCard]}>
       {/* Status Badge */}
@@ -513,9 +628,24 @@ const EmployeeManagementScreen: React.FC = () => {
       </TouchableOpacity>
 
       {/* Profile Picture */}
-      <View style={styles.profilePicture}>
-        <Ionicons name="person" size={40} color={colors.textSecondary} />
-      </View>
+      <TouchableOpacity 
+        style={styles.profilePicture}
+        onPress={() => handleImageUpload(item)}
+        activeOpacity={0.8}
+      >
+        {item.photoURL ? (
+          <Image 
+            source={{ uri: item.photoURL }} 
+            style={styles.profileImage}
+            resizeMode="cover"
+          />
+        ) : (
+          <Ionicons name="person" size={40} color={colors.textSecondary} />
+        )}
+        <View style={styles.cameraIcon}>
+          <Ionicons name="camera" size={16} color={colors.textPrimary} />
+        </View>
+      </TouchableOpacity>
 
       {/* Employee Name */}
       <Text style={styles.employeeName}>{item.displayName}</Text>
@@ -1159,6 +1289,25 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     marginTop: spacing.xl,
     marginBottom: spacing.md,
+    position: 'relative',
+  },
+  profileImage: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+  },
+  cameraIcon: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: colors.textPrimary,
   },
   employeeName: {
     fontSize: 20,
