@@ -1,5 +1,5 @@
 import { Middleware } from '@reduxjs/toolkit';
-import { RootState } from '../redux/store';
+import { RootState } from '../redux/storeFirebase';
 import { getAutoReceiptService } from '../services/autoReceiptService';
 
 export const receiptMiddleware: Middleware<{}, RootState> = (store) => (next) => (action) => {
@@ -42,9 +42,33 @@ export const receiptMiddleware: Middleware<{}, RootState> = (store) => (next) =>
           
           if (autoReceiptService) {
             console.log('🔄 Receipt middleware: Saving receipt for order:', orderId);
-            // Enrich with processor info from auth state
+            
+            // Calculate order totals for receipt
+            const calculateItemTotal = (item: any) => {
+              const baseTotal = item.price * item.quantity;
+              let discount = 0;
+              if (item.discountPercentage !== undefined) discount = (baseTotal * item.discountPercentage) / 100;
+              else if (item.discountAmount !== undefined) discount = item.discountAmount;
+              return Math.max(0, baseTotal - discount);
+            };
+            
+            const baseSubtotal = (order.items || []).reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
+            const discountedSubtotal = (order.items || []).reduce((sum: number, item: any) => sum + calculateItemTotal(item), 0);
+            const itemDiscountsTotal = Math.max(0, baseSubtotal - discountedSubtotal);
+            const orderDiscountPercent = (order as any)?.discountPercentage || 0;
+            const orderDiscountAmount = discountedSubtotal * (orderDiscountPercent / 100);
+            const subtotal = Math.max(0, discountedSubtotal - orderDiscountAmount);
+            const tax = subtotal * ((order as any)?.taxPercentage || 0) / 100;
+            const serviceCharge = subtotal * ((order as any)?.serviceChargePercentage || 0) / 100;
+            const totalDiscount = itemDiscountsTotal + orderDiscountAmount;
+            
+            // Enrich with processor info and calculated totals
             const enrichedOrder = {
               ...order,
+              subtotal: subtotal,
+              tax: tax,
+              serviceCharge: serviceCharge,
+              discount: totalDiscount,
               processedBy: {
                 role: state?.auth?.role || 'Staff',
                 username: state?.auth?.userName || 'Unknown'

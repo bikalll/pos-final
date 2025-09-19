@@ -11,12 +11,14 @@ export type OrdersState = {
   ordersById: Record<string, Order>;
   ongoingOrderIds: string[];
   completedOrderIds: string[];
+  receiptsRefreshTrigger: number;
 };
 
 const initialState: OrdersState = {
   ordersById: {},
   ongoingOrderIds: [],
   completedOrderIds: [],
+  receiptsRefreshTrigger: 0,
 };
 
 // Async thunk to complete order and save receipt
@@ -49,18 +51,53 @@ export const completeOrderWithReceipt = createAsyncThunk(
             status: order.status,
             hasPayment: !!order.payment,
             restaurantId: order.restaurantId,
-            amount: order.payment.amountPaid
+            amount: order.payment.amountPaid,
+            tableId: order.tableId,
+            isSettlement: order.tableId?.startsWith('credit-'),
+            processedBy: order.processedBy
           });
-          // Enrich with processor info from auth state
+          
+          // Calculate order totals for receipt
+          const calculateItemTotal = (item: any) => {
+            const baseTotal = item.price * item.quantity;
+            let discount = 0;
+            if (item.discountPercentage !== undefined) discount = (baseTotal * item.discountPercentage) / 100;
+            else if (item.discountAmount !== undefined) discount = item.discountAmount;
+            return Math.max(0, baseTotal - discount);
+          };
+          
+          const baseSubtotal = (order.items || []).reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
+          const discountedSubtotal = (order.items || []).reduce((sum: number, item: any) => sum + calculateItemTotal(item), 0);
+          const itemDiscountsTotal = Math.max(0, baseSubtotal - discountedSubtotal);
+          const orderDiscountPercent = (order as any)?.discountPercentage || 0;
+          const orderDiscountAmount = discountedSubtotal * (orderDiscountPercent / 100);
+          const subtotal = Math.max(0, discountedSubtotal - orderDiscountAmount);
+          const tax = subtotal * ((order as any)?.taxPercentage || 0) / 100;
+          const serviceCharge = subtotal * ((order as any)?.serviceChargePercentage || 0) / 100;
+          const totalDiscount = itemDiscountsTotal + orderDiscountAmount;
+          
+          // Enrich with processor info and calculated totals
           const enrichedOrder = {
             ...order,
-            processedBy: {
+            subtotal: subtotal,
+            tax: tax,
+            serviceCharge: serviceCharge,
+            discount: totalDiscount,
+            restaurantName: state?.auth?.restaurantName || 'Restaurant',
+            processedBy: order.processedBy || {
               role: state?.auth?.role || 'Staff',
               username: state?.auth?.userName || 'Unknown'
             }
           } as any;
           await autoReceiptService.saveReceiptForOrder(enrichedOrder);
           console.log('✅ THUNK: Receipt saved successfully for order:', orderId);
+          console.log('✅ THUNK: Settlement receipt details:', {
+            orderId,
+            tableId: enrichedOrder.tableId,
+            isSettlement: enrichedOrder.tableId?.startsWith('credit-'),
+            processedBy: enrichedOrder.processedBy,
+            amount: enrichedOrder.payment?.amountPaid
+          });
         } else {
           console.log('⚠️ THUNK: Order not ready for receipt:', orderId, { 
             hasOrder: !!order, 
@@ -237,6 +274,9 @@ const ordersSlice = createSlice({
       const order = state.ordersById[action.payload.orderId];
       if (order) (order as any).isSaveLocked = false;
     },
+    triggerReceiptsRefresh: (state) => {
+      state.receiptsRefreshTrigger = Date.now();
+    },
     // Migration: Add restaurant ID to existing orders
     migrateOrdersWithRestaurantId: (state, action: PayloadAction<{ restaurantId: string }>) => {
       const { restaurantId } = action.payload;
@@ -384,6 +424,7 @@ export const {
   markOrderUnsaved,
   lockOrderSaving,
   unlockOrderSaving,
+  triggerReceiptsRefresh,
   migrateOrdersWithRestaurantId,
 } = ordersSlice.actions;
 

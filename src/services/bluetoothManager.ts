@@ -329,7 +329,8 @@ class BluetoothManager {
     }
 
     try {
-      await blePrinter.printText('Test Print\n');
+      // Test connection without printing visible text
+      await blePrinter.printText('\n');
       console.log('Connection test successful');
       return true;
     } catch (error) {

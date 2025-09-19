@@ -468,27 +468,43 @@ export const blePrinter = {
 				
 				// Add pre-receipt header if applicable
 				if (data.isPreReceipt) {
-					printContent += 'CUSTOMER COPY\n';
+					printContent += `${data.restaurantName}\n`;
+					if (data.address) printContent += `${data.address}\n`;
+					if (data.panVat) printContent += `PAN: ${data.panVat}\n`;
+					printContent += `${data.date} ${data.time}\n`;
 					printContent += 'PRE-RECEIPT\n';
+					printContent += 'CUSTOMER COPY\n';
+					printContent += `Table ${data.table}\n`;
+					printContent += '------------------------------\n';
+					// Columns: name(16) qty(3) total(9)
+					printContent += 'Item Total\n';
+					printContent += '------------------------------\n';
+				} else {
+					// Header
+					printContent += `${data.restaurantName}\n`;
+					if (data.address) printContent += `${data.address}\n`;
+					if (data.panVat) printContent += `PAN: ${data.panVat}\n`;
+					printContent += `${data.date} ${data.time}\n`;
+					printContent += `Table ${data.table}\n`;
+					printContent += '------------------------------\n';
+					// Columns: name(16) qty(3) total(9)
+					printContent += 'Item               Qty      Total\n';
+					printContent += '------------------------------\n';
 				}
 				
-				// Header
-				printContent += `${data.restaurantName}\n`;
-				if (data.address) printContent += `${data.address}\n`;
-				if (data.panVat) printContent += `PAN: ${data.panVat}\n`;
-				printContent += `${data.date} ${data.time}\n`;
-				printContent += `Table ${data.table}\n`;
-				printContent += '------------------------------\n';
-				// Columns: name(16) qty(3) total(9)
-				printContent += 'Item               Qty      Total\n';
-				printContent += '------------------------------\n';
-				
 				for (const item of data.items) {
-					const nameCol = item.name.slice(0, 16).padEnd(16);
-					const qtyCol = item.quantity.toString().padStart(3);
-					const totalStr = (item.price * item.quantity).toFixed(1);
-					const totalCol = totalStr.padStart(9);
-					printContent += `${nameCol}${qtyCol}${totalCol}\n`;
+					if (data.isPreReceipt) {
+						const nameWithQty = `${item.name} x${item.quantity}`;
+						const nameCol = nameWithQty.slice(0, 22).padEnd(22);
+						const totalCol = (item.price * item.quantity).toFixed(1).padStart(8);
+						printContent += `${nameCol}${totalCol}\n`;
+					} else {
+						const nameCol = item.name.slice(0, 16).padEnd(16);
+						const qtyCol = item.quantity.toString().padStart(3);
+						const totalStr = (item.price * item.quantity).toFixed(1);
+						const totalCol = totalStr.padStart(9);
+						printContent += `${nameCol}${qtyCol}${totalCol}\n`;
+					}
 				}
 				
 				printContent += '------------------------------\n';
@@ -546,46 +562,67 @@ export const blePrinter = {
 			// Print header with logo-style formatting
 			// Print header based on receipt type
 			if (data.isPreReceipt) {
-				await BluetoothEscposPrinter.printText('CUSTOMER COPY\n', {
-					encoding: 'GBK',
-					fonttype: 1,
-					widthtimes: 1,
-					heighttimes: 1,
-				});
+				await BluetoothEscposPrinter.printText(`${data.restaurantName}\n`, { encoding: 'GBK', fonttype: 1, widthtimes: 1, heighttimes: 1 });
+				if (data.address) await BluetoothEscposPrinter.printText(`${data.address}\n`, {});
+				if (data.panVat) await BluetoothEscposPrinter.printText(`PAN: ${data.panVat}\n`, {});
+				await BluetoothEscposPrinter.printText(`${data.date} ${data.time}\n`, {});
 				await BluetoothEscposPrinter.printText('PRE-RECEIPT\n', {
 					encoding: 'GBK',
 					fonttype: 1,
 					widthtimes: 1,
 					heighttimes: 1,
 				});
-			}
-			
-			await BluetoothEscposPrinter.printText(`${data.restaurantName}\n`, { encoding: 'GBK', fonttype: 1, widthtimes: 1, heighttimes: 1 });
-			if (data.address) await BluetoothEscposPrinter.printText(`${data.address}\n`, {});
-			if (data.panVat) await BluetoothEscposPrinter.printText(`PAN: ${data.panVat}\n`, {});
-			await BluetoothEscposPrinter.printText(`${data.date} ${data.time}\n`, {});
-			await BluetoothEscposPrinter.printText(`Table ${data.table}\n`, {});
-			if (data.processedBy) {
-				if (typeof data.processedBy === 'object' && data.processedBy.role && data.processedBy.username) {
-					// New format: {role: "Staff", username: "John"}
-					await BluetoothEscposPrinter.printText(`${data.processedBy.role} - ${data.processedBy.username}\n`, {});
-				} else if (typeof data.processedBy === 'string') {
-					// Old format: just username string, check for separate role field
-					const role = data.role || 'Staff';
-					await BluetoothEscposPrinter.printText(`${role} - ${data.processedBy}\n`, {});
-				} else if (data.processedBy.role) {
-					// Partial format: {role: "Staff"}
-					await BluetoothEscposPrinter.printText(`${data.processedBy.role} - Unknown\n`, {});
+				await BluetoothEscposPrinter.printText('CUSTOMER COPY\n', {
+					encoding: 'GBK',
+					fonttype: 1,
+					widthtimes: 1,
+					heighttimes: 1,
+				});
+				await BluetoothEscposPrinter.printText(`Table ${data.table}\n`, {});
+				if (data.processedBy) {
+					if (typeof data.processedBy === 'object' && data.processedBy.role && data.processedBy.username) {
+						// New format: {role: "Staff", username: "John"}
+						await BluetoothEscposPrinter.printText(`${data.processedBy.role} - ${data.processedBy.username}\n`, {});
+					} else if (typeof data.processedBy === 'string') {
+						// Old format: just username string, check for separate role field
+						const role = data.role || 'Staff';
+						await BluetoothEscposPrinter.printText(`${role} - ${data.processedBy}\n`, {});
+					} else if (data.processedBy.role) {
+						// Partial format: {role: "Staff"}
+						await BluetoothEscposPrinter.printText(`${data.processedBy.role} - Unknown\n`, {});
+					}
+				} else if (data.steward) {
+					await BluetoothEscposPrinter.printText(`Steward: ${data.steward}\n`, {});
 				}
-			} else if (data.steward) {
-				await BluetoothEscposPrinter.printText(`Steward: ${data.steward}\n`, {});
+				await BluetoothEscposPrinter.printText('------------------------------\n', {});
+			} else {
+				await BluetoothEscposPrinter.printText(`${data.restaurantName}\n`, { encoding: 'GBK', fonttype: 1, widthtimes: 1, heighttimes: 1 });
+				if (data.address) await BluetoothEscposPrinter.printText(`${data.address}\n`, {});
+				if (data.panVat) await BluetoothEscposPrinter.printText(`PAN: ${data.panVat}\n`, {});
+				await BluetoothEscposPrinter.printText(`${data.date} ${data.time}\n`, {});
+				await BluetoothEscposPrinter.printText(`Table ${data.table}\n`, {});
+				if (data.processedBy) {
+					if (typeof data.processedBy === 'object' && data.processedBy.role && data.processedBy.username) {
+						// New format: {role: "Staff", username: "John"}
+						await BluetoothEscposPrinter.printText(`${data.processedBy.role} - ${data.processedBy.username}\n`, {});
+					} else if (typeof data.processedBy === 'string') {
+						// Old format: just username string, check for separate role field
+						const role = data.role || 'Staff';
+						await BluetoothEscposPrinter.printText(`${role} - ${data.processedBy}\n`, {});
+					} else if (data.processedBy.role) {
+						// Partial format: {role: "Staff"}
+						await BluetoothEscposPrinter.printText(`${data.processedBy.role} - Unknown\n`, {});
+					}
+				} else if (data.steward) {
+					await BluetoothEscposPrinter.printText(`Steward: ${data.steward}\n`, {});
+				}
+				await BluetoothEscposPrinter.printText('------------------------------\n', {});
 			}
-			await BluetoothEscposPrinter.printText('------------------------------\n', {});
 			
 			// Print items in table format
 			await BluetoothEscposPrinter.printerAlign(getAlignment('LEFT'));
 			// Merge quantity next to item name for tighter spacing
-			await BluetoothEscposPrinter.printText('Item                         Total\n', {});
+			await BluetoothEscposPrinter.printText('Item Total\n', {});
 			await BluetoothEscposPrinter.printText('------------------------------\n', {});
 			
 			for (const item of data.items) {

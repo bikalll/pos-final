@@ -10,6 +10,7 @@ import menuReducer from "./slices/menuSliceFirebase";
 import authReducer from "./slices/authSlice";
 import tablesReducer, { initializeDefaultTables } from "./slices/tablesSliceFirebase";
 import receiptsReducer from "./slices/receiptsSliceFirebase";
+import vendorsReducer from "./slices/vendorsSliceFirebase";
 import { firebaseMiddleware } from "../middleware/firebaseMiddleware";
 
 const rootReducer = combineReducers({
@@ -22,6 +23,7 @@ const rootReducer = combineReducers({
   auth: authReducer,
   tables: tablesReducer,
   receipts: receiptsReducer,
+  vendors: vendorsReducer,
 });
 
 const persistConfig = {

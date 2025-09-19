@@ -14,16 +14,26 @@ export function calculateItemTotal(item: OrderItem): number {
 }
 
 export function calculateOrderTotals(order: Order) {
+  // Calculate base subtotal (before any discounts)
+  const baseSubtotal = order.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  
   // Calculate subtotal with individual item discounts
-  const subtotal = order.items.reduce((sum, item) => sum + calculateItemTotal(item), 0);
+  const discountedSubtotal = order.items.reduce((sum, item) => sum + calculateItemTotal(item), 0);
+  
+  // Calculate individual item discounts
+  const itemDiscountsTotal = Math.max(0, baseSubtotal - discountedSubtotal);
   
   // Apply order-level discount
-  const discount = (subtotal * (order.discountPercentage || 0)) / 100;
-  const afterDiscount = subtotal - discount;
+  const orderDiscountAmount = (discountedSubtotal * (order.discountPercentage || 0)) / 100;
+  
+  // Total discount includes both item-level and order-level discounts
+  const totalDiscount = itemDiscountsTotal + orderDiscountAmount;
+  
+  const afterDiscount = discountedSubtotal - orderDiscountAmount;
   const serviceCharge = (afterDiscount * (order.serviceChargePercentage || 0)) / 100;
   const taxable = afterDiscount + serviceCharge;
   const tax = (taxable * (order.taxPercentage || 0)) / 100;
   const total = Math.round((taxable + tax) * 100) / 100;
   
-  return { subtotal, discount, serviceCharge, tax, total };
+  return { subtotal: afterDiscount, discount: totalDiscount, serviceCharge, tax, total };
 }

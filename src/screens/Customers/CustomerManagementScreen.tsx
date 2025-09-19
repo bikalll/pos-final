@@ -40,6 +40,11 @@ const CustomerManagementScreen: React.FC = () => {
     email: '',
     address: '',
   });
+  const [formErrors, setFormErrors] = useState({
+    name: '',
+    phone: '',
+    email: '',
+  });
   const [searchQuery, setSearchQuery] = useState('');
   const [creditSettlementAmount, setCreditSettlementAmount] = useState('');
   
@@ -134,6 +139,41 @@ const CustomerManagementScreen: React.FC = () => {
       email: '',
       address: '',
     });
+    setFormErrors({
+      name: '',
+      phone: '',
+      email: '',
+    });
+  };
+
+  const validateForm = () => {
+    const errors = {
+      name: '',
+      phone: '',
+      email: '',
+    };
+
+    // Name validation
+    if (!formData.name.trim()) {
+      errors.name = 'Name is required';
+    } else if (formData.name.trim().length < 2) {
+      errors.name = 'Name must be at least 2 characters';
+    }
+
+    // Phone validation
+    if (!formData.phone.trim()) {
+      errors.phone = 'Phone number is required';
+    } else if (!/^[0-9+\-\s()]{10,15}$/.test(formData.phone.trim())) {
+      errors.phone = 'Please enter a valid phone number';
+    }
+
+    // Email validation (optional field)
+    if (formData.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email.trim())) {
+      errors.email = 'Please enter a valid email address';
+    }
+
+    setFormErrors(errors);
+    return !Object.values(errors).some(error => error !== '');
   };
 
   const handleAddCustomer = async () => {
@@ -195,19 +235,13 @@ const CustomerManagementScreen: React.FC = () => {
 
   const handleEditCustomer = async () => {
     if (!selectedCustomer) return;
+    
+    if (!validateForm()) {
+      return;
+    }
+    
     const name = formData.name.trim();
     const phone = formData.phone.trim();
-    
-    // Phone number is now compulsory
-    if (!phone) {
-      Alert.alert('Error', 'Phone number is required');
-      return;
-    }
-    
-    if (!name) {
-      Alert.alert('Error', 'Customer name is required');
-      return;
-    }
 
     // Check for duplicate phone numbers within current restaurant (excluding current customer)
     const normalize = (p: string) => p.replace(/\D+/g, '');
@@ -879,37 +913,61 @@ const CustomerManagementScreen: React.FC = () => {
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>Name *</Text>
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, formErrors.name && styles.inputError]}
                   value={formData.name}
-                  onChangeText={(text) => setFormData({ ...formData, name: text })}
+                  onChangeText={(text) => {
+                    setFormData({ ...formData, name: text });
+                    if (formErrors.name) {
+                      setFormErrors({ ...formErrors, name: '' });
+                    }
+                  }}
                   placeholder="Enter customer name"
                   placeholderTextColor={colors.textSecondary}
                 />
+                {formErrors.name && (
+                  <Text style={styles.errorText}>{formErrors.name}</Text>
+                )}
               </View>
 
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>Phone <Text style={{color: colors.danger}}>*</Text></Text>
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, formErrors.phone && styles.inputError]}
                   value={formData.phone}
-                  onChangeText={(text) => setFormData({ ...formData, phone: text })}
+                  onChangeText={(text) => {
+                    setFormData({ ...formData, phone: text });
+                    if (formErrors.phone) {
+                      setFormErrors({ ...formErrors, phone: '' });
+                    }
+                  }}
                   placeholder="Enter phone number (required)"
                   placeholderTextColor={colors.textSecondary}
                   keyboardType="phone-pad"
                 />
+                {formErrors.phone && (
+                  <Text style={styles.errorText}>{formErrors.phone}</Text>
+                )}
               </View>
 
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>Email</Text>
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, formErrors.email && styles.inputError]}
                   value={formData.email}
-                  onChangeText={(text) => setFormData({ ...formData, email: text })}
+                  onChangeText={(text) => {
+                    setFormData({ ...formData, email: text });
+                    if (formErrors.email) {
+                      setFormErrors({ ...formErrors, email: '' });
+                    }
+                  }}
                   placeholder="Enter email address"
                   placeholderTextColor={colors.textSecondary}
                   keyboardType="email-address"
                   autoCapitalize="none"
                 />
+                {formErrors.email && (
+                  <Text style={styles.errorText}>{formErrors.email}</Text>
+                )}
               </View>
 
               <View style={styles.inputGroup}>
@@ -941,7 +999,7 @@ const CustomerManagementScreen: React.FC = () => {
                   style={styles.modalButtonConfirm}
                   onPress={handleEditCustomer}
                 >
-                  <Text style={styles.modalButtonConfirmText}>Update Customer</Text>
+                  <Text style={styles.modalButtonConfirmText}>Update</Text>
                 </TouchableOpacity>
               </View>
             </ScrollView>
@@ -1503,6 +1561,10 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     backgroundColor: colors.background,
   },
+  inputError: {
+    borderColor: colors.danger,
+    backgroundColor: '#fef2f2',
+  },
   modalActions: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1540,6 +1602,12 @@ const styles = StyleSheet.create({
   modalButtonDisabled: {
     backgroundColor: colors.outline,
     opacity: 0.7,
+  },
+  errorText: {
+    fontSize: 14,
+    color: colors.danger,
+    marginTop: spacing.xs,
+    marginLeft: spacing.sm,
   },
   settleCreditButton: {
     backgroundColor: colors.success,

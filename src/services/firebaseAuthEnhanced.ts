@@ -537,6 +537,20 @@ export class FirebaseAuthEnhanced {
     }
   }
 
+  // Delete a user account completely (admin function)
+  async deleteUser(uid: string): Promise<void> {
+    try {
+      // Call the Cloud Function to completely delete the user
+      const deleteUserFunction = httpsCallable(functions, 'deleteUser');
+      await deleteUserFunction({ targetUid: uid });
+      console.log('User account deleted permanently via Cloud Function:', uid);
+      
+    } catch (error) {
+      console.error('Error deleting user account:', error);
+      throw error;
+    }
+  }
+
   // Get all users for a restaurant (owner and manager only)
   async getRestaurantUsers(restaurantId: string, requesterUid: string): Promise<UserMetadata[]> {
     try {

@@ -34,6 +34,7 @@ const OrderConfirmationScreen: React.FC = () => {
   const [modificationNotes, setModificationNotes] = useState('');
   const [printModalVisible, setPrintModalVisible] = useState(false);
   const [isPreReceiptFlow, setIsPreReceiptFlow] = useState(false);
+  const [printOptionsModalVisible, setPrintOptionsModalVisible] = useState(false);
   const [showOptionsMenu, setShowOptionsMenu] = useState(false);
   const [mergeTableModalVisible, setMergeTableModalVisible] = useState(false);
   const [changeTableModalVisible, setChangeTableModalVisible] = useState(false);
@@ -560,27 +561,56 @@ const OrderConfirmationScreen: React.FC = () => {
   };
 
   const handlePrintPreReceipt = async () => {
-    const subtotal = orderWithOrderTypes.items.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
-    const discount = subtotal * ((orderWithOrderTypes.discountPercentage || 0) / 100);
-    const total = Math.max(0, subtotal - discount);
-    const receipt = {
-      receiptId: `PR${Date.now()}`,
-      date: new Date(orderWithOrderTypes.createdAt).toLocaleDateString(),
-      time: new Date(orderWithOrderTypes.createdAt).toLocaleTimeString(),
-      tableNumber: actualTable?.name || orderWithOrderTypes.tableId,
-      customerName: (order as any)?.customerName || (order as any)?.customerPhone || 'Guest',
-      items: orderWithOrderTypes.items.map((i: any) => ({ name: i.name, quantity: i.quantity, price: i.price, total: i.price * i.quantity })),
-      subtotal,
-      tax: 0,
-      serviceCharge: 0,
-      discount,
-      total,
-      paymentMethod: 'Pending',
-      cashier: 'POS System',
-    } as any;
-    // Themed modal for pre-receipt actions
-    setIsPreReceiptFlow(true);
-    setPrintModalVisible(true);
+    // Check if order is saved
+    if (!order?.isSaved) {
+      Alert.alert('Order Not Saved', 'Please save the order first before printing.');
+      return;
+    }
+    
+    // Show print options modal
+    setPrintOptionsModalVisible(true);
+  };
+
+  const handlePrintKOTBOT = async () => {
+    try {
+      setPrintOptionsModalVisible(false);
+      
+      // Use PrintService for consistent KOT/BOT formatting
+      const result = await PrintService.printCombinedTicketsFromOrder(orderWithOrderTypes, actualTable);
+      
+      if (result.success) {
+        console.log('✅ KOT/BOT printed successfully');
+        Alert.alert('Success', 'KOT/BOT printed successfully!');
+      } else {
+        console.log('❌ KOT/BOT print failed:', result.message);
+        Alert.alert('Print Failed', result.message);
+      }
+      
+    } catch (error) {
+      console.error('Error printing KOT/BOT:', error);
+      Alert.alert('Print Error', 'Failed to print KOT/BOT. Please try again.');
+    }
+  };
+
+  const handlePrintPreReceiptOnly = async () => {
+    try {
+      setPrintOptionsModalVisible(false);
+      
+      // Use PrintService for consistent pre-receipt formatting
+      const result = await PrintService.printPreReceiptFromOrder(orderWithOrderTypes, actualTable);
+      
+      if (result.success) {
+        console.log('✅ Pre-receipt printed successfully');
+        Alert.alert('Success', 'Pre-receipt printed successfully!');
+      } else {
+        console.log('❌ Pre-receipt print failed:', result.message);
+        Alert.alert('Print Failed', result.message);
+      }
+      
+    } catch (error) {
+      console.error('Error printing pre-receipt:', error);
+      Alert.alert('Print Error', 'Failed to print pre-receipt. Please try again.');
+    }
   };
 
   const handleSettlePayment = () => {
@@ -630,8 +660,14 @@ const OrderConfirmationScreen: React.FC = () => {
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Current Order</Text>
             <View style={styles.sectionActions}>
-              <TouchableOpacity style={styles.actionButton} onPress={handlePrintPreReceipt} activeOpacity={0.7} accessibilityLabel="Print Pre-Receipt">
-                <Ionicons name="print" size={20} color={colors.primary} />
+              <TouchableOpacity 
+                style={[styles.actionButton, !order?.isSaved && styles.actionButtonDisabled]} 
+                onPress={handlePrintPreReceipt} 
+                activeOpacity={0.7} 
+                accessibilityLabel="Print Pre-Receipt"
+                disabled={!order?.isSaved}
+              >
+                <Ionicons name="print" size={20} color={order?.isSaved ? colors.primary : colors.textMuted} />
               </TouchableOpacity>
               <TouchableOpacity style={styles.actionButton} onPress={() => setShowOptionsMenu(!showOptionsMenu)}>
                 <Ionicons name="ellipsis-vertical" size={20} color={colors.textSecondary} />
@@ -767,7 +803,7 @@ const OrderConfirmationScreen: React.FC = () => {
                 style={styles.buttonIcon} 
               />
             <Text style={styles.saveOrderButtonText}>
-              {isSaving ? 'Saving to Firebase...' : 'Save Order'}
+              {isSaving ? 'Saving...' : 'Save Order'}
             </Text>
             </TouchableOpacity>
             
@@ -898,29 +934,7 @@ const OrderConfirmationScreen: React.FC = () => {
                     disabled={isSaving}
                   >
                     <Text style={styles.saveButtonText}>
-                      {isSaving ? 'Saving...' : 'Save as File'}
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity 
-                    style={[
-                      styles.saveButton, 
-                      { backgroundColor: colors.success },
-                      isSaving && { opacity: 0.6 }
-                    ]} 
-                    onPress={async () => {
-                      if (isSaving) return;
-                      console.log('🔄 Save Only clicked - proceeding with finalizeSave...');
-                      try {
-                        await finalizeSave();
-                      } catch (error) {
-                        console.error('❌ Save Only failed:', error);
-                        Alert.alert('Error', 'Failed to save order. Please try again.');
-                      }
-                    }}
-                    disabled={isSaving}
-                  >
-                    <Text style={[styles.saveButtonText, { color: 'white' }]}>
-                      {isSaving ? 'Saving...' : 'Save Only'}
+                      {isSaving ? 'Saving...' : 'Save'}
                     </Text>
                   </TouchableOpacity>
                 </>
@@ -1220,6 +1234,33 @@ const OrderConfirmationScreen: React.FC = () => {
       </Modal>
 
       <MergeTableModal visible={mergeTableModalVisible} onClose={() => setMergeTableModalVisible(false)} baseTableId={actualTableId} />
+
+      {/* Print Options Modal */}
+      <Modal visible={printOptionsModalVisible} animationType="slide" transparent onRequestClose={() => setPrintOptionsModalVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Print Options</Text>
+              <TouchableOpacity style={styles.closeButton} onPress={() => setPrintOptionsModalVisible(false)}>
+                <Ionicons name="close" size={24} color={colors.textPrimary} />
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.modalDescription}>
+              Choose what you want to print:
+            </Text>
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.printActionButton} onPress={handlePrintKOTBOT}>
+                <Ionicons name="restaurant" size={20} color="white" />
+                <Text style={styles.printButtonText}>Print KOT/BOT</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.saveButton} onPress={handlePrintPreReceiptOnly}>
+                <Ionicons name="receipt" size={20} color="white" />
+                <Text style={styles.saveButtonText}>Print Pre-Receipt</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -1272,6 +1313,7 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 20, fontWeight: 'bold', color: colors.textPrimary },
   sectionActions: { flexDirection: 'row', gap: spacing.sm },
   actionButton: { padding: spacing.sm },
+  actionButtonDisabled: { opacity: 0.5 },
   optionsMenu: { position: 'absolute', right: spacing.md, top: 60, backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.outline, ...shadow.card, paddingVertical: spacing.xs, width: 220, zIndex: 10 },
   optionsMenuItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.sm, paddingHorizontal: spacing.md, gap: spacing.sm },
   optionsMenuText: { color: colors.textPrimary, fontSize: 14 },

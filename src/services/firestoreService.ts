@@ -316,7 +316,10 @@ export function createFirestoreService(restaurantId: string) {
           restaurantId: data.restaurantId,
           expectedRestaurantId: currentRestaurantId,
           customerName: data.customerName,
-          amount: data.amount
+          amount: data.amount,
+          tableId: data.tableId,
+          tableName: data.tableName,
+          isSettlement: data.tableId?.startsWith('credit-')
         });
         
         // Security check: Ensure restaurantId matches (should not happen with nested paths, but safety first)
@@ -361,6 +364,20 @@ export function createFirestoreService(restaurantId: string) {
         skippedCount: skippedCount,
         finalOutputCount: Object.keys(sortedReceipts).length,
         dedupedCount: Object.keys(latestByOrderId).length
+      });
+      
+      // Debug: Log settlement receipts specifically
+      const settlementReceipts = Object.values(sortedReceipts).filter((r: any) => r.tableId?.startsWith('credit-'));
+      console.log('🔍 Settlement receipts found:', settlementReceipts.length);
+      settlementReceipts.forEach((r: any) => {
+        console.log('  - Settlement receipt:', {
+          id: r.id,
+          orderId: r.orderId,
+          tableId: r.tableId,
+          tableName: r.tableName,
+          amount: r.amount,
+          customerName: r.customerName
+        });
       });
       
       return sortedReceipts;
@@ -1209,6 +1226,159 @@ export function createFirestoreService(restaurantId: string) {
     return create('inventoryCategories', category);
   }
 
+  // Vendor operations
+  async function getVendors(): Promise<Record<string, any>> {
+    try {
+      const q = query(collection(db, "restaurants", currentRestaurantId, "vendors"));
+      const snap = await getDocs(q);
+      const out: Record<string, any> = {};
+      snap.forEach(docSnap => {
+        const data = { id: docSnap.id, ...docSnap.data() } as any;
+        if (!data.restaurantId || data.restaurantId === currentRestaurantId) {
+          out[docSnap.id] = data;
+        }
+      });
+      return out;
+    } catch (error) {
+      console.error('Firestore getVendors error:', error);
+      return {};
+    }
+  }
+
+  async function createVendor(vendor: any): Promise<string> {
+    return create('vendors', vendor);
+  }
+
+  async function updateVendor(vendorId: string, updates: any): Promise<void> {
+    return update('vendors', vendorId, updates);
+  }
+
+  async function deleteVendor(vendorId: string): Promise<void> {
+    try {
+      const docRef = doc(db, "restaurants", currentRestaurantId, "vendors", vendorId);
+      await deleteDoc(docRef);
+    } catch (error) {
+      console.error('Firestore deleteVendor error:', error);
+      throw error;
+    }
+  }
+
+  // Vendor transaction operations
+  async function getVendorTransactions(vendorId: string): Promise<Record<string, any>> {
+    try {
+      console.log('FirestoreService: Fetching transactions for vendor:', vendorId);
+      console.log('FirestoreService: Collection path:', `restaurants/${currentRestaurantId}/vendors/${vendorId}/transactions`);
+      
+      const q = query(collection(db, "restaurants", currentRestaurantId, "vendors", vendorId, "transactions"));
+      const snap = await getDocs(q);
+      console.log('FirestoreService: Found', snap.size, 'transactions');
+      
+      const out: Record<string, any> = {};
+      snap.forEach(docSnap => {
+        const data = { id: docSnap.id, ...docSnap.data() } as any;
+        console.log('FirestoreService: Processing transaction:', docSnap.id, data);
+        if (!data.restaurantId || data.restaurantId === currentRestaurantId) {
+          out[docSnap.id] = data;
+        }
+      });
+      
+      console.log('FirestoreService: Returning', Object.keys(out).length, 'transactions');
+      return out;
+    } catch (error) {
+      console.error('Firestore getVendorTransactions error:', error);
+      return {};
+    }
+  }
+
+  async function createVendorTransaction(transaction: any): Promise<string> {
+    try {
+      const { vendorId, ...transactionData } = transaction;
+      console.log('FirestoreService: Creating transaction for vendor:', vendorId);
+      console.log('FirestoreService: Transaction data:', transactionData);
+      console.log('FirestoreService: Collection path:', `restaurants/${currentRestaurantId}/vendors/${vendorId}/transactions`);
+      
+      const docRef = await addDoc(collection(db, "restaurants", currentRestaurantId, "vendors", vendorId, "transactions"), {
+        ...transactionData,
+        vendorId,
+        restaurantId: currentRestaurantId,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+      
+      console.log('FirestoreService: Transaction created with ID:', docRef.id);
+      
+      // Update vendor balance
+      try {
+        // Get current vendor data
+        const vendorDoc = await getDoc(doc(db, "restaurants", currentRestaurantId, "vendors", vendorId));
+        if (vendorDoc.exists()) {
+          const currentBalance = vendorDoc.data().balance || 0;
+          const balanceChange = transactionData.creditAmount - transactionData.paidAmount;
+          const newBalance = currentBalance + balanceChange;
+          
+          await updateVendor(vendorId, { 
+            balance: newBalance
+          });
+          console.log('FirestoreService: Updated vendor balance from', currentBalance, 'to', newBalance);
+        }
+      } catch (balanceError) {
+        console.warn('FirestoreService: Failed to update vendor balance:', balanceError);
+        // Don't throw here as transaction was created successfully
+      }
+      
+      return docRef.id;
+    } catch (error) {
+      console.error('Firestore createVendorTransaction error:', error);
+      throw error;
+    }
+  }
+
+  async function updateVendorTransaction(transactionId: string, updates: any): Promise<void> {
+    try {
+      // We need to find which vendor this transaction belongs to
+      // This is a limitation of the current structure - we might need to store vendorId in the transaction
+      const allVendors = await getVendors();
+      for (const vendorId of Object.keys(allVendors)) {
+        const transactionRef = doc(db, "restaurants", currentRestaurantId, "vendors", vendorId, "transactions", transactionId);
+        try {
+          await updateDoc(transactionRef, {
+            ...updates,
+            updatedAt: serverTimestamp()
+          });
+          return;
+        } catch (error) {
+          // Transaction not found in this vendor, continue searching
+          continue;
+        }
+      }
+      throw new Error('Transaction not found');
+    } catch (error) {
+      console.error('Firestore updateVendorTransaction error:', error);
+      throw error;
+    }
+  }
+
+  async function deleteVendorTransaction(transactionId: string): Promise<void> {
+    try {
+      // We need to find which vendor this transaction belongs to
+      const allVendors = await getVendors();
+      for (const vendorId of Object.keys(allVendors)) {
+        const transactionRef = doc(db, "restaurants", currentRestaurantId, "vendors", vendorId, "transactions", transactionId);
+        try {
+          await deleteDoc(transactionRef);
+          return;
+        } catch (error) {
+          // Transaction not found in this vendor, continue searching
+          continue;
+        }
+      }
+      throw new Error('Transaction not found');
+    } catch (error) {
+      console.error('Firestore deleteVendorTransaction error:', error);
+      throw error;
+    }
+  }
+
   async function createInventoryItem(item: any): Promise<string> {
     return create('inventory', item);
   }
@@ -1239,6 +1409,9 @@ export function createFirestoreService(restaurantId: string) {
     getInventoryItems, createInventoryItem, updateInventoryItem, deleteInventoryItem,
     listenToInventory,
     getInventoryCategories, createInventoryCategory,
+    // Vendor operations
+    getVendors, createVendor, updateVendor, deleteVendor,
+    getVendorTransactions, createVendorTransaction, updateVendorTransaction, deleteVendorTransaction,
     // extras used by UI
     setDocument, updateTable, deleteTable, cleanupAndRecreateTables,
     atomicMergeTables, atomicUnmergeTables,

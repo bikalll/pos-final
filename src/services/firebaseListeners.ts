@@ -92,7 +92,15 @@ export class FirebaseListenersService {
       // Customers listener
       const customersUnsubscribe = firebaseService.listenToCustomers((customers) => {
         Object.values(customers).forEach(customer => {
-          this.dispatch(updateCustomerFromFirebase(customer));
+          // Extra safety check: ensure customer belongs to current restaurant
+          if (!customer.restaurantId || customer.restaurantId === this.restaurantId) {
+            this.dispatch({
+              ...updateCustomerFromFirebase(customer),
+              meta: { restaurantId: this.restaurantId }
+            });
+          } else {
+            console.warn('🚫 Filtered out cross-account customer in FirebaseListenersService:', customer.id, 'Expected:', this.restaurantId, 'Got:', customer.restaurantId);
+          }
         });
       });
       this.listeners.set('customers', customersUnsubscribe);

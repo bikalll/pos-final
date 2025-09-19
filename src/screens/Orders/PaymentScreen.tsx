@@ -14,7 +14,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { useDispatch, useSelector } from 'react-redux';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, radius, shadow } from '../../theme';
-import { RootState, store } from '../../redux/store';
+import { RootState, store } from '../../redux/storeFirebase';
 import { setPayment, completeOrder, setOrderCustomer, completeOrderWithReceipt } from '../../redux/slices/ordersSlice';
 import { unmergeOrders } from '../../redux/slices/ordersSliceFirebase';
 import { addOrUpdateCustomer, incrementVisitCount, updateCustomer, updateCreditAmount } from '../../redux/slices/customersSlice';
@@ -381,7 +381,7 @@ const PaymentScreen: React.FC = () => {
     }
 
     // Complete order and save receipt
-    (dispatch as any)(completeOrderWithReceipt({ orderId, restaurantId }));
+    (dispatch as any)(completeOrderWithReceipt({ orderId, restaurantId: restaurantId || '' }));
     // Persist to Realtime DB as completed (and force Firestore upsert mirror)
     try {
       const { getFirebaseService } = require('../../services/firebaseService');
@@ -432,8 +432,8 @@ const PaymentScreen: React.FC = () => {
           const currentState = store.getState() as any;
           const currentTables = currentState.tables.tablesById;
           console.log('🔍 State after unmerge (500ms delay):', {
-            originalTableIds: table.mergedTables,
-            tableStatuses: table.mergedTables.map((id: string) => ({
+            originalTableIds: table.mergedTables || [],
+            tableStatuses: (table.mergedTables || []).map((id: string) => ({
               id,
               isActive: currentTables[id]?.isActive,
               isOccupied: currentTables[id]?.isOccupied,
@@ -447,8 +447,8 @@ const PaymentScreen: React.FC = () => {
           const currentState = store.getState() as any;
           const currentTables = currentState.tables.tablesById;
           console.log('🔍 State after unmerge (2s delay):', {
-            originalTableIds: table.mergedTables,
-            tableStatuses: table.mergedTables.map((id: string) => ({
+            originalTableIds: table.mergedTables || [],
+            tableStatuses: (table.mergedTables || []).map((id: string) => ({
               id,
               isActive: currentTables[id]?.isActive,
               isOccupied: currentTables[id]?.isOccupied,
@@ -457,7 +457,7 @@ const PaymentScreen: React.FC = () => {
           });
           
           // Force refresh tables from Firebase if they're still inactive
-          const inactiveTables = table.mergedTables.filter((id: string) => 
+          const inactiveTables = (table.mergedTables || []).filter((id: string) => 
             currentTables[id] && currentTables[id].isActive === false
           );
           
@@ -645,7 +645,7 @@ const PaymentScreen: React.FC = () => {
     }
 
     // Complete order and save receipt
-    (dispatch as any)(completeOrderWithReceipt({ orderId, restaurantId }));
+    (dispatch as any)(completeOrderWithReceipt({ orderId, restaurantId: restaurantId || '' }));
     
     // Persist to Firebase with role and username data
     try {

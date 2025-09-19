@@ -188,18 +188,19 @@ export class FirebaseService {
       const attemptWrite = async (attempt: number): Promise<void> => {
         const writePromise = set(ref(database, orderPath), orderData);
         const timeoutPromise = new Promise((_, reject) => {
-          const id = setTimeout(() => reject(new Error('Firebase write timeout (8s)')), 8000);
+          const id = setTimeout(() => reject(new Error('Firebase write timeout (10s)')), 10000);
           writePromise.finally(() => clearTimeout(id));
         });
         try {
           await Promise.race([writePromise, timeoutPromise]);
         } catch (e) {
-          if (attempt < 2) {
-            const delay = 500 * (attempt + 1);
+          if (attempt < 2) { // Reduced retries from 3 to 2
+            const delay = 500 * (attempt + 1); // Reduced delay from 1000ms to 500ms
             console.warn(`saveOrder: write attempt ${attempt + 1} failed, retrying in ${delay}ms...`, (e as Error).message);
             await new Promise(r => setTimeout(r, delay));
             return attemptWrite(attempt + 1);
           }
+          console.error(`saveOrder: All retry attempts failed. Final error:`, (e as Error).message);
           throw e;
         }
       };
@@ -247,7 +248,7 @@ export class FirebaseService {
       const path = this.getRestaurantPath(`orders/${sanitized.id}`);
       const write = set(ref(database, path), sanitized);
       const timeout = new Promise((_, reject) => {
-        const id = setTimeout(() => reject(new Error('Firebase write timeout (8s)')), 8000);
+        const id = setTimeout(() => reject(new Error('Firebase write timeout (10s)')), 10000);
         write.finally(() => clearTimeout(id));
       });
       await Promise.race([write, timeout]);
@@ -391,7 +392,18 @@ export class FirebaseService {
   }
 
   async getCustomers(): Promise<Record<string, Customer>> {
-    return await this.readAll('customers');
+    const customers = await this.readAll('customers');
+    // Filter customers by restaurantId to prevent cross-account visibility
+    const filteredCustomers = Object.keys(customers).reduce((acc, customerId) => {
+      const customer: any = customers[customerId] || {};
+      // Only include customers that belong to this restaurant
+      if (!customer.restaurantId || customer.restaurantId === this.restaurantId) {
+        acc[customerId] = customer as Customer;
+      }
+      return acc;
+    }, {} as Record<string, Customer>);
+    
+    return filteredCustomers;
   }
 
   async updateCustomer(customerId: string, updates: Partial<Customer>): Promise<void> {
@@ -614,7 +626,19 @@ export class FirebaseService {
   }
 
   listenToCustomers(callback: (customers: Record<string, Customer>) => void): Unsubscribe {
-    return this.listenToAll('customers', callback);
+    return this.listenToAll('customers', (data) => {
+      // Filter customers by restaurantId to prevent cross-account visibility
+      const filteredCustomers = Object.keys(data).reduce((acc, customerId) => {
+        const customer: any = data[customerId] || {};
+        // Only include customers that belong to this restaurant
+        if (!customer.restaurantId || customer.restaurantId === this.restaurantId) {
+          acc[customerId] = customer as Customer;
+        }
+        return acc;
+      }, {} as Record<string, Customer>);
+      
+      callback(filteredCustomers);
+    });
   }
 
   listenToStaffMembers(callback: (staff: Record<string, StaffMember>) => void): Unsubscribe {

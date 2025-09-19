@@ -104,7 +104,13 @@ const customersSlice = createSlice({
     // Real-time update handlers
     updateCustomerFromFirebase: (state, action: PayloadAction<Customer>) => {
       const customer = action.payload;
-      state.customersById[customer.id] = customer;
+      // Extra safety: only add customer if it belongs to the current restaurant
+      // This prevents cross-account customer visibility
+      if (!customer.restaurantId || customer.restaurantId === (action as any).meta?.restaurantId) {
+        state.customersById[customer.id] = customer;
+      } else {
+        console.warn('🚫 Blocked cross-account customer in Redux:', customer.id, 'Expected:', (action as any).meta?.restaurantId, 'Got:', customer.restaurantId);
+      }
     },
     removeCustomerFromFirebase: (state, action: PayloadAction<string>) => {
       const customerId = action.payload;

@@ -117,3 +117,4 @@ async function fixManagerRoleIssues() {
 
 // Run the fix
 fixManagerRoleIssues();
+

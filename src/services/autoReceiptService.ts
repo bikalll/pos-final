@@ -43,13 +43,38 @@ function createAutoReceiptService(restaurantId: string) {
         const tables = await firestoreService.getTables();
         const table = tables[order.tableId];
         tableName = table?.name;
+        
+        // Handle synthetic table IDs (like credit settlements)
+        if (!tableName && order.tableId.startsWith('credit-')) {
+          if (order.tableId.includes('-installment-')) {
+            // Extract installment number from table ID
+            const installmentMatch = order.tableId.match(/-installment-(\d+)$/);
+            const installmentNumber = installmentMatch ? installmentMatch[1] : '1';
+            tableName = `Credit Settlement - Installment ${installmentNumber}`;
+          } else {
+            tableName = `Credit Settlement`;
+          }
+        }
+        
         console.log('🔍 AutoReceiptService - Looked up table name:', {
           tableId: order.tableId,
           tableName: tableName,
-          table: table
+          table: table,
+          isSynthetic: order.tableId.startsWith('credit-')
         });
       } catch (error) {
         console.error('❌ AutoReceiptService - Error looking up table name:', error);
+        // Fallback for synthetic table IDs
+        if (order.tableId.startsWith('credit-')) {
+          if (order.tableId.includes('-installment-')) {
+            // Extract installment number from table ID
+            const installmentMatch = order.tableId.match(/-installment-(\d+)$/);
+            const installmentNumber = installmentMatch ? installmentMatch[1] : '1';
+            tableName = `Credit Settlement - Installment ${installmentNumber}`;
+          } else {
+            tableName = `Credit Settlement`;
+          }
+        }
       }
     }
     
@@ -74,8 +99,12 @@ function createAutoReceiptService(restaurantId: string) {
     const p: any = order.payment || {};
     const splitAmount = Array.isArray(p.splitPayments) ? p.splitPayments.reduce((s: number, sp: any) => s + (Number(sp.amount) || 0), 0) : undefined;
 
+    // Get restaurant name from order or auth state
+    const restaurantName = (order as any).restaurantName || (order as any).authRestaurantName || 'Restaurant';
+    
     const payload: any = {
       restaurantId: order.restaurantId || restaurantId,
+      restaurantName: restaurantName, // Add restaurant name to receipt data
       orderId: order.id,
       tableId: order.tableId,
       tableName: tableName, // Use looked up table name
@@ -105,6 +134,7 @@ function createAutoReceiptService(restaurantId: string) {
       customerName: payload.customerName,
       paymentMethod: payload.paymentMethod,
       processedBy: payload.processedBy,
+      isSettlement: payload.tableId?.startsWith('credit-'),
       timestamp: payload.timestamp
     });
     

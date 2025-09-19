@@ -13,6 +13,7 @@ export const colors = {
   success: '#27ae60',
   warning: '#f39c12',
   danger: '#e74c3c',
+  error: '#e74c3c',
   info: '#3498db',
   tabBar: '#12151a',
 };

@@ -22,9 +22,17 @@ export class RealtimeSyncService {
     const unsubscribe = this.firestoreService.listenToCustomers((customers: Record<string, any>) => {
       console.log('📡 Received customer updates:', customers);
       
-      // Update Redux store with customer data
+      // Update Redux store with customer data - extra safety check for restaurantId
       Object.values(customers).forEach((customer: any) => {
-        store.dispatch(updateCustomerFromFirebase(customer));
+        // Double-check that customer belongs to this restaurant
+        if (!customer.restaurantId || customer.restaurantId === this.restaurantId) {
+          store.dispatch({
+            ...updateCustomerFromFirebase(customer),
+            meta: { restaurantId: this.restaurantId }
+          });
+        } else {
+          console.warn('🚫 Filtered out cross-account customer:', customer.id, 'Expected:', this.restaurantId, 'Got:', customer.restaurantId);
+        }
       });
     });
 

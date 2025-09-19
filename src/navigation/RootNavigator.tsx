@@ -33,6 +33,8 @@ import CustomerProfileScreen from "../screens/Customers/CustomerProfileScreen";
 import SettleCreditScreen from "../screens/Customers/SettleCreditScreen";
 // Settings Screens
 import { SettingsScreen, TableManagementScreen, EmployeeManagementScreen, PrinterSetupScreen, OfficeManagementScreen } from '../screens/Settings';
+import VendorManagementScreen from '../screens/Settings/VendorManagementScreen';
+import VendorTransactionHistoryScreen from '../screens/Settings/VendorTransactionHistoryScreen';
 import PrintDemo from "../components/PrintDemo";
 import CustomDrawerContent from "../components/CustomDrawerContent";
 import BluetoothDebugScreen from "../screens/Settings/BluetoothDebugScreen";
@@ -140,6 +142,8 @@ function SettingsStack() {
       <Stack.Screen name="OfficeManagement" component={OfficeManagementScreen} options={withMenuHeader("Office Management")} />
       <Stack.Screen name="TableManagement" component={TableManagementScreen} options={withMenuHeader("Table Management")} />
       <Stack.Screen name="EmployeeManagement" component={EmployeeManagementScreen} options={withMenuHeader("Employee Management")} />
+      <Stack.Screen name="VendorManagement" component={VendorManagementScreen} options={withMenuHeader("Vendor Management")} />
+      <Stack.Screen name="VendorTransactionHistory" component={VendorTransactionHistoryScreen} options={withMenuHeader("Transaction History")} />
       <Stack.Screen name="PrinterSetup" component={PrinterSetupScreen} options={withMenuHeader("Printer Setup")} />
       <Stack.Screen name="PrintDemo" component={PrintDemo} options={withMenuHeader("Printing Demo")} />
       <Stack.Screen name="BluetoothDebug" component={BluetoothDebugScreen} options={withMenuHeader("Bluetooth Debug")} />

@@ -548,7 +548,7 @@ const CustomerProfileScreen: React.FC = () => {
                   style={styles.modalButtonConfirm}
                   onPress={handleEditCustomer}
                 >
-                  <Text style={styles.modalButtonConfirmText}>Update Customer</Text>
+                  <Text style={styles.modalButtonConfirmText}>Update</Text>
                 </TouchableOpacity>
               </View>
             </ScrollView>

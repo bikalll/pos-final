@@ -4,3 +4,5 @@ export { default as EmployeeManagementScreen } from './EmployeeManagementScreen'
 export { default as PrinterSetupScreen } from './PrinterSetupScreen';
 export { default as OfficeManagementScreen } from './OfficeManagementScreen';
 export { default as BluetoothDebugScreen } from './BluetoothDebugScreen';
+export { default as VendorManagementScreen } from './VendorManagementScreen';
+export { default as VendorTransactionHistoryScreen } from './VendorTransactionHistoryScreen';

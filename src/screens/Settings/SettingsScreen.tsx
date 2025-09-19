@@ -63,7 +63,12 @@ const SettingsScreen: React.FC = () => {
       iconEl: <Ionicons name="people-outline" size={20} color={colors.textPrimary} />,
       onPress: () => navigation.navigate('EmployeeManagement' as any),
     },
-    
+    {
+      title: 'Vendor Management',
+      subtitle: 'Manage suppliers and vendor transactions',
+      iconEl: <Ionicons name="storefront-outline" size={20} color={colors.textPrimary} />,
+      onPress: () => navigation.navigate('VendorManagement' as any),
+    },
     {
       title: 'About',
       subtitle: 'App version and information',

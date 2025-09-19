@@ -627,15 +627,8 @@ export class PrintService {
         };
       }
 
-      // Test connection before printing
-      const connectionTest = await bluetoothManager.testConnection();
-      if (!connectionTest) {
-        return {
-          success: false,
-          message: 'Printer connection test failed. Please check your printer connection.',
-          fallback: 'Would you like to save the ticket as a file instead?'
-        };
-      }
+      // Skip connection test for KOT printing to avoid timeout issues
+      // The connection status is already checked above via checkPrinterConnection()
 
       // Print via Bluetooth
       await blePrinter.printKOT({
@@ -698,15 +691,8 @@ export class PrintService {
         };
       }
 
-      // Test connection before printing
-      const connectionTest = await bluetoothManager.testConnection();
-      if (!connectionTest) {
-        return {
-          success: false,
-          message: 'Printer connection test failed. Please check your printer connection.',
-          fallback: 'Would you like to save the ticket as a file instead?'
-        };
-      }
+      // Skip connection test for BOT printing to avoid timeout issues
+      // The connection status is already checked above via checkPrinterConnection()
 
       // Print via Bluetooth
       await blePrinter.printBOT({
@@ -771,15 +757,8 @@ export class PrintService {
         };
       }
 
-      // Test connection before printing
-      const connectionTest = await bluetoothManager.testConnection();
-      if (!connectionTest) {
-        return {
-          success: false,
-          message: 'Printer connection test failed. Please check your printer connection.',
-          fallback: 'Would you like to save the receipt as a file instead?'
-        };
-      }
+      // Skip connection test for receipt printing to avoid timeout issues
+      // The connection status is already checked above via checkPrinterConnection()
 
       // Load restaurant info for header
       let restaurantName = 'ARBI POS';
@@ -880,14 +859,8 @@ export class PrintService {
         };
       }
 
-      const connectionTest = await bluetoothManager.testConnection();
-      if (!connectionTest) {
-        return {
-          success: false,
-          message: 'Printer connection test failed. Please check your printer connection.',
-          fallback: 'Would you like to save or share a pre-receipt file instead?'
-        };
-      }
+      // Skip connection test for pre-receipt printing to avoid timeout issues
+      // The connection status is already checked above via checkPrinterConnection()
 
       // Calculate totals
       const subtotal = order.items.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
@@ -969,15 +942,8 @@ export class PrintService {
         };
       }
 
-      // Test connection before printing
-      const connectionTest = await bluetoothManager.testConnection();
-      if (!connectionTest) {
-        return {
-          success: false,
-          message: 'Printer connection test failed. Please check your printer connection.',
-          fallback: 'Would you like to save the tickets as files instead?'
-        };
-      }
+      // Skip connection test for combined tickets printing to avoid timeout issues
+      // The connection status is already checked above via checkPrinterConnection()
 
       // Print via Bluetooth
       await blePrinter.printCombinedTickets({

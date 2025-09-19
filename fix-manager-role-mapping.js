@@ -112,3 +112,4 @@ async function fixManagerRoleMapping() {
 
 // Run the fix
 fixManagerRoleMapping();
+

@@ -443,8 +443,8 @@ const EmployeeManagementScreen: React.FC = () => {
                 authService = createFirebaseAuthEnhanced(dispatch);
               }
               
-              // Deactivate the user account first
-              await authService.deactivateUser(employeeId);
+              // Delete the user account completely
+              await authService.deleteUser(employeeId);
               
               // Remove from local state completely
               setEmployees(prev => prev.filter(emp => emp.uid !== employeeId));

@@ -5,9 +5,9 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { useDispatch, useSelector } from 'react-redux';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, radius, shadow } from '../../theme';
-import { RootState } from '../../redux/store';
+import { RootState } from '../../redux/storeFirebase';
 import { Customer, Order, OrderItem, PaymentInfo } from '../../utils/types';
-import { createOrder, addItem, setPayment, completeOrder, completeOrderWithReceipt } from '../../redux/slices/ordersSlice';
+import { createOrder, addItem, setPayment, completeOrder, completeOrderWithReceipt, triggerReceiptsRefresh } from '../../redux/slices/ordersSlice';
 import { updateCreditAmount } from '../../redux/slices/customersSlice';
 import { getRealtimeSyncService } from '../../services/realtimeSyncService';
 
@@ -23,8 +23,39 @@ export default function SettleCreditScreen() {
   const { customerId } = route.params as RouteParams;
   const customer = useSelector((s: RootState) => s.customers.customersById[customerId]) as Customer | undefined;
   const ordersById = useSelector((s: RootState) => s.orders.ordersById);
+  const receiptsById = useSelector((s: RootState) => s.receipts.receiptsById);
   const tables = useSelector((s: RootState) => s.tables.tablesById);
-  const { restaurantId } = useSelector((s: RootState) => s.auth);
+  const { restaurantId, role, userName, restaurantName: authRestaurantName } = useSelector((s: RootState) => s.auth);
+  
+  // Debug: Log auth state
+  console.log('🔍 SettleCredit: Auth state:', {
+    restaurantId,
+    role,
+    userName,
+    authRestaurantName,
+    fullAuthState: useSelector((s: RootState) => s.auth)
+  });
+  const [restaurantInfo, setRestaurantInfo] = useState<{ name?: string; address?: string; panVat?: string; logoUrl?: string } | null>(null);
+  
+  // Function to get restaurant name from the most reliable source
+  const getRestaurantName = () => {
+    console.log('🔍 SettleCredit: getRestaurantName called:', {
+      restaurantInfoName: restaurantInfo?.name,
+      authRestaurantName: authRestaurantName,
+      restaurantInfo: restaurantInfo
+    });
+    
+    if (restaurantInfo?.name) {
+      console.log('🔍 SettleCredit: Using restaurantInfo.name:', restaurantInfo.name);
+      return restaurantInfo.name;
+    }
+    if (authRestaurantName) {
+      console.log('🔍 SettleCredit: Using authRestaurantName:', authRestaurantName);
+      return authRestaurantName;
+    }
+    console.log('🔍 SettleCredit: Using fallback: Restaurant');
+    return 'Restaurant';
+  };
 
   const [paymentMethod, setPaymentMethod] = useState<'Cash' | 'Card' | 'Bank' | 'Fonepay'>('Cash');
   const [settleAmount, setSettleAmount] = useState('');
@@ -38,6 +69,33 @@ export default function SettleCreditScreen() {
   const [splitPayments, setSplitPayments] = useState<SplitPaymentRow[]>([]);
   const [splitProcessed, setSplitProcessed] = useState(false);
 
+  // Fetch restaurant information
+  React.useEffect(() => {
+    const fetchRestaurantInfo = async () => {
+      try {
+        const { getFirestoreService } = await import('../../services/firestoreService');
+        const service = getFirestoreService();
+        const info = await service.getRestaurantInfo();
+        console.log('🔍 SettleCredit: Restaurant info loaded:', {
+          name: info?.name,
+          address: info?.address,
+          panVat: info?.panVat || info?.pan || info?.vat,
+          logoUrl: info?.logoUrl,
+          fullInfo: info
+        });
+        setRestaurantInfo({ name: info?.name, address: info?.address, panVat: info?.panVat || info?.pan || info?.vat, logoUrl: info?.logoUrl });
+      } catch (error) {
+        console.error('Error fetching restaurant info:', error);
+        // If Firestore fails, try to use auth restaurant name as fallback
+        if (authRestaurantName) {
+          console.log('🔍 SettleCredit: Using auth restaurant name as fallback:', authRestaurantName);
+          setRestaurantInfo({ name: authRestaurantName, address: '', panVat: '', logoUrl: '' });
+        }
+      }
+    };
+    fetchRestaurantInfo();
+  }, [authRestaurantName]);
+
   const isOrderForCustomer = (o: any) => {
     if (!o) return false;
     const cn = (o.payment?.customerName || o.customerName || '').trim();
@@ -50,8 +108,34 @@ export default function SettleCreditScreen() {
   const getOrderTimestamp = (o: any) => (o?.payment?.timestamp ? o.payment.timestamp : o?.createdAt);
 
   const creditOrdersAll = useMemo(() => {
-    const list = Object.values(ordersById || {})
-      .filter((o: any) => isOrderForCustomer(o))
+    // Use receipts instead of orders for credit transactions (same approach as CustomerProfileScreen)
+    const receiptsForCustomer = Object.values(receiptsById || {}).filter((r: any) => {
+      // Security check: ensure receipt belongs to current restaurant
+      if (r.restaurantId && r.restaurantId !== restaurantId) return false;
+      
+      // Match by customer phone (preferred) or name
+      const cn = (r.customerName || '').trim().toLowerCase();
+      const cp = (r.customerPhone || '').trim();
+      const thisName = (customer?.name || '').trim().toLowerCase();
+      const thisPhone = (customer?.phone || '').trim();
+      return (thisPhone && cp && thisPhone === cp) || (!thisPhone && cn && thisName && cn === thisName);
+    });
+
+    // Convert receipts to order-like format for compatibility
+    const receiptOrderLike = receiptsForCustomer.map((r: any) => ({
+      id: r.orderId || r.id,
+      createdAt: r.timestamp || r.createdAt,
+      tableId: r.tableId,
+      items: [], // Receipts don't have item details, but we'll show the total
+      payment: {
+        method: r.paymentMethod,
+        amountPaid: Number(r.amount) || 0,
+        timestamp: r.timestamp,
+        splitPayments: Array.isArray(r.splitPayments) ? r.splitPayments : undefined,
+      }
+    }));
+
+    const list = receiptOrderLike
       .filter((o: any) => {
         const p = o.payment as any;
         if (!p) return false;
@@ -70,7 +154,7 @@ export default function SettleCreditScreen() {
       })
       .sort((a: any, b: any) => getOrderTimestamp(a.order) - getOrderTimestamp(b.order)); // oldest first
     return list;
-  }, [ordersById, customerId]);
+  }, [receiptsById, customerId, customer, restaurantId]);
 
   // Show only outstanding portion up to customer's current credit
   const visibleCreditOrders = useMemo(() => {
@@ -206,18 +290,76 @@ export default function SettleCreditScreen() {
       }
     }
 
-    // Create a synthetic order to record settlement in receipts (but don't trigger automatic printing)
+    // Create separate orders and receipts for each installment
     const tempTableId = `credit-${customer.id}`;
+    const settlementOrders: string[] = [];
+    
     try {
-      // 1) Create new order for receipt tracking
-      const createOrderAction = createOrder(tempTableId, restaurantId);
+      if (isSplitSettlement) {
+        // Create separate orders for each split payment (installment)
+        for (let i = 0; i < splitPayments.length; i++) {
+          const splitPayment = splitPayments[i];
+          const installmentAmount = splitPayment.amount;
+          
+          // Create order for this installment
+          const createOrderAction = createOrder(`${tempTableId}-installment-${i + 1}`, restaurantId || '');
+          dispatch(createOrderAction);
+          
+          const installmentOrderId = createOrderAction.payload.id;
+          if (!installmentOrderId) throw new Error(`Failed to create settlement order for installment ${i + 1}`);
+          
+          settlementOrders.push(installmentOrderId);
+          
+          // Add line item for this installment
+          const item: OrderItem = {
+            menuItemId: `CREDIT-SETTLEMENT-INSTALLMENT-${i + 1}`,
+            name: `Credit Settlement - Installment ${i + 1}`,
+            price: installmentAmount,
+            quantity: 1,
+            orderType: 'BOT',
+          };
+          dispatch(addItem({ orderId: installmentOrderId, item }));
+
+          // Set payment for this installment
+          const payment: any = {
+            method: splitPayment.method,
+            amount: installmentAmount,
+            amountPaid: installmentAmount,
+            change: 0,
+            customerName: customer.name,
+            customerPhone: customer.phone || '',
+            timestamp: Date.now(),
+          };
+          dispatch(setPayment({ orderId: installmentOrderId, payment }));
+          
+          // Wait for Redux state to be updated
+          await new Promise(resolve => setTimeout(resolve, 50));
+          
+          // Manually add processedBy to the order in Redux state
+          // This ensures the data is available when completeOrderWithReceipt is called
+          const currentOrder = ordersById[installmentOrderId];
+          if (currentOrder) {
+            (currentOrder as any).processedBy = {
+              role: role || 'Staff',
+              username: userName || 'Unknown'
+            };
+            console.log(`✅ SettleCredit: Added processedBy to installment order ${installmentOrderId}:`, {
+              role: role || 'Staff',
+              username: userName || 'Unknown'
+            });
+          }
+        }
+      } else {
+        // Single payment method - create one order
+      const createOrderAction = createOrder(tempTableId, restaurantId || '');
       dispatch(createOrderAction);
       
-      // Get the order ID from the action payload
       const newOrderId = createOrderAction.payload.id;
       if (!newOrderId) throw new Error('Failed to create settlement order');
 
-      // 2) Add a single line item for the settlement (not individual items)
+        settlementOrders.push(newOrderId);
+        
+        // Add line item for the settlement
       const item: OrderItem = {
         menuItemId: `CREDIT-SETTLEMENT`,
         name: `Credit Settlement`,
@@ -227,9 +369,9 @@ export default function SettleCreditScreen() {
       };
       dispatch(addItem({ orderId: newOrderId, item }));
 
-      // 3) Payment
+        // Set payment
       const payment: any = {
-        method: isSplitSettlement ? 'Split' : paymentMethod,
+          method: paymentMethod,
         amount: allocatedTotal,
         amountPaid: allocatedTotal,
         change: 0,
@@ -237,10 +379,25 @@ export default function SettleCreditScreen() {
         customerPhone: customer.phone || '',
         timestamp: Date.now(),
       };
-      if (isSplitSettlement) {
-        payment.splitPayments = splitPayments.map(sp => ({ method: sp.method, amount: sp.amount }));
-      }
       dispatch(setPayment({ orderId: newOrderId, payment }));
+        
+        // Wait for Redux state to be updated
+        await new Promise(resolve => setTimeout(resolve, 50));
+        
+        // Manually add processedBy to the order in Redux state
+        // This ensures the data is available when completeOrderWithReceipt is called
+        const currentOrder = ordersById[newOrderId];
+        if (currentOrder) {
+          (currentOrder as any).processedBy = {
+            role: role || 'Staff',
+            username: userName || 'Unknown'
+          };
+          console.log(`✅ SettleCredit: Added processedBy to settlement order ${newOrderId}:`, {
+            role: role || 'Staff',
+            username: userName || 'Unknown'
+          });
+        }
+      }
       
       // 4) Reduce customer credit
       dispatch(updateCreditAmount({ id: customer.id, amount: -allocatedTotal }));
@@ -249,12 +406,15 @@ export default function SettleCreditScreen() {
       try {
         const syncService = getRealtimeSyncService();
         if (syncService) {
+          console.log('🔄 SettleCredit: Updating customer credit in Firebase...');
           await syncService.updateCustomer(customer.id, {
             creditAmount: (customer.creditAmount || 0) - allocatedTotal
           });
+          console.log('✅ SettleCredit: Customer credit updated in Firebase');
         }
       } catch (error) {
-        console.error('Error updating customer credit in Firebase:', error);
+        console.error('❌ SettleCredit: Error updating customer credit in Firebase:', error);
+        // Don't fail the entire settlement for this error
       }
       
       // 5) Complete the original orders that are being settled
@@ -262,16 +422,98 @@ export default function SettleCreditScreen() {
         const originalOrder = ordersById[part.orderId];
         if (originalOrder && originalOrder.status === 'ongoing') {
           // Complete the original order with processedBy data
-          dispatch(completeOrderWithReceipt({ orderId: part.orderId, restaurantId }));
+          (dispatch as any)(completeOrderWithReceipt({ orderId: part.orderId, restaurantId: restaurantId || '' }));
         }
       });
       
-      // 6) Complete the settlement order immediately to avoid empty ongoing orders
-      dispatch(completeOrderWithReceipt({ orderId: newOrderId, restaurantId }));
+      // 6) Complete all settlement orders to generate separate receipts
+      console.log('🔄 SettleCredit: About to complete settlement orders:', settlementOrders);
+      console.log('🔄 SettleCredit: Settlement details:', {
+        totalOrders: settlementOrders.length,
+        isSplitSettlement,
+        totalAmount: allocatedTotal,
+        customerName: customer.name
+      });
+      
+      // Complete each settlement order after ensuring Redux state is updated
+      // Add a delay to ensure Redux state is properly updated
+      setTimeout(async () => {
+        console.log(`🔄 SettleCredit: Completing ${settlementOrders.length} settlement orders after delay`);
+        
+        // Debug: Check Redux state before completing
+        settlementOrders.forEach((orderId, index) => {
+          const order = ordersById[orderId];
+          console.log(`🔍 SettleCredit: Pre-completion check for order ${index + 1}:`, {
+            orderId,
+            hasOrder: !!order,
+            hasItems: order?.items?.length > 0,
+            itemCount: order?.items?.length || 0,
+            hasPayment: !!order?.payment,
+            paymentMethod: order?.payment?.method,
+            orderStatus: order?.status
+          });
+        });
+        
+        try {
+          settlementOrders.forEach((orderId, index) => {
+            console.log(`✅ SettleCredit: Completing settlement order ${index + 1}:`, orderId);
+            (dispatch as any)(completeOrderWithReceipt({ orderId, restaurantId: restaurantId || '' }));
+          });
+          console.log(`✅ SettleCredit: All settlement orders completed successfully`);
+          
+          // Refresh receipts after settlement completion
+          try {
+            console.log('🔄 SettleCredit: Refreshing receipts after settlement...');
+            const { getAutoReceiptService } = await import('../../services/autoReceiptService');
+            const autoReceiptService = getAutoReceiptService();
+            if (autoReceiptService) {
+              const receiptsData = await autoReceiptService.getReceipts();
+              console.log('🔄 SettleCredit: Refreshed receipts count:', Object.keys(receiptsData).length);
+              
+              // Find settlement receipts
+              const settlementReceipts = Object.values(receiptsData).filter((r: any) => r.tableId?.startsWith('credit-'));
+              console.log('🔍 SettleCredit: Settlement receipts found after refresh:', settlementReceipts.length);
+              settlementReceipts.forEach((r: any) => {
+                console.log('  - Settlement receipt:', {
+                  id: r.id,
+                  orderId: r.orderId,
+                  tableId: r.tableId,
+                  amount: r.amount
+                });
+              });
+              
+              // Trigger immediate refresh by updating Redux state
+              dispatch(triggerReceiptsRefresh());
+              console.log('🔄 SettleCredit: Settlement completed - triggered receipts refresh');
+              
+              // Show success message to user
+              Alert.alert(
+                'Settlement Completed', 
+                `Credit settlement completed successfully. ${settlementOrders.length} receipt(s) generated.`,
+                [
+                  {
+                    text: 'View Receipts',
+                    onPress: () => {
+                      // Navigate to receipts screen to show the new settlement receipts
+                      (navigation as any).navigate('Receipts', { screen: 'DailySummary' });
+                    }
+                  },
+                  { text: 'OK' }
+                ]
+              );
+            }
+          } catch (refreshError) {
+            console.error('❌ SettleCredit: Error refreshing receipts:', refreshError);
+          }
+        } catch (error) {
+          console.error(`❌ SettleCredit: Error completing settlement orders:`, error);
+          Alert.alert('Error', 'Failed to save settlement receipts. Please try again.');
+        }
+      }, 500); // Increased delay to 500ms
 
-      // 7) Print simplified settlement receipt
+      // 7) Print separate settlement receipts for each installment
       try {
-        const { blePrinter } = await import('../../services/blePrinter');
+        const { PrintService } = await import('../../services/printing');
         const now = new Date();
         
         // Calculate correct credit amounts
@@ -279,33 +521,71 @@ export default function SettleCreditScreen() {
         const settledAmount = allocatedTotal; // Amount being settled
         const totalCreditBeforePayment = settledAmount + remainingCredit; // Total credit before settlement
         
-        // Section 1: Header and Basic Info
-        await blePrinter.printText(`ARBI POS\n`);
-        await blePrinter.printText(`Credit Settlement Receipt\n`);
-        await blePrinter.printText(`\n`);
-        await blePrinter.printText(`Receipt: SET-${Date.now()}\n`);
-        await blePrinter.printText(`Date: ${now.toLocaleDateString()}\n`);
-        await blePrinter.printText(`Time: ${now.toLocaleTimeString()}\n`);
-        await blePrinter.printText(`Credit Settlement Date: ${now.toLocaleDateString()}\n`);
-        await blePrinter.printText(`Credit Settlement Time: ${now.toLocaleTimeString()}\n`);
-        await blePrinter.printText(`\n`);
-        
-        // Section 2: Customer and Payment Info
-        await blePrinter.printText(`Customer: ${customer.name}\n`);
-        if (customer.phone) {
-          await blePrinter.printText(`Phone: ${customer.phone}\n`);
+        if (isSplitSettlement) {
+          // Print separate receipts for each installment using PrintService
+          for (let i = 0; i < splitPayments.length; i++) {
+            const splitPayment = splitPayments[i];
+            const installmentAmount = splitPayment.amount;
+            
+            // Create a mock order for this installment
+            const mockOrder = {
+              id: `SETTLEMENT-INSTALLMENT-${i + 1}-${Date.now()}`,
+              createdAt: now.toISOString(),
+              items: [{
+                name: `Credit Settlement - Installment ${i + 1}`,
+                quantity: 1,
+                price: installmentAmount
+              }],
+              taxPercentage: 0,
+              serviceChargePercentage: 0,
+              discountPercentage: 0,
+              payment: {
+                method: splitPayment.method,
+                amountPaid: installmentAmount,
+                change: 0,
+                customerName: customer.name,
+                customerPhone: customer.phone || '',
+                timestamp: now.getTime()
+              }
+            };
+            
+            const mockTable = { name: 'Credit Settlement' };
+            
+            const result = await PrintService.printReceiptFromOrder(mockOrder, mockTable);
+            if (!result.success) {
+              console.warn(`Failed to print installment ${i + 1}:`, result.message);
+            }
+          }
+        } else {
+          // Single payment method - print one receipt using PrintService
+          const mockOrder = {
+            id: `SETTLEMENT-${Date.now()}`,
+            createdAt: now.toISOString(),
+            items: [{
+              name: 'Credit Settlement',
+              quantity: 1,
+              price: settledAmount
+            }],
+            taxPercentage: 0,
+            serviceChargePercentage: 0,
+            discountPercentage: 0,
+            payment: {
+              method: paymentMethod,
+              amountPaid: settledAmount,
+              change: 0,
+              customerName: customer.name,
+              customerPhone: customer.phone || '',
+              timestamp: now.getTime()
+            }
+          };
+          
+          const mockTable = { name: 'Credit Settlement' };
+          
+          const result = await PrintService.printReceiptFromOrder(mockOrder, mockTable);
+          if (!result.success) {
+            console.warn('Failed to print settlement receipt:', result.message);
+          }
         }
-        await blePrinter.printText(`Payment Method: ${isSplitSettlement ? 'Split' : paymentMethod}\n`);
-        await blePrinter.printText(`\n`);
-        
-        // Section 3: Credit Amounts
-        await blePrinter.printText(`Credit Amount: Rs. ${totalCreditBeforePayment.toFixed(2)}\n`);
-        await blePrinter.printText(`Settled Amount: Rs. ${settledAmount.toFixed(2)}\n`);
-        await blePrinter.printText(`Remaining Credit: Rs. ${remainingCredit.toFixed(2)}\n`);
-        await blePrinter.printText(`\n`);
-        await blePrinter.printText(`Thank you!\n`);
-        await blePrinter.printText(`Generated by ARBI POS System\n`);
-        await blePrinter.printText(`\n\n`);
         
       } catch (error) {
         console.error('Printing failed:', error);
@@ -317,7 +597,7 @@ export default function SettleCreditScreen() {
           text: 'Done & Print', 
           onPress: async () => {
             try {
-              const { blePrinter } = await import('../../services/blePrinter');
+              const { PrintService } = await import('../../services/printing');
               const now = new Date();
               
               // Calculate correct credit amounts
@@ -325,33 +605,71 @@ export default function SettleCreditScreen() {
               const settledAmount = allocatedTotal; // Amount being settled
               const totalCreditBeforePayment = settledAmount + remainingCredit; // Total credit before settlement
               
-              // Section 1: Header and Basic Info
-              await blePrinter.printText(`ARBI POS\n`);
-              await blePrinter.printText(`Credit Settlement Receipt\n`);
-              await blePrinter.printText(`\n`);
-              await blePrinter.printText(`Receipt: SET-${Date.now()}\n`);
-              await blePrinter.printText(`Date: ${now.toLocaleDateString()}\n`);
-              await blePrinter.printText(`Time: ${now.toLocaleTimeString()}\n`);
-              await blePrinter.printText(`Credit Settlement Date: ${now.toLocaleDateString()}\n`);
-              await blePrinter.printText(`Credit Settlement Time: ${now.toLocaleTimeString()}\n`);
-              await blePrinter.printText(`\n`);
-              
-              // Section 2: Customer and Payment Info
-              await blePrinter.printText(`Customer: ${customer.name}\n`);
-              if (customer.phone) {
-                await blePrinter.printText(`Phone: ${customer.phone}\n`);
+              if (isSplitSettlement) {
+                // Print separate receipts for each installment using PrintService
+                for (let i = 0; i < splitPayments.length; i++) {
+                  const splitPayment = splitPayments[i];
+                  const installmentAmount = splitPayment.amount;
+                  
+                  // Create a mock order for this installment
+                  const mockOrder = {
+                    id: `SETTLEMENT-INSTALLMENT-${i + 1}-${Date.now()}`,
+                    createdAt: now.toISOString(),
+                    items: [{
+                      name: `Credit Settlement - Installment ${i + 1}`,
+                      quantity: 1,
+                      price: installmentAmount
+                    }],
+                    taxPercentage: 0,
+                    serviceChargePercentage: 0,
+                    discountPercentage: 0,
+                    payment: {
+                      method: splitPayment.method,
+                      amountPaid: installmentAmount,
+                      change: 0,
+                      customerName: customer.name,
+                      customerPhone: customer.phone || '',
+                      timestamp: now.getTime()
+                    }
+                  };
+                  
+                  const mockTable = { name: 'Credit Settlement' };
+                  
+                  const result = await PrintService.printReceiptFromOrder(mockOrder, mockTable);
+                  if (!result.success) {
+                    console.warn(`Failed to re-print installment ${i + 1}:`, result.message);
+                  }
+                }
+              } else {
+                // Single payment method - print one receipt using PrintService
+                const mockOrder = {
+                  id: `SETTLEMENT-${Date.now()}`,
+                  createdAt: now.toISOString(),
+                  items: [{
+                    name: 'Credit Settlement',
+                    quantity: 1,
+                    price: settledAmount
+                  }],
+                  taxPercentage: 0,
+                  serviceChargePercentage: 0,
+                  discountPercentage: 0,
+                  payment: {
+                    method: paymentMethod,
+                    amountPaid: settledAmount,
+                    change: 0,
+                    customerName: customer.name,
+                    customerPhone: customer.phone || '',
+                    timestamp: now.getTime()
+                  }
+                };
+                
+                const mockTable = { name: 'Credit Settlement' };
+                
+                const result = await PrintService.printReceiptFromOrder(mockOrder, mockTable);
+                if (!result.success) {
+                  console.warn('Failed to re-print settlement receipt:', result.message);
+                }
               }
-              await blePrinter.printText(`Payment Method: ${isSplitSettlement ? 'Split' : paymentMethod}\n`);
-              await blePrinter.printText(`\n`);
-              
-              // Section 3: Credit Amounts
-              await blePrinter.printText(`Credit Amount: Rs. ${totalCreditBeforePayment.toFixed(2)}\n`);
-              await blePrinter.printText(`Settled Amount: Rs. ${settledAmount.toFixed(2)}\n`);
-              await blePrinter.printText(`Remaining Credit: Rs. ${remainingCredit.toFixed(2)}\n`);
-              await blePrinter.printText(`\n`);
-              await blePrinter.printText(`Thank you!\n`);
-              await blePrinter.printText(`Generated by ARBI POS System\n`);
-              await blePrinter.printText(`\n\n`);
             } catch (error) {
               console.error('Re-print failed:', error);
             }
@@ -388,12 +706,20 @@ export default function SettleCreditScreen() {
           }}
           scrollEventThrottle={16}
         >
+        {/* Restaurant Header */}
+        <View style={styles.restaurantHeader}>
+          <Text style={styles.restaurantName}>{getRestaurantName()}</Text>
+          {restaurantInfo?.address && <Text style={styles.restaurantAddress}>{restaurantInfo.address}</Text>}
+          {restaurantInfo?.panVat && <Text style={styles.restaurantPanVat}>PAN: {restaurantInfo.panVat}</Text>}
+        </View>
+
         {/* Header */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Settle Credit</Text>
           <View style={styles.summaryCard}>
             <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Customer:</Text><Text style={styles.summaryValue}>{customer.name}{customer.phone ? ` (${customer.phone})` : ''}</Text></View>
             <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Outstanding Credit:</Text><Text style={[styles.summaryValue, styles.totalAmount]}>{currency(customer.creditAmount || 0)}</Text></View>
+            <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Processed By:</Text><Text style={styles.summaryValue}>{role || 'Staff'} - {userName || 'Unknown'}</Text></View>
           </View>
         </View>
 
@@ -405,19 +731,27 @@ export default function SettleCreditScreen() {
           ) : (
             visibleCreditOrders.map(({ order, creditDue }) => (
               <View key={order.id} style={styles.itemsCard}>
-                <Text style={styles.cardTitle}>Order {shortId(order.id)}</Text>
-                <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Table:</Text><Text style={styles.summaryValue}>{tables[order.tableId]?.name || order.tableId}</Text></View>
+                <Text style={styles.cardTitle}>Receipt {shortId(order.id)}</Text>
+                <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Table:</Text><Text style={styles.summaryValue}>{tables[order.tableId]?.name || order.tableId || 'N/A'}</Text></View>
                 <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Credit Due:</Text><Text style={[styles.summaryValue, styles.totalAmount]}>{currency(creditDue)}</Text></View>
+                <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Date:</Text><Text style={styles.summaryValue}>{new Date(order.createdAt).toLocaleDateString()}</Text></View>
                 <View style={[styles.divider]} />
-                {order.items.map((it: any, idx: number) => (
-                  <View key={`${it.menuItemId}-${idx}`} style={styles.itemRow}>
-                    <View style={styles.itemInfo}>
-                      <Text style={styles.itemName}>{it.name}</Text>
-                      <Text style={styles.itemQuantity}>x{it.quantity}</Text>
+                {order.items && order.items.length > 0 ? (
+                  order.items.map((it: any, idx: number) => (
+                    <View key={`${it.menuItemId}-${idx}`} style={styles.itemRow}>
+                      <View style={styles.itemInfo}>
+                        <Text style={styles.itemName}>{it.name}</Text>
+                        <Text style={styles.itemQuantity}>x{it.quantity}</Text>
+                      </View>
+                      <Text style={styles.itemPrice}>Rs. {(it.price * it.quantity).toFixed(2)}</Text>
                     </View>
-                    <Text style={styles.itemPrice}>Rs. {(it.price * it.quantity).toFixed(2)}</Text>
+                  ))
+                ) : (
+                  <View style={styles.itemRow}>
+                    <Text style={styles.itemName}>Credit Transaction</Text>
+                    <Text style={styles.itemPrice}>{currency(creditDue)}</Text>
                   </View>
-                ))}
+                )}
               </View>
             ))
           )}
@@ -631,6 +965,10 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   content: { flex: 1, padding: spacing.lg },
   safeInner: { flex: 1, position: 'relative' },
+  restaurantHeader: { backgroundColor: colors.primary, padding: spacing.lg, marginBottom: spacing.lg, borderRadius: radius.md, alignItems: 'center' },
+  restaurantName: { fontSize: 20, fontWeight: 'bold', color: 'white', marginBottom: spacing.xs },
+  restaurantAddress: { fontSize: 14, color: 'white', opacity: 0.9, textAlign: 'center', marginBottom: spacing.xs },
+  restaurantPanVat: { fontSize: 12, color: 'white', opacity: 0.8, textAlign: 'center' },
   section: { marginBottom: spacing.lg },
   sectionTitle: { fontSize: 18, fontWeight: 'bold', color: colors.textPrimary, marginBottom: spacing.md },
   summaryCard: { backgroundColor: colors.surface, borderRadius: radius.md, padding: spacing.lg, ...shadow.card },

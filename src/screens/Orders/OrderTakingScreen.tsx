@@ -65,6 +65,7 @@ const OrderTakingScreen: React.FC = () => {
     }, [orderId, pendingItems])
   );
   const order = useSelector((state: RootState) => state.orders.ordersById[orderId]);
+  const ordersById = useSelector((state: RootState) => state.orders.ordersById);
   const activeTables = useSelector(selectActiveTables);
   
   // Get the selected table from Firebase tables instead of Redux
@@ -405,7 +406,46 @@ const OrderTakingScreen: React.FC = () => {
                   }
                   return;
                 }
-                // Existing order path
+                // Existing order path - check if order still exists and is ongoing
+                const currentOrder = ordersById[orderId];
+                if (!currentOrder || currentOrder.status !== 'ongoing') {
+                  // Order doesn't exist or is completed, create a new order instead
+                  console.log('Order not found or completed, creating new order instead');
+                  if (isSaving) return;
+                  setIsSaving(true);
+                  try {
+                    const mergedTableIds = isMergedTable ? (selectedTable as any)?.mergedTables : undefined;
+                    const action: any = dispatch(createOrder(selectedTableId, mergedTableIds));
+                    const newOrderId = action.payload.id;
+                    Object.values(pendingItems).forEach(({ item, quantity }) => {
+                      dispatch(addItem({
+                        orderId: newOrderId,
+                        item: {
+                          menuItemId: item.id,
+                          name: item.name,
+                          description: item.description,
+                          price: item.price,
+                          quantity,
+                          modifiers: [],
+                          orderType: item.orderType,
+                        }
+                      }));
+                    });
+                    setPendingItems({});
+                    // @ts-ignore
+                    navigation.setParams({ tableId: selectedTableId, orderId: newOrderId });
+                    // Navigate to Order Confirmation for review
+                    // @ts-ignore
+                    navigation.navigate('OrderConfirmation', { orderId: newOrderId, tableId: selectedTableId });
+                  } catch (e) {
+                    Alert.alert('Error', 'Failed to create new order. Please try again.');
+                  } finally {
+                    setIsSaving(false);
+                  }
+                  return;
+                }
+                
+                // Order exists and is ongoing, proceed normally
                 dispatch(markOrderReviewed({ orderId }));
                 try {
                   // @ts-ignore

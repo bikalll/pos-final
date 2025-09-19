@@ -3,7 +3,7 @@ import { View, Text, TextInput, FlatList, TouchableOpacity, ScrollView, Alert } 
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useSelector, useDispatch } from "react-redux";
 import { useNavigation } from "@react-navigation/native";
-import { RootState } from "../../redux/store";
+import { RootState } from "../../redux/storeFirebase";
 import { Order, PaymentInfo } from "../../utils/types";
 import { DrawerNavigationProp } from "@react-navigation/drawer";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -64,6 +64,7 @@ export default function ReceiptsScreen() {
   const completedOrders = useSelector((state: RootState) => state.orders.completedOrderIds);
   const ordersById = useSelector((state: RootState) => state.orders.ordersById);
   const tables = useSelector((state: RootState) => state.tables.tablesById);
+  const receiptsRefreshTrigger = useSelector((state: RootState) => state.orders.receiptsRefreshTrigger);
   const { restaurantId } = useSelector((state: RootState) => state.auth);
 
   // Debug logging for troubleshooting
@@ -180,6 +181,16 @@ export default function ReceiptsScreen() {
         const receiptsData = await service.getReceipts();
         console.log('DailySummaryScreen - Loaded receipts count:', Object.keys(receiptsData).length);
         
+        // Debug: Log all receipts to see what's being loaded
+        console.log('🔍 All loaded receipts:', Object.keys(receiptsData).map(id => ({
+          id,
+          orderId: receiptsData[id].orderId,
+          tableId: receiptsData[id].tableId,
+          tableName: receiptsData[id].tableName,
+          amount: receiptsData[id].amount,
+          customerName: receiptsData[id].customerName
+        })));
+        
         setFirebaseReceipts(receiptsData);
         
       } catch (error) {
@@ -189,6 +200,83 @@ export default function ReceiptsScreen() {
     
     loadData();
   }, [restaurantId]);
+
+  // Refresh receipts when screen comes into focus (e.g., after settlement completion)
+  useEffect(() => {
+    const handleFocus = async () => {
+      console.log('🔄 DailySummaryScreen: Screen focused - refreshing receipts');
+      
+      if (!restaurantId) {
+        console.log('❌ No restaurant ID available for refresh');
+        return;
+      }
+      
+      try {
+        const service = createFirestoreService(restaurantId);
+        
+        // Refresh receipts
+        const receiptsData = await service.getReceipts();
+        console.log('🔄 DailySummaryScreen: Refreshed receipts count:', Object.keys(receiptsData).length);
+        
+        // Debug: Log settlement receipts specifically
+        const settlementReceipts = Object.values(receiptsData).filter((r: any) => r.tableId?.startsWith('credit-'));
+        console.log('🔍 DailySummaryScreen: Settlement receipts found after refresh:', settlementReceipts.length);
+        settlementReceipts.forEach((r: any) => {
+          console.log('  - Settlement receipt:', {
+            id: r.id,
+            orderId: r.orderId,
+            tableId: r.tableId,
+            amount: r.amount
+          });
+        });
+        
+        setFirebaseReceipts(receiptsData);
+      } catch (error) {
+        console.error('❌ DailySummaryScreen: Error refreshing receipts:', error);
+      }
+    };
+    
+    // Add focus listener
+    const unsubscribe = navigation.addListener('focus', handleFocus);
+    
+    // Cleanup
+    return unsubscribe;
+  }, [navigation, restaurantId]);
+
+  // Listen for receipts refresh trigger from Redux
+  useEffect(() => {
+    const refreshReceipts = async () => {
+      if (!restaurantId || receiptsRefreshTrigger === 0) return;
+      
+      console.log('🔄 DailySummaryScreen: Receipts refresh triggered from Redux');
+      
+      try {
+        const service = createFirestoreService(restaurantId);
+        
+        // Refresh receipts
+        const receiptsData = await service.getReceipts();
+        console.log('🔄 DailySummaryScreen: Refreshed receipts count:', Object.keys(receiptsData).length);
+        
+        // Debug: Log settlement receipts specifically
+        const settlementReceipts = Object.values(receiptsData).filter((r: any) => r.tableId?.startsWith('credit-'));
+        console.log('🔍 DailySummaryScreen: Settlement receipts found after refresh:', settlementReceipts.length);
+        settlementReceipts.forEach((r: any) => {
+          console.log('  - Settlement receipt:', {
+            id: r.id,
+            orderId: r.orderId,
+            tableId: r.tableId,
+            amount: r.amount
+          });
+        });
+        
+        setFirebaseReceipts(receiptsData);
+      } catch (error) {
+        console.error('❌ DailySummaryScreen: Error refreshing receipts:', error);
+      }
+    };
+    
+    refreshReceipts();
+  }, [receiptsRefreshTrigger, restaurantId]);
 
   // Auto-save receipts when orders are completed
   useEffect(() => {
@@ -284,6 +372,20 @@ export default function ReceiptsScreen() {
         });
         return false;
       }
+      
+      // Debug: Log settlement receipts specifically
+      if (receipt.tableId && receipt.tableId.startsWith('credit-')) {
+        console.log('🔍 Settlement receipt found:', {
+          id: receipt.id,
+          orderId: receipt.orderId,
+          tableId: receipt.tableId,
+          tableName: receipt.tableName,
+          amount: receipt.amount,
+          customerName: receipt.customerName,
+          restaurantId: receipt.restaurantId
+        });
+      }
+      
       return true;
     });
     
@@ -351,6 +453,7 @@ export default function ReceiptsScreen() {
         tax: receipt.tax || 0,
         serviceCharge: receipt.serviceCharge || 0,
         discount: receipt.discount || 0,
+        orderItems: receipt.items || [],
         time: ts ? new Date(ts).toLocaleTimeString('en-US', { 
           hour: '2-digit', 
           minute: '2-digit',

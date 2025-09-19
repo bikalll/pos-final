@@ -53,6 +53,10 @@ export type SettingsStackParamList = {
   OfficeProfile: undefined;
   TableManagement: undefined;
   BluetoothDebug: undefined;
+  VendorManagement: undefined;
+  VendorTransactionHistory: { vendor: any };
+  EmployeeManagement: undefined;
+  OfficeManagement: undefined;
 };
 
 export type RootStackParamList = {

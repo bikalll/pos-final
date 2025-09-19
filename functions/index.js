@@ -304,6 +304,75 @@ exports.deactivateUser = functions.https.onCall(async (data, context) => {
 });
 
 /**
+ * Cloud Function to completely delete user account
+ * Only owners can delete accounts - this permanently removes the user from Firebase
+ */
+exports.deleteUser = functions.https.onCall(async (data, context) => {
+  // Verify authentication
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated');
+  }
+
+  const { targetUid } = data;
+  const requesterUid = context.auth.uid;
+
+  // Validate input
+  if (!targetUid) {
+    throw new functions.https.HttpsError('invalid-argument', 'Missing target user ID');
+  }
+
+  try {
+    // Verify requester is an owner
+    const requesterRef = db.ref(`users/${requesterUid}`);
+    const requesterSnapshot = await requesterRef.once('value');
+    const requesterData = requesterSnapshot.val();
+
+    if (!requesterData || requesterData.role !== 'owner') {
+      throw new functions.https.HttpsError('permission-denied', 'Only owners can delete accounts');
+    }
+
+    // Get target user data
+    const targetRef = db.ref(`users/${targetUid}`);
+    const targetSnapshot = await targetRef.once('value');
+    const targetData = targetSnapshot.val();
+
+    if (!targetData) {
+      throw new functions.https.HttpsError('not-found', 'User not found');
+    }
+
+    // Verify both users belong to the same restaurant
+    if (requesterData.restaurantId !== targetData.restaurantId) {
+      throw new functions.https.HttpsError('permission-denied', 'Cannot delete users from different restaurants');
+    }
+
+    // Prevent deleting own account
+    if (targetUid === requesterUid) {
+      throw new functions.https.HttpsError('invalid-argument', 'Cannot delete your own account');
+    }
+
+    // Delete user from Firebase Auth completely
+    await admin.auth().deleteUser(targetUid);
+
+    // Remove user metadata from Realtime Database
+    await targetRef.remove();
+
+    // Remove from restaurant_users mapping if exists
+    const restaurantUserRef = db.ref(`restaurant_users/${targetUid}`);
+    await restaurantUserRef.remove();
+
+    return {
+      success: true,
+      uid: targetUid,
+      message: 'User account deleted permanently from the system',
+    };
+
+  } catch (error) {
+    console.error('Error deleting user:', error);
+    throw new functions.https.HttpsError('internal', 'Failed to delete user account');
+  }
+});
+
+/**
  * Cloud Function to get restaurant users
  * Only owners and managers can view restaurant users
  */
