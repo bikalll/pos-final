@@ -2,13 +2,15 @@
 import React, { useEffect, Suspense } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { Provider } from "react-redux";
+import { PersistGate } from "redux-persist/integration/react";
 import RootNavigator from "./src/navigation/RootNavigator";
-import { store } from "./src/redux/storeFirebase";
+import { store, persistor } from "./src/redux/storeFirebase";
 import { navigationTheme } from "./src/theme";
 import { StatusBar } from "expo-status-bar";
 // import { initDatabase } from "./src/services/db"; // Removed - using Firebase instead
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import AppInitializer from "./src/components/AppInitializer";
+import OfflineAuthHandler from "./src/components/OfflineAuthHandler";
 import { View, Text, ActivityIndicator } from "react-native";
 
 // Loading component for better UX
@@ -24,15 +26,18 @@ export default function App() {
 
 	return (
 		<Provider store={store}>
-			<SafeAreaProvider>
-				<Suspense fallback={<LoadingScreen />}>
-						<NavigationContainer theme={navigationTheme}>
-							<StatusBar style="light" />
-							<AppInitializer />
-							<RootNavigator />
-						</NavigationContainer>
-				</Suspense>
-			</SafeAreaProvider>
+			<PersistGate loading={<LoadingScreen />} persistor={persistor}>
+				<SafeAreaProvider>
+					<Suspense fallback={<LoadingScreen />}>
+							<NavigationContainer theme={navigationTheme}>
+								<StatusBar style="light" />
+								<AppInitializer />
+								<OfflineAuthHandler />
+								<RootNavigator />
+							</NavigationContainer>
+					</Suspense>
+				</SafeAreaProvider>
+			</PersistGate>
 		</Provider>
 	);
 }

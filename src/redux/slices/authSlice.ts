@@ -10,6 +10,7 @@ type AuthState = {
   restaurantName?: string;
   designation?: string;
   logoUrl?: string;
+  userPhotoUrl?: string;
 };
 
 const initialState: AuthState = {
@@ -29,6 +30,7 @@ initialState,
       restaurantName?: string; 
       designation?: string;
       logoUrl?: string;
+      userPhotoUrl?: string;
     }>) => {
       console.log('🔍 REDUX DEBUG - Login action received:');
       console.log('  payload.role:', action.payload.role, '(type:', typeof action.payload.role, ')');
@@ -42,6 +44,7 @@ initialState,
       state.restaurantName = action.payload.restaurantName;
       state.designation = action.payload.designation;
       state.logoUrl = action.payload.logoUrl;
+      state.userPhotoUrl = action.payload.userPhotoUrl;
       
       console.log('  final state.role:', state.role, '(type:', typeof state.role, ')');
     },
@@ -53,6 +56,7 @@ initialState,
       state.restaurantName = undefined;
       state.designation = undefined;
       state.logoUrl = undefined;
+      state.userPhotoUrl = undefined;
     },
     setLogoUrl: (state, action: PayloadAction<string | undefined>) => {
       state.logoUrl = action.payload;
@@ -61,8 +65,11 @@ initialState,
       state.restaurantId = action.payload.restaurantId;
       state.restaurantName = action.payload.restaurantName;
     },
+    setUserPhotoUrl: (state, action: PayloadAction<string | undefined>) => {
+      state.userPhotoUrl = action.payload;
+    },
   },
 });
 
-export const { login, logout, setRestaurant, setLogoUrl } = authSlice.actions;
+export const { login, logout, setRestaurant, setLogoUrl, setUserPhotoUrl } = authSlice.actions;
 export default authSlice.reducer;

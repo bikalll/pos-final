@@ -4,8 +4,10 @@ import {
   signOut, 
   onAuthStateChanged,
   User,
-  updateProfile
+  updateProfile,
+  getAuth
 } from 'firebase/auth';
+import { initializeApp, getApps, getApp } from 'firebase/app';
 import { doc, setDoc, getDoc, updateDoc, serverTimestamp, collection, getDocs, query, where } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { auth, firestore, functions } from './firebase';
@@ -26,6 +28,7 @@ export type UserMetadata = {
   createdAt: number;
   isActive: boolean;
   createdBy?: string; // UID of the user who created this account
+  photoURL?: string;
 };
 
 export class FirebaseAuthEnhanced {
@@ -140,7 +143,8 @@ export class FirebaseAuthEnhanced {
         role: role,
         userId: user.uid,
         restaurantId: userMetadata.restaurantId,
-        restaurantName: restaurantInfo?.name || 'Restaurant'
+        restaurantName: restaurantInfo?.name || 'Restaurant',
+        userPhotoUrl: (user as any)?.photoURL || (userMetadata as any)?.photoURL
       }));
       
       console.log('✅ LOGIN DISPATCHED - Auth state should now have restaurantId:', userMetadata.restaurantId);
@@ -223,7 +227,7 @@ export class FirebaseAuthEnhanced {
     }
   }
 
-  // Create employee credentials (owner only)
+  // Create employee credentials (owner/manager only) via Cloud Function (prevents auth session switching)
   async createEmployeeCredentials(
     email: string,
     displayName: string,
@@ -233,38 +237,142 @@ export class FirebaseAuthEnhanced {
     staffRole?: 'manager' | 'staff'
   ): Promise<{ credentials: { email: string; password: string }; userMetadata: UserMetadata }> {
     try {
-      // Verify that the creator is an owner
+      // Verify creator permissions locally for fast feedback
       const creatorMetadata = await this.getUserMetadata(createdBy);
       if (!creatorMetadata || (creatorMetadata.role !== 'Owner' && creatorMetadata.role !== 'manager')) {
         throw new Error('Only owners and managers can create employee accounts');
       }
 
-      // Use provided password or generate temporary password
-      const employeePassword = password || this.generateTemporaryPassword();
+      const createFn = httpsCallable(functions, 'createEmployeeCredentials');
+      let response: any;
+      try {
+        response = await createFn({
+          email: email.toLowerCase(),
+          displayName,
+          restaurantId,
+          password,
+          staffRole,
+        });
+      } catch (fnError: any) {
+        // Fallback if function is not deployed/found in region
+        const isNotFound = (fnError?.code === 'functions/not-found') || /not-found/i.test(fnError?.message || '');
+        if (!isNotFound) throw fnError;
 
-      // Determine the correct role for the user collection
-      const userRole = (staffRole === 'manager') ? 'manager' : 'staff';
+        try {
+          // Try alternate callable name
+          const createUserFn = httpsCallable(functions, 'createUser');
+          const fallbackResp: any = await createUserFn({
+            email: email.toLowerCase(),
+            password: password || this.generateTemporaryPassword(),
+            displayName,
+            role: 'employee',
+            restaurantId,
+          });
+          // Normalize shape to match primary path
+          response = { data: {
+            uid: fallbackResp?.data?.uid,
+            email: email.toLowerCase(),
+            displayName,
+            password: (password || ''),
+            role: (staffRole === 'manager') ? 'manager' : 'staff',
+          }};
 
-      // Create user account with correct role
-      const userMetadata = await this.createUser(
-        email,
-        employeePassword,
-        displayName,
-        userRole as any, // Pass the correct role instead of hardcoded 'employee'
-        restaurantId,
-        createdBy
-      );
+          // Best-effort: mirror to Firestore so the app state remains consistent
+          try {
+            const createdUid = fallbackResp?.data?.uid as string;
+            const userDoc = doc(firestore, `users/${createdUid}`);
+            await setDoc(userDoc, {
+              uid: createdUid,
+              email: email.toLowerCase(),
+              role: (staffRole === 'manager') ? 'manager' : 'staff',
+              restaurantId,
+              displayName,
+              createdAt: Date.now(),
+              isActive: true,
+              createdBy,
+            }, { merge: true });
 
-      // The createUser method now handles role mapping correctly, so no need for additional updates
+            const firestoreService = createFirestoreService(restaurantId);
+            await (firestoreService as any).create('users', {
+              id: createdUid,
+              email: email.toLowerCase(),
+              restaurantId,
+              role: (staffRole === 'manager') ? 'Manager' : 'Staff',
+            });
+          } catch (mirrorError) {
+            console.log('Warning: Firestore mirror after fallback failed:', mirrorError);
+          }
+        } catch (cfFallbackError: any) {
+          // Final fallback: use a secondary Firebase app instance to create Auth user without affecting current session
+          console.log('Callable not found; using secondary app to create user.');
+          const secondaryName = 'secondary-admin-app';
+          const apps = getApps();
+          const secondaryApp = apps.find(a => a.name === secondaryName) || initializeApp((getApp() as any).options, secondaryName);
+          const secondaryAuth = getAuth(secondaryApp);
 
-      return {
-        credentials: { email, password: employeePassword },
-        userMetadata: {
-          ...userMetadata,
-          role: userRole as any
+          const finalPassword = password || this.generateTemporaryPassword();
+          const cred = await createUserWithEmailAndPassword(secondaryAuth, email.toLowerCase(), finalPassword);
+          if (displayName) {
+            await updateProfile(cred.user, { displayName });
+          }
+
+          // Sign out secondary session to avoid lingering state
+          try { await signOut(secondaryAuth); } catch {}
+
+          // Mirror metadata to Firestore and restaurant mapping
+          const createdUid = cred.user.uid;
+          const userDoc = doc(firestore, `users/${createdUid}`);
+          await setDoc(userDoc, {
+            uid: createdUid,
+            email: email.toLowerCase(),
+            role: (staffRole === 'manager') ? 'manager' : 'staff',
+            restaurantId,
+            displayName,
+            createdAt: Date.now(),
+            isActive: true,
+            createdBy,
+          }, { merge: true });
+
+          const firestoreService = createFirestoreService(restaurantId);
+          await (firestoreService as any).create('users', {
+            id: createdUid,
+            email: email.toLowerCase(),
+            restaurantId,
+            role: (staffRole === 'manager') ? 'Manager' : 'Staff',
+          });
+
+          response = { data: {
+            uid: createdUid,
+            email: email.toLowerCase(),
+            displayName,
+            password: finalPassword,
+            role: (staffRole === 'manager') ? 'manager' : 'staff',
+          }};
         }
+      }
+
+      const data = response.data || response; // compat
+      const generatedPassword = data.password as string;
+      const createdUid = data.uid as string;
+      const effectiveRole = (data.role as any) || (staffRole === 'manager' ? 'manager' : 'staff');
+
+      // Build compatible metadata object for the app
+      const userMetadata: UserMetadata = {
+        uid: createdUid,
+        email: email.toLowerCase(),
+        role: effectiveRole as any,
+        restaurantId,
+        displayName,
+        createdAt: Date.now(),
+        isActive: true,
+        createdBy,
+        photoURL: undefined,
       };
 
+      return {
+        credentials: { email: email.toLowerCase(), password: generatedPassword },
+        userMetadata,
+      };
     } catch (error) {
       console.error('Create employee credentials error:', error);
       throw error;

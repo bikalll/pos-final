@@ -36,7 +36,7 @@ const persistConfig = {
 };
 
 export const store = configureStore({
-  reducer: rootReducer, // Temporarily disable persistence
+  reducer: persistReducer(persistConfig, rootReducer), // Enable persistence for auth
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({ 
       serializableCheck: false,
@@ -50,6 +50,7 @@ export const store = configureStore({
 // Initialize default tables
 store.dispatch(initializeDefaultTables());
 
+// Create persistor for Redux persistence
 export const persistor = persistStore(store);
 
 export type RootState = ReturnType<typeof store.getState>;

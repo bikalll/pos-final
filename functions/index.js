@@ -5,6 +5,7 @@ const admin = require('firebase-admin');
 admin.initializeApp();
 
 const db = admin.database();
+const fs = admin.firestore();
 
 /**
  * Cloud Function to create user accounts securely
@@ -110,7 +111,7 @@ exports.createEmployeeCredentials = functions.https.onCall(async (data, context)
     throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated');
   }
 
-  const { email, displayName, restaurantId } = data;
+  const { email, displayName, restaurantId, password, staffRole } = data;
   const requesterUid = context.auth.uid;
 
   // Validate input
@@ -119,13 +120,21 @@ exports.createEmployeeCredentials = functions.https.onCall(async (data, context)
   }
 
   try {
-    // Verify requester is an owner
-    const requesterRef = db.ref(`users/${requesterUid}`);
-    const requesterSnapshot = await requesterRef.once('value');
-    const requesterData = requesterSnapshot.val();
+    // Verify requester is owner or manager using Firestore (fallback to RTDB)
+    let requesterData = null;
+    try {
+      const requesterDoc = await fs.doc(`users/${requesterUid}`).get();
+      requesterData = requesterDoc.exists ? requesterDoc.data() : null;
+    } catch {}
 
-    if (!requesterData || requesterData.role !== 'owner') {
-      throw new functions.https.HttpsError('permission-denied', 'Only owners can create employee accounts');
+    if (!requesterData) {
+      const requesterRef = db.ref(`users/${requesterUid}`);
+      const requesterSnapshot = await requesterRef.once('value');
+      requesterData = requesterSnapshot.val();
+    }
+
+    if (!requesterData || (requesterData.role !== 'Owner' && requesterData.role !== 'manager' && requesterData.role !== 'owner')) {
+      throw new functions.https.HttpsError('permission-denied', 'Only owners and managers can create employee accounts');
     }
 
     // Verify requester belongs to the same restaurant
@@ -133,8 +142,8 @@ exports.createEmployeeCredentials = functions.https.onCall(async (data, context)
       throw new functions.https.HttpsError('permission-denied', 'Cannot create users for different restaurants');
     }
 
-    // Generate temporary password
-    const tempPassword = generateTemporaryPassword();
+    // Use provided password or generate one
+    const tempPassword = password || generateTemporaryPassword();
 
     // Create Firebase Auth user
     const userRecord = await admin.auth().createUser({
@@ -143,7 +152,7 @@ exports.createEmployeeCredentials = functions.https.onCall(async (data, context)
       displayName: displayName,
     });
 
-    // Create user metadata with correct role based on staffRole
+    // Determine staff role and prepare metadata
     const userRole = (staffRole === 'manager') ? 'manager' : 'staff';
     const userMetadata = {
       uid: userRecord.uid,
@@ -151,13 +160,25 @@ exports.createEmployeeCredentials = functions.https.onCall(async (data, context)
       role: userRole,
       restaurantId: restaurantId,
       displayName: displayName,
-      createdAt: admin.database.ServerValue.TIMESTAMP,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
       isActive: true,
       createdBy: requesterUid,
     };
 
-    // Save user metadata to Realtime Database
-    await db.ref(`users/${userRecord.uid}`).set(userMetadata);
+    // Save user metadata to Firestore (primary)
+    await fs.doc(`users/${userRecord.uid}`).set(userMetadata, { merge: true });
+
+    // Create restaurant user mapping in Firestore with proper role label
+    const restaurantRoleLabel = userRole === 'manager' ? 'Manager' : 'Staff';
+    await fs
+      .doc(`restaurants/${restaurantId}/users/${userRecord.uid}`)
+      .set({ id: userRecord.uid, email: email.toLowerCase(), restaurantId, role: restaurantRoleLabel }, { merge: true });
+
+    // Best-effort: also mirror to RTDB for legacy paths
+    try { await db.ref(`users/${userRecord.uid}`).set({
+      ...userMetadata,
+      createdAt: admin.database.ServerValue.TIMESTAMP,
+    }); } catch {}
 
     return {
       success: true,

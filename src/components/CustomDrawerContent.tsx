@@ -5,9 +5,11 @@ import { DrawerContentComponentProps } from '@react-navigation/drawer';
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { colors, spacing, radius } from '../theme';
 import { useDispatch, useSelector } from 'react-redux';
-import { logout, setLogoUrl as setAuthLogoUrl } from '../redux/slices/authSlice';
+import { logout, setLogoUrl as setAuthLogoUrl, setUserPhotoUrl } from '../redux/slices/authSlice';
 import { RootState } from '../redux/storeFirebase';
 import { getFirebaseAuthEnhanced, createFirebaseAuthEnhanced } from '../services/firebaseAuthEnhanced';
+import * as ImagePicker from 'expo-image-picker';
+import { imgbbService } from '../services/imgbbService';
 import { useEffect } from 'react';
 import { createFirestoreService } from '../services/firestoreService';
 
@@ -187,7 +189,47 @@ const CustomDrawerContent: React.FC<DrawerContentComponentProps> = ({ navigation
           </View>
         )}
         <View style={styles.userRow}>
-          <View style={styles.avatar}><Text style={styles.avatarText}>{(auth?.userName || 'U').slice(0,1).toUpperCase()}</Text></View>
+          <TouchableOpacity
+            style={styles.avatar}
+            onPress={async () => {
+              try {
+                if (!(auth?.role === 'Owner' || auth?.role === 'Manager')) return;
+                const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                if (status !== 'granted') {
+                  Alert.alert('Permission denied', 'Media library access is required.');
+                  return;
+                }
+                const res = await ImagePicker.launchImageLibraryAsync({
+                  mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                  allowsEditing: true,
+                  aspect: [1,1],
+                  quality: 0.8,
+                  base64: true,
+                });
+                if (res.canceled || !res.assets?.[0]) return;
+                const base64 = await imgbbService.ensureBase64FromAsset(res.assets[0]);
+                const uploaded = await imgbbService.uploadImage(base64);
+                // Save to users/{uid} photoURL
+                try {
+                  let svc;
+                  try { svc = getFirebaseAuthEnhanced(); } catch { svc = createFirebaseAuthEnhanced(dispatch as any); }
+                  await svc.updateUserMetadata(auth.userId!, { photoURL: uploaded.url } as any);
+                } catch {}
+                // Save to Redux for immediate UI update
+                dispatch(setUserPhotoUrl(uploaded.url));
+              } catch (e) {
+                console.error('User photo upload error:', e);
+                Alert.alert('Error', 'Failed to update your photo.');
+              }
+            }}
+            activeOpacity={0.8}
+          >
+            {auth?.userPhotoUrl ? (
+              <Image source={{ uri: auth.userPhotoUrl }} style={{ width: 36, height: 36, borderRadius: 18 }} />
+            ) : (
+              <Text style={styles.avatarText}>{(auth?.userName || 'U').slice(0,1).toUpperCase()}</Text>
+            )}
+          </TouchableOpacity>
           <View style={{ flex: 1 }}>
             <Text style={styles.userName}>{auth?.userName || 'Username'}</Text>
             {auth?.role ? (

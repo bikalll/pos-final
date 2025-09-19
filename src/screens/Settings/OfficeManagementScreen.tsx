@@ -77,26 +77,38 @@ export default function OfficeManagementScreen() {
   const canEdit = role === 'Owner' || role === 'Manager';
 
   useEffect(() => {
-    const load = async () => {
-      if (!restaurantId) return;
-      try {
-        const fs = createFirestoreService(restaurantId);
-        const info = await fs.getRestaurantInfo();
-        if (info) {
-          setName(info.name || '');
-          setOwnerName((info.ownerName || authUserName || '').toString());
-          setPanVat(info.panVat || info.pan || info.vat || '');
-          setLogoUrl(info.logoUrl || undefined);
-          setPanVatImageUrl(info.panVatImageUrl || undefined);
-          setAddress(info.address || '');
-          setContactNumber(info.contactNumber || info.phone || '');
-        }
-      } catch (e) {
-        console.warn('Office load failed', (e as Error).message);
+    if (!restaurantId) return;
+    const fsSvc = createFirestoreService(restaurantId);
+
+    // Initial load
+    fsSvc.getRestaurantInfo().then(info => {
+      if (info) {
+        setName(info.name || '');
+        setOwnerName((info.ownerName || authUserName || '').toString());
+        setPanVat(info.panVat || info.pan || info.vat || '');
+        setLogoUrl(info.logoUrl || undefined);
+        setPanVatImageUrl(info.panVatImageUrl || undefined);
+        setAddress(info.address || '');
+        setContactNumber(info.contactNumber || info.phone || '');
       }
-    };
-    load();
-  }, [restaurantId]);
+    }).catch(e => console.warn('Office load failed', (e as Error).message));
+
+    // Real-time updates for office info
+    const unsubscribe = (fsSvc as any).listenToCollection?.('restaurant', (docs: Record<string, any>) => {
+      const info = docs?.info;
+      if (info) {
+        setName(info.name || '');
+        setOwnerName((info.ownerName || authUserName || '').toString());
+        setPanVat(info.panVat || info.pan || info.vat || '');
+        setLogoUrl(info.logoUrl || undefined);
+        setPanVatImageUrl(info.panVatImageUrl || undefined);
+        setAddress(info.address || '');
+        setContactNumber(info.contactNumber || info.phone || '');
+      }
+    });
+
+    return () => { try { unsubscribe && unsubscribe(); } catch {} };
+  }, [restaurantId, authUserName]);
 
   const pickImage = async (onPicked: (url: string) => void) => {
     console.log('📷 pickImage pressed. canEdit:', canEdit);

@@ -20,7 +20,8 @@ const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 // Initialize Firebase services
 export const firestore: Firestore = getFirestore(app);
 export const auth: Auth = getAuth(app);
-export const functions: Functions = getFunctions(app);
+// Explicitly target the default Cloud Functions region to avoid not-found errors
+export const functions: Functions = getFunctions(app, 'us-central1');
 export const database: Database = getDatabase(app);
 
 // Test Firestore connection

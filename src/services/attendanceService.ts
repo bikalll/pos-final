@@ -9,6 +9,8 @@ export interface AttendanceService {
   getTodayAttendance(restaurantId: string): Promise<AttendanceRecord[]>;
   getEmployeeAttendance(employeeId: string, restaurantId: string): Promise<AttendanceRecord[]>;
   getAttendanceSummary(restaurantId: string, date?: Date): Promise<EmployeeAttendanceSummary[]>;
+  canUserCheckIn(employeeId: string, restaurantId: string): Promise<boolean>;
+  canUserCheckOut(employeeId: string, restaurantId: string): Promise<boolean>;
 }
 
 export interface EmployeeAttendanceSummary {
@@ -105,7 +107,7 @@ export class FirebaseAttendanceService implements AttendanceService {
         record.restaurantId === restaurantId &&
         record.timestamp >= todayStart && 
         record.timestamp <= todayEnd
-      ).sort((a, b) => b.timestamp - a.timestamp);
+      ).sort((a, b) => a.timestamp - b.timestamp); // Sort by time ascending for proper sequence
     } catch (error) {
       console.error('Error getting today\'s attendance:', error);
       throw new Error('Failed to get today\'s attendance');
@@ -183,6 +185,58 @@ export class FirebaseAttendanceService implements AttendanceService {
     } catch (error) {
       console.error('Error getting attendance summary:', error);
       throw new Error('Failed to get attendance summary');
+    }
+  }
+
+  async canUserCheckIn(employeeId: string, restaurantId: string): Promise<boolean> {
+    try {
+      const today = new Date();
+      const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+      const todayEnd = todayStart + (24 * 60 * 60 * 1000) - 1;
+
+      const attendanceRecords = await this.readAllFromCollection('attendance');
+      
+      const todayRecords = attendanceRecords.filter(record => 
+        record.restaurantId === restaurantId &&
+        record.staffId === employeeId &&
+        record.timestamp >= todayStart && 
+        record.timestamp <= todayEnd
+      ).sort((a, b) => a.timestamp - b.timestamp);
+      
+      const hasCheckIn = todayRecords.find(record => record.type === 'in');
+      const hasCheckOut = todayRecords.find(record => record.type === 'out');
+      
+      // Can check in only if no check-in and no check-out today
+      return !hasCheckIn && !hasCheckOut;
+    } catch (error) {
+      console.error('Error checking if user can check in:', error);
+      return false;
+    }
+  }
+
+  async canUserCheckOut(employeeId: string, restaurantId: string): Promise<boolean> {
+    try {
+      const today = new Date();
+      const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+      const todayEnd = todayStart + (24 * 60 * 60 * 1000) - 1;
+
+      const attendanceRecords = await this.readAllFromCollection('attendance');
+      
+      const todayRecords = attendanceRecords.filter(record => 
+        record.restaurantId === restaurantId &&
+        record.staffId === employeeId &&
+        record.timestamp >= todayStart && 
+        record.timestamp <= todayEnd
+      ).sort((a, b) => a.timestamp - b.timestamp);
+      
+      const hasCheckIn = todayRecords.find(record => record.type === 'in');
+      const hasCheckOut = todayRecords.find(record => record.type === 'out');
+      
+      // Can check out only if checked in but not checked out today
+      return hasCheckIn && !hasCheckOut;
+    } catch (error) {
+      console.error('Error checking if user can check out:', error);
+      return false;
     }
   }
 }

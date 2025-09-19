@@ -110,7 +110,7 @@ const AddVendorModal: React.FC<AddVendorModalProps> = ({
     <Modal
       visible={visible}
       animationType="slide"
-      presentationStyle="pageSheet"
+      presentationStyle="formSheet"
       onRequestClose={handleClose}
     >
       <SafeAreaView style={styles.container}>
@@ -118,13 +118,13 @@ const AddVendorModal: React.FC<AddVendorModalProps> = ({
           style={styles.keyboardView}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
-          {/* Header */}
+          {/* Compact Header (match AddTransaction) */}
           <View style={styles.header}>
-            <TouchableOpacity onPress={handleClose} disabled={loading}>
-              <Ionicons name="close" size={24} color={colors.textPrimary} />
+            <TouchableOpacity onPress={handleClose} disabled={loading} style={styles.closeButton}>
+              <Ionicons name="close" size={20} color={colors.textSecondary} />
             </TouchableOpacity>
-            <Text style={styles.title}>Add New Vendor</Text>
-            <View style={{ width: 24 }} />
+            <Text style={styles.title}>Add Vendor</Text>
+            <View style={styles.placeholder} />
           </View>
 
           <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
@@ -152,6 +152,7 @@ const AddVendorModal: React.FC<AddVendorModalProps> = ({
                   onChangeText={(value) => handleInputChange('contact', value)}
                   placeholder="Enter contact information"
                   placeholderTextColor={colors.textSecondary}
+                  keyboardType="phone-pad"
                   editable={!loading}
                 />
               </View>
@@ -188,24 +189,23 @@ const AddVendorModal: React.FC<AddVendorModalProps> = ({
             </View>
           </ScrollView>
 
-          {/* Action Buttons */}
-          <View style={styles.actions}>
-            <TouchableOpacity
-              style={[styles.button, styles.saveButton]}
-              onPress={handleSubmit}
-              disabled={loading}
-            >
-              <Text style={styles.saveButtonText}>
-                {loading ? 'Saving...' : 'Save changes'}
-              </Text>
-            </TouchableOpacity>
-
+          {/* Compact Actions (match AddTransaction) */}
+          <View style={styles.actionsRow}>
             <TouchableOpacity
               style={styles.cancelButton}
               onPress={handleClose}
               disabled={loading}
             >
               <Text style={styles.cancelButtonText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.button, styles.saveButton]}
+              onPress={handleSubmit}
+              disabled={loading}
+            >
+              <Text style={styles.saveButtonText}>
+                {loading ? 'Saving...' : 'Save'}
+              </Text>
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
@@ -227,107 +227,107 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.lg,
+    paddingVertical: spacing.md,
     borderBottomWidth: 1,
     borderBottomColor: colors.outline,
     backgroundColor: colors.surface,
   },
+  closeButton: {
+    padding: spacing.xs,
+  },
   title: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '700',
     color: colors.textPrimary,
   },
+  placeholder: {
+    width: 28,
+  },
   content: {
     flex: 1,
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: spacing.md,
   },
   subtitle: {
-    fontSize: 16,
+    fontSize: 14,
     color: colors.textSecondary,
-    marginTop: spacing.lg,
-    marginBottom: spacing.xl,
+    marginTop: spacing.md,
+    marginBottom: spacing.lg,
     textAlign: 'center',
-    lineHeight: 22,
+    lineHeight: 20,
   },
   form: {
-    gap: spacing.xl,
+    gap: spacing.lg,
   },
   inputGroup: {
-    gap: spacing.md,
+    gap: spacing.sm,
   },
   label: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
     color: colors.textPrimary,
     marginBottom: spacing.xs,
   },
   input: {
     backgroundColor: colors.surface,
-    borderWidth: 2,
+    borderWidth: 1,
     borderColor: colors.outline,
-    borderRadius: radius.lg,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.lg,
-    fontSize: 16,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    fontSize: 15,
     color: colors.textPrimary,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
   },
   inputFocused: {
     borderColor: colors.primary,
-    shadowColor: colors.primary,
-    shadowOpacity: 0.2,
   },
   textArea: {
-    height: 100,
+    height: 84,
     textAlignVertical: 'top',
   },
   helpText: {
-    fontSize: 13,
+    fontSize: 12,
     color: colors.textSecondary,
     fontStyle: 'italic',
     marginTop: spacing.xs,
-    lineHeight: 18,
+    lineHeight: 16,
   },
-  actions: {
-    padding: spacing.lg,
-    gap: spacing.md,
+  actionsRow: {
+    flexDirection: 'row',
+    padding: spacing.md,
+    gap: spacing.sm,
     backgroundColor: colors.surface,
     borderTopWidth: 1,
     borderTopColor: colors.outline,
   },
   button: {
-    paddingVertical: spacing.lg,
-    borderRadius: radius.lg,
+    paddingVertical: spacing.md,
+    borderRadius: radius.md,
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
   },
   saveButton: {
     backgroundColor: colors.primary,
-    shadowColor: colors.primary,
-    shadowOpacity: 0.3,
   },
   saveButtonText: {
     color: 'white',
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
   },
   cancelButton: {
+    flex: 1,
+    paddingVertical: spacing.md,
+    borderRadius: radius.md,
     backgroundColor: 'transparent',
     borderWidth: 1,
     borderColor: colors.outline,
+    alignItems: 'center',
   },
   cancelButtonText: {
     color: colors.textSecondary,
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
+  },
+  saveButton: {
+    flex: 1,
   },
 });
 

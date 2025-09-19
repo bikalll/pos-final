@@ -242,9 +242,29 @@ const EmployeeAttendanceScreen: React.FC = () => {
     try {
       // Check if user can check in today
       if (!canCheckInToday()) {
+        const today = new Date();
+        const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+        const todayEnd = todayStart + (24 * 60 * 60 * 1000) - 1;
+        
+        const todayRecords = attendanceRecords.filter(record => 
+          record.staffId === currentUser?.id && 
+          record.timestamp >= todayStart && 
+          record.timestamp <= todayEnd
+        );
+        
+        const hasCheckIn = todayRecords.find(record => record.type === 'in');
+        const hasCheckOut = todayRecords.find(record => record.type === 'out');
+        
+        let message = 'You cannot check in at this time.';
+        if (hasCheckIn && hasCheckOut) {
+          message = 'You have already completed your attendance for today. You cannot check in again after checking out.';
+        } else if (hasCheckIn) {
+          message = 'You have already checked in today. Please check out first before checking in again.';
+        }
+        
         Alert.alert(
-          'Already Checked In',
-          'You have already checked in today. You can only check in once per day.',
+          'Cannot Check In',
+          message,
           [{ text: 'OK' }]
         );
         return;
@@ -334,9 +354,29 @@ const EmployeeAttendanceScreen: React.FC = () => {
     try {
       // Check if user can check out today
       if (!canCheckOutToday()) {
+        const today = new Date();
+        const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+        const todayEnd = todayStart + (24 * 60 * 60 * 1000) - 1;
+        
+        const todayRecords = attendanceRecords.filter(record => 
+          record.staffId === currentUser?.id && 
+          record.timestamp >= todayStart && 
+          record.timestamp <= todayEnd
+        );
+        
+        const hasCheckIn = todayRecords.find(record => record.type === 'in');
+        const hasCheckOut = todayRecords.find(record => record.type === 'out');
+        
+        let message = 'You cannot check out at this time.';
+        if (!hasCheckIn) {
+          message = 'You must check in first before you can check out.';
+        } else if (hasCheckOut) {
+          message = 'You have already checked out today.';
+        }
+        
         Alert.alert(
           'Cannot Check Out',
-          'You can only check out if you have checked in today and haven\'t checked out yet.',
+          message,
           [{ text: 'OK' }]
         );
         return;
@@ -395,15 +435,24 @@ const EmployeeAttendanceScreen: React.FC = () => {
     const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
     const todayEnd = todayStart + (24 * 60 * 60 * 1000) - 1; // End of today
     
-    // Check if user already checked in today
-    const todayCheckIn = attendanceRecords.find(record => 
+    // Get all today's records for this user
+    const todayRecords = attendanceRecords.filter(record => 
       record.staffId === currentUser.id && 
-      record.type === 'in' &&
       record.timestamp >= todayStart && 
       record.timestamp <= todayEnd
-    );
+    ).sort((a, b) => a.timestamp - b.timestamp); // Sort by time
     
-    return !todayCheckIn; // Can check in if no check-in found today
+    // Check if user already checked in today
+    const todayCheckIn = todayRecords.find(record => record.type === 'in');
+    
+    // Check if user already checked out today
+    const todayCheckOut = todayRecords.find(record => record.type === 'out');
+    
+    // Can check in only if:
+    // 1. No check-in found today, OR
+    // 2. Checked in but not checked out yet (this shouldn't happen due to UI logic, but safety check)
+    // 3. NOT if already checked out today (prevent check-in after checkout)
+    return !todayCheckIn && !todayCheckOut;
   };
 
   const canCheckOutToday = () => {
@@ -412,22 +461,22 @@ const EmployeeAttendanceScreen: React.FC = () => {
     const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
     const todayEnd = todayStart + (24 * 60 * 60 * 1000) - 1; // End of today
     
+    // Get all today's records for this user
+    const todayRecords = attendanceRecords.filter(record => 
+      record.staffId === currentUser.id && 
+      record.timestamp >= todayStart && 
+      record.timestamp <= todayEnd
+    ).sort((a, b) => a.timestamp - b.timestamp); // Sort by time
+    
+    // Check if user already checked in today
+    const todayCheckIn = todayRecords.find(record => record.type === 'in');
+    
     // Check if user already checked out today
-    const todayCheckOut = attendanceRecords.find(record => 
-      record.staffId === currentUser.id && 
-      record.type === 'out' &&
-      record.timestamp >= todayStart && 
-      record.timestamp <= todayEnd
-    );
+    const todayCheckOut = todayRecords.find(record => record.type === 'out');
     
-    // Can check out if checked in today but not checked out yet
-    const todayCheckIn = attendanceRecords.find(record => 
-      record.staffId === currentUser.id && 
-      record.type === 'in' &&
-      record.timestamp >= todayStart && 
-      record.timestamp <= todayEnd
-    );
-    
+    // Can check out only if:
+    // 1. Checked in today, AND
+    // 2. Not already checked out today
     return todayCheckIn && !todayCheckOut;
   };
 
@@ -527,6 +576,34 @@ const EmployeeAttendanceScreen: React.FC = () => {
   const isCheckedIn = lastStatus === 'in';
   const canCheckIn = canCheckInToday();
   const canCheckOut = canCheckOutToday();
+  
+  // Get today's status for better UI display
+  const getTodayStatus = () => {
+    if (!currentUser) return 'Unknown';
+    
+    const today = new Date();
+    const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+    const todayEnd = todayStart + (24 * 60 * 60 * 1000) - 1;
+    
+    const todayRecords = attendanceRecords.filter(record => 
+      record.staffId === currentUser.id && 
+      record.timestamp >= todayStart && 
+      record.timestamp <= todayEnd
+    );
+    
+    const hasCheckIn = todayRecords.find(record => record.type === 'in');
+    const hasCheckOut = todayRecords.find(record => record.type === 'out');
+    
+    if (hasCheckIn && hasCheckOut) {
+      return 'Completed Today';
+    } else if (hasCheckIn) {
+      return 'Currently Working';
+    } else {
+      return 'Not Checked In';
+    }
+  };
+  
+  const todayStatus = getTodayStatus();
 
   return (
     <SafeAreaView style={styles.container}>
@@ -543,9 +620,16 @@ const EmployeeAttendanceScreen: React.FC = () => {
               <Text style={styles.userName}>{currentUser.name}</Text>
               <Text style={styles.userRole}>{currentUser.role}</Text>
               <View style={styles.statusContainer}>
-                <View style={[styles.statusIndicator, { backgroundColor: isCheckedIn ? colors.success : colors.textMuted }]} />
+                <View style={[
+                  styles.statusIndicator, 
+                  { 
+                    backgroundColor: todayStatus === 'Currently Working' ? colors.success : 
+                                   todayStatus === 'Completed Today' ? colors.primary : 
+                                   colors.textMuted 
+                  }
+                ]} />
                 <Text style={styles.userStatus}>
-                  {isCheckedIn ? 'Currently Working' : 'Not Checked In'}
+                  {todayStatus}
                 </Text>
               </View>
             </View>
@@ -573,7 +657,9 @@ const EmployeeAttendanceScreen: React.FC = () => {
                 </TouchableOpacity>
               ) : (
                 <View style={[styles.actionButton, styles.completedButton]}>
-                  <Text style={styles.actionButtonText}>Completed Today</Text>
+                  <Text style={styles.actionButtonText}>
+                    {todayStatus === 'Completed Today' ? 'Completed Today' : 'No Action Available'}
+                  </Text>
                 </View>
               )}
             </View>

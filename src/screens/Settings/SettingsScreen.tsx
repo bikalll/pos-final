@@ -82,7 +82,7 @@ const SettingsScreen: React.FC = () => {
       <ScrollView style={styles.content} contentContainerStyle={{ paddingBottom: spacing.xl }}>
         <View style={styles.sectionHeader}><Text style={styles.sectionHeaderText}>General</Text></View>
         {settingsOptions
-          .filter(opt => (opt.title === 'Office Management' ? role === 'Owner' : true))
+          .filter(opt => (opt.title === 'Office Management' ? (role === 'Owner' || role === 'Manager') : true))
           .map((option, index) => (
           <TouchableOpacity
             key={`${option.title}-${index}`}
