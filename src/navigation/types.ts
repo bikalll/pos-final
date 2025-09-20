@@ -56,6 +56,8 @@ export type SettingsStackParamList = {
   VendorManagement: undefined;
   VendorTransactionHistory: { vendor: any };
   EmployeeManagement: undefined;
+  EmployeePerformance: undefined;
+  EmployeeDetail: { employee: any; performance: any };
   OfficeManagement: undefined;
 };
 

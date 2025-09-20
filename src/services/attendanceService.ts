@@ -172,8 +172,12 @@ export class FirebaseAttendanceService implements AttendanceService {
           employeeName: employee.name || employee.displayName || employee.email?.split('@')[0] || 'Unknown Employee',
           checkInTime: checkInRecord?.timestamp,
           checkOutTime: checkOutRecord?.timestamp,
-          checkInLocation: checkInRecord?.address,
-          checkOutLocation: checkOutRecord?.address,
+          checkInLocation: checkInRecord?.detailedAddress || checkInRecord?.address || 
+            (checkInRecord?.latitude && checkInRecord?.longitude ? 
+              `${checkInRecord.latitude.toFixed(4)}, ${checkInRecord.longitude.toFixed(4)}` : undefined),
+          checkOutLocation: checkOutRecord?.detailedAddress || checkOutRecord?.address || 
+            (checkOutRecord?.latitude && checkOutRecord?.longitude ? 
+              `${checkOutRecord.latitude.toFixed(4)}, ${checkOutRecord.longitude.toFixed(4)}` : undefined),
           checkInPhoto: checkInRecord?.photoUri,
           checkOutPhoto: checkOutRecord?.photoUri,
           status,

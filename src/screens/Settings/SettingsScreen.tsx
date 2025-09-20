@@ -64,6 +64,12 @@ const SettingsScreen: React.FC = () => {
       onPress: () => navigation.navigate('EmployeeManagement' as any),
     },
     {
+      title: 'Employee Performance',
+      subtitle: 'Track employee attendance and performance',
+      iconEl: <Ionicons name="analytics-outline" size={20} color={colors.textPrimary} />,
+      onPress: () => navigation.navigate('EmployeePerformance' as any),
+    },
+    {
       title: 'Vendor Management',
       subtitle: 'Manage suppliers and vendor transactions',
       iconEl: <Ionicons name="storefront-outline" size={20} color={colors.textPrimary} />,

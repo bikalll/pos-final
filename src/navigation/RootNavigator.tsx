@@ -32,7 +32,7 @@ import CustomerManagementScreen from "../screens/Customers/CustomerManagementScr
 import CustomerProfileScreen from "../screens/Customers/CustomerProfileScreen";
 import SettleCreditScreen from "../screens/Customers/SettleCreditScreen";
 // Settings Screens
-import { SettingsScreen, TableManagementScreen, EmployeeManagementScreen, PrinterSetupScreen, OfficeManagementScreen } from '../screens/Settings';
+import { SettingsScreen, TableManagementScreen, EmployeeManagementScreen, EmployeePerformanceScreen, EmployeeDetailScreen, PrinterSetupScreen, OfficeManagementScreen } from '../screens/Settings';
 import VendorManagementScreen from '../screens/Settings/VendorManagementScreen';
 import VendorTransactionHistoryScreen from '../screens/Settings/VendorTransactionHistoryScreen';
 import PrintDemo from "../components/PrintDemo";
@@ -142,6 +142,8 @@ function SettingsStack() {
       <Stack.Screen name="OfficeManagement" component={OfficeManagementScreen} options={withMenuHeader("Office Management")} />
       <Stack.Screen name="TableManagement" component={TableManagementScreen} options={withMenuHeader("Table Management")} />
       <Stack.Screen name="EmployeeManagement" component={EmployeeManagementScreen} options={withMenuHeader("Employee Management")} />
+      <Stack.Screen name="EmployeePerformance" component={EmployeePerformanceScreen} options={withMenuHeader("Employee Performance")} />
+      <Stack.Screen name="EmployeeDetail" component={EmployeeDetailScreen} options={withMenuHeader("Employee Details")} />
       <Stack.Screen name="VendorManagement" component={VendorManagementScreen} options={withMenuHeader("Vendor Management")} />
       <Stack.Screen name="VendorTransactionHistory" component={VendorTransactionHistoryScreen} options={withMenuHeader("Transaction History")} />
       <Stack.Screen name="PrinterSetup" component={PrinterSetupScreen} options={withMenuHeader("Printer Setup")} />

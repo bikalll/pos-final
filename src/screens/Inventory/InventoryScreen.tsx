@@ -62,6 +62,8 @@ const InventoryScreen: React.FC = () => {
   const [newCategoryName, setNewCategoryName] = useState('');
   const [categoryPickerVisible, setCategoryPickerVisible] = useState(false);
   const [unitPickerVisible, setUnitPickerVisible] = useState(false);
+  const [isCreatingCategory, setIsCreatingCategory] = useState(false);
+  const [isSavingItem, setIsSavingItem] = useState(false);
 
   useEffect(() => {
     if (!restaurantId) return;
@@ -146,6 +148,9 @@ const InventoryScreen: React.FC = () => {
   const totalValue = inventoryItems.reduce((sum, item) => sum + (item.price * item.stockQuantity), 0);
 
   const handleAddItem = async () => {
+    // Prevent multiple submissions
+    if (isSavingItem) return;
+    
     if (!newItem.name || !newItem.category || !newItem.price || !newItem.stockQuantity) {
       Alert.alert('Error', 'Please fill in all required fields');
       return;
@@ -154,6 +159,9 @@ const InventoryScreen: React.FC = () => {
       Alert.alert('Error', 'Please provide a unit for this item (e.g., kg, g, l, ml, pcs)');
       return;
     }
+    
+    setIsSavingItem(true);
+    
     try {
       const id = `${Date.now()}`;
       const item = {
@@ -174,6 +182,8 @@ const InventoryScreen: React.FC = () => {
       resetNewItem();
     } catch (e: any) {
       Alert.alert('Error', e?.message || 'Failed to add inventory item');
+    } finally {
+      setIsSavingItem(false);
     }
   };
 
@@ -191,7 +201,13 @@ const InventoryScreen: React.FC = () => {
     setShowAddModal(true);
   };
   const handleUpdateItem = async () => {
+    // Prevent multiple submissions
+    if (isSavingItem) return;
+    
     if (!editingItem) return;
+    
+    setIsSavingItem(true);
+    
     try {
       const updates = {
         name: newItem.name,
@@ -214,6 +230,8 @@ const InventoryScreen: React.FC = () => {
       resetNewItem();
     } catch (e: any) {
       Alert.alert('Error', e?.message || 'Failed to update inventory item');
+    } finally {
+      setIsSavingItem(false);
     }
   };
 
@@ -512,8 +530,18 @@ const InventoryScreen: React.FC = () => {
               <TouchableOpacity style={[styles.modalButton, styles.modalButtonCancel]} onPress={() => { setShowAddModal(false); setEditingItem(null); resetNewItem(); }}>
                 <Text style={styles.modalButtonCancelText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.modalButton, styles.modalButtonConfirm]} onPress={editingItem ? handleUpdateItem : handleAddItem}>
-                <Text style={styles.modalButtonConfirmText}>{editingItem ? 'Update' : 'Add'}</Text>
+              <TouchableOpacity 
+                style={[
+                  styles.modalButton, 
+                  styles.modalButtonConfirm,
+                  isSavingItem && styles.modalButtonDisabled
+                ]} 
+                onPress={editingItem ? handleUpdateItem : handleAddItem}
+                disabled={isSavingItem}
+              >
+                <Text style={styles.modalButtonConfirmText}>
+                  {isSavingItem ? (editingItem ? 'Updating...' : 'Adding...') : (editingItem ? 'Update' : 'Add')}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -555,9 +583,22 @@ const InventoryScreen: React.FC = () => {
                 <Text style={styles.modalButtonCancelText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.modalButton, styles.modalButtonConfirm]}
+                style={[
+                  styles.modalButton, 
+                  styles.modalButtonConfirm,
+                  isCreatingCategory && styles.modalButtonDisabled
+                ]}
                 onPress={async () => {
-                  if (!newCategoryName.trim()) { Alert.alert('Error', 'Enter a category name'); return; }
+                  // Prevent multiple submissions
+                  if (isCreatingCategory) return;
+                  
+                  if (!newCategoryName.trim()) { 
+                    Alert.alert('Error', 'Enter a category name'); 
+                    return; 
+                  }
+                  
+                  setIsCreatingCategory(true);
+                  
                   try {
                     const svc = firestoreService || createFirestoreService((useSelector((s: RootState) => s.auth) as any)?.restaurantId);
                     await svc.createInventoryCategory({ name: newCategoryName.trim() });
@@ -570,10 +611,15 @@ const InventoryScreen: React.FC = () => {
                     setShowCategoryDropdown(false);
                   } catch (e: any) {
                     Alert.alert('Error', e?.message || 'Failed to create category');
+                  } finally {
+                    setIsCreatingCategory(false);
                   }
                 }}
+                disabled={isCreatingCategory}
               >
-                <Text style={styles.modalButtonConfirmText}>Add</Text>
+                <Text style={styles.modalButtonConfirmText}>
+                  {isCreatingCategory ? 'Adding...' : 'Add'}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -709,6 +755,7 @@ const styles = StyleSheet.create({
   },
   modalButtonCancel: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.outline },
   modalButtonConfirm: { backgroundColor: colors.success },
+  modalButtonDisabled: { backgroundColor: colors.textMuted, opacity: 0.6 },
   modalButtonCancelText: { fontSize: 16, fontWeight: '600', color: colors.textSecondary },
   modalButtonConfirmText: { fontSize: 16, fontWeight: '600', color: 'white' },
 });

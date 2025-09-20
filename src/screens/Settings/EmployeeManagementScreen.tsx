@@ -214,6 +214,7 @@ const EmployeeManagementScreen: React.FC = () => {
         name: newEmployee.displayName.trim(),
         email: newEmployee.email.trim().toLowerCase(),
         phone: newEmployee.phone.trim(),
+        designation: newEmployee.designation.trim(),
         role: (newEmployee.role === 'manager' ? 'Manager' : 'Staff'),
         employmentType: newEmployee.employmentType,
         joinDate: Date.now(),
@@ -291,8 +292,8 @@ const EmployeeManagementScreen: React.FC = () => {
         name: newEmployee.displayName.trim(),
         email: newEmployee.email.trim().toLowerCase(),
         phone: newEmployee.phone.trim(),
-        role: newEmployee.designation.trim() || 'Staff',
-        designation: newEmployee.designation.trim() || 'Staff',
+        role: (newEmployee.role === 'manager' ? 'Manager' : 'Staff'),
+        designation: newEmployee.designation.trim(),
         employmentType: newEmployee.employmentType,
       });
       
