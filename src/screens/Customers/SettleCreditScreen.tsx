@@ -885,7 +885,7 @@ export default function SettleCreditScreen() {
               <ScrollView style={{ padding: spacing.lg }} contentContainerStyle={{ paddingBottom: spacing.xl }}>
                 <Text style={styles.splitDescription}>Split a total of Rs. {targetSettleTotal.toFixed(2)} across methods.</Text>
                 {splitPayments.map((sp, idx) => (
-                  <View key={`settle-split-row-${sp.method}-${sp.amount}-${idx}`} style={styles.splitPaymentRow}>
+                  <View key={`settle-split-row-${idx}`} style={styles.splitPaymentRow}>
                     <View style={styles.splitPaymentHeader}>
                       <Text style={styles.splitPaymentTitle}>Payment {idx + 1}</Text>
                       {splitPayments.length > 1 && (

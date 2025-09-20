@@ -141,7 +141,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabPress }) => {
           </TouchableOpacity>
         </View>
         
-        <Text style={styles.poweredBy}>Powered by Arbi POS</Text>
+        <Text style={styles.poweredBy}>Powered by House of Job Pvt Ltd</Text>
       </View>
     </View>
   );

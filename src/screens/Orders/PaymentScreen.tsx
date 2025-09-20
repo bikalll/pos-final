@@ -805,7 +805,7 @@ const PaymentScreen: React.FC = () => {
             <Text style={styles.sectionTitle}>Split Payment Details</Text>
             <View style={styles.splitInfoCard}>
               {splitPayments.map((payment, index) => (
-                <View key={`split-info-${payment.method}-${payment.amount}-${index}`} style={styles.splitInfoRow}>
+                <View key={`split-info-${index}`} style={styles.splitInfoRow}>
                   <View style={styles.splitInfoLeft}>
                     <Text style={styles.splitInfoLabel}>Payment {index + 1}</Text>
                     <Text style={styles.splitInfoMethod}>{payment.method}</Text>
@@ -1014,7 +1014,7 @@ const PaymentScreen: React.FC = () => {
               )}
               
               {splitPayments.map((payment, index) => (
-                <View key={`split-payment-row-${payment.method}-${payment.amount}-${index}`} style={styles.splitPaymentRow}>
+                <View key={`split-payment-row-${index}`} style={styles.splitPaymentRow}>
                   <View style={styles.splitPaymentHeader}>
                     <Text style={styles.splitPaymentTitle}>Payment {index + 1}</Text>
                     {splitPayments.length > 1 && (

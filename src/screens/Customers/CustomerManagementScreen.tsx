@@ -1286,7 +1286,7 @@ const CustomerManagementScreen: React.FC = () => {
             <ScrollView style={{ padding: spacing.lg }} contentContainerStyle={{ paddingBottom: spacing.xl }}>
               <Text style={styles.splitDescription}>Split a total of Rs. {parseFloat(creditSettlementAmount).toFixed(2)} across methods.</Text>
               {splitSettlementPayments.map((sp, idx) => (
-                <View key={`settle-split-row-${sp.method}-${sp.amount}-${idx}`} style={styles.splitPaymentRow}>
+                <View key={`settle-split-row-${idx}`} style={styles.splitPaymentRow}>
                   <View style={styles.splitPaymentHeader}>
                     <Text style={styles.splitPaymentTitle}>Payment {idx + 1}</Text>
                     {splitSettlementPayments.length > 1 && (
