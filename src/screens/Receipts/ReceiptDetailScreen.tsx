@@ -365,11 +365,11 @@ const ReceiptDetailScreen: React.FC = () => {
   const baseSubtotal = order.items.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
   const discountedSubtotal = order.items.reduce((sum: number, item: any) => sum + calculateItemTotal(item), 0);
   const itemDiscountsTotal = Math.max(0, baseSubtotal - discountedSubtotal);
-  const subtotal = discountedSubtotal;
+  const orderDiscountAmount = discountedSubtotal * ((order.discountPercentage || 0) / 100);
+  const subtotal = Math.max(0, discountedSubtotal - orderDiscountAmount);
   const tax = subtotal * ((order.taxPercentage || 0) / 100);
   const serviceCharge = subtotal * ((order.serviceChargePercentage || 0) / 100);
-  const discount = subtotal * ((order.discountPercentage || 0) / 100);
-  const total = subtotal + tax + serviceCharge - discount;
+  const total = subtotal + tax + serviceCharge;
 
   // Debug logging for discount calculations
   console.log('🔍 ReceiptDetailScreen discount calculations:', {
@@ -377,10 +377,10 @@ const ReceiptDetailScreen: React.FC = () => {
     baseSubtotal,
     discountedSubtotal,
     itemDiscountsTotal,
+    orderDiscountAmount,
     subtotal,
     tax,
     serviceCharge,
-    discount,
     total,
     orderDiscountPercentage: order.discountPercentage,
     orderTaxPercentage: order.taxPercentage,
@@ -477,7 +477,7 @@ Powered by ARBI POS
       return itemLine;
     }).join('\n');
 
-    const disc = order.discountPercentage > 0 ? `Discount (${order.discountPercentage}%): -Rs. ${discount.toFixed(1)}\n` : '';
+    const disc = order.discountPercentage > 0 ? `Discount (${order.discountPercentage}%): -Rs. ${orderDiscountAmount.toFixed(1)}\n` : '';
     const paymentBlock = order.payment ? `\nPayment:\nMethod: ${order.payment.method}\nAmount Paid: Rs. ${order.payment.amountPaid.toFixed(1)}\nChange: Rs. ${(order.payment.amountPaid - total).toFixed(1)}\n${splitText}` : '';
 
     const processedBy = (() => {
@@ -934,7 +934,7 @@ Ref Number: ${shortReceiptId}
                 {order.discountPercentage > 0 && (
                   <View style={styles.summaryRow}>
                     <Text style={styles.summaryLabel}>Order Discount ({order.discountPercentage}%):</Text>
-                    <Text style={[styles.summaryValue, styles.discountValue]}>-{formatCurrency(discount)}</Text>
+                    <Text style={[styles.summaryValue, styles.discountValue]}>-{formatCurrency(orderDiscountAmount)}</Text>
                   </View>
                 )}
                 <View style={[styles.summaryRow, styles.totalRow]}>

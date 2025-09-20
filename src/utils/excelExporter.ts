@@ -2,6 +2,9 @@ import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 
 export interface TransactionSummaryData {
+  restaurantName?: string;
+  address?: string;
+  panVat?: string;
   dateRange: string;
   totalTransactions: number;
   totalAmount: number;
@@ -77,8 +80,20 @@ export class ExcelExporter {
   private static generateCSVContent(data: TransactionSummaryData): string {
     const lines: string[] = [];
     
-    // Header information
-    lines.push('ARBI POS - Day Summary');
+    // Company header information
+    if (data.restaurantName) {
+      lines.push(data.restaurantName);
+    }
+    if (data.address) {
+      lines.push(data.address);
+    }
+    if (data.panVat) {
+      lines.push(`PAN: ${data.panVat}`);
+    }
+    lines.push('');
+    
+    // Summary header information
+    lines.push('Day Summary');
     lines.push(`Print time: ${new Date().toLocaleString()}`);
     lines.push(`Date: ${data.dateRange}`);
     lines.push('');
@@ -195,7 +210,7 @@ export class ExcelExporter {
     return lines.join('\n');
   }
   
-  static async exportReceiptsAsExcel(receipts: any[], dateRange: string): Promise<{ success: boolean; message: string; fileUri?: string }> {
+  static async exportReceiptsAsExcel(receipts: any[], dateRange: string, restaurantInfo?: { name?: string; address?: string; panVat?: string }): Promise<{ success: boolean; message: string; fileUri?: string }> {
     try {
       // Convert receipts to transaction summary format
       const totalAmount = receipts.reduce((sum, receipt) => {
@@ -245,6 +260,9 @@ export class ExcelExporter {
       }));
       
       const summaryData: TransactionSummaryData = {
+        restaurantName: restaurantInfo?.name,
+        address: restaurantInfo?.address,
+        panVat: restaurantInfo?.panVat,
         dateRange,
         totalTransactions: receipts.length,
         totalAmount,

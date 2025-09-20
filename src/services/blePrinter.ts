@@ -966,6 +966,9 @@ export const blePrinter = {
 
 	// Print a daily summary report in thermal format
 	async printDailySummary(data: {
+		restaurantName?: string;
+		address?: string;
+		panVat?: string;
 		printTime: string;
 		date: string;
 		branch?: string;
@@ -983,6 +986,10 @@ export const blePrinter = {
 		if (!this.isSupported()) {
 			// Build a simple text and use Expo Print fallback
 			const lines: string[] = [];
+			if (data.restaurantName) lines.push(data.restaurantName);
+			if (data.address) lines.push(data.address);
+			if (data.panVat) lines.push(`PAN: ${data.panVat}`);
+			lines.push('');
 			lines.push(`Print time: ${data.printTime}`);
 			lines.push(`Date: ${data.date}`);
 			if (data.branch) lines.push(`Branch: ${data.branch}`);
@@ -1046,6 +1053,14 @@ export const blePrinter = {
 
 		try {
 			await BluetoothEscposPrinter.printerInit();
+			await BluetoothEscposPrinter.printerAlign(getAlignment('CENTER'));
+			
+			// Print company header
+			if (data.restaurantName) await BluetoothEscposPrinter.printText(`${data.restaurantName}\n`, { encoding: 'GBK', fonttype: 1, widthtimes: 1, heighttimes: 1 });
+			if (data.address) await BluetoothEscposPrinter.printText(`${data.address}\n`, {});
+			if (data.panVat) await BluetoothEscposPrinter.printText(`PAN: ${data.panVat}\n`, {});
+			await BluetoothEscposPrinter.printText('------------------------------\n', {});
+			
 			await BluetoothEscposPrinter.printerAlign(getAlignment('LEFT'));
 			await BluetoothEscposPrinter.printText(`Print time: ${data.printTime}\n`, {});
 			await BluetoothEscposPrinter.printText(`Date: ${data.date}\n`, {});

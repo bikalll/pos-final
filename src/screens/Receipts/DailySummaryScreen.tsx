@@ -63,6 +63,7 @@ export default function ReceiptsScreen() {
   const [firebaseTables, setFirebaseTables] = useState<Record<string, any>>({});
   const [firebaseReceipts, setFirebaseReceipts] = useState<Record<string, any>>({});
   const [showPrintDialog, setShowPrintDialog] = useState(false);
+  const [restaurantInfo, setRestaurantInfo] = useState<{ name?: string; address?: string; panVat?: string; logoUrl?: string } | null>(null);
   
   const navigation = useNavigation<DrawerNavigation>();
   
@@ -71,7 +72,7 @@ export default function ReceiptsScreen() {
   const ordersById = useSelector((state: RootState) => state.orders.ordersById);
   const tables = useSelector((state: RootState) => state.tables.tablesById);
   const receiptsRefreshTrigger = useSelector((state: RootState) => state.orders.receiptsRefreshTrigger);
-  const { restaurantId } = useSelector((state: RootState) => state.auth);
+  const { restaurantId, restaurantName: authRestaurantName } = useSelector((state: RootState) => state.auth);
 
   // Debug logging for troubleshooting
   console.log('DailySummaryScreen - restaurantId:', restaurantId);
@@ -172,6 +173,18 @@ export default function ReceiptsScreen() {
       try {
         const service = createFirestoreService(restaurantId);
         
+        // Load restaurant info
+        try {
+          const info = await service.getRestaurantInfo();
+          setRestaurantInfo({ name: info?.name, address: info?.address, panVat: info?.panVat || info?.pan || info?.vat, logoUrl: info?.logoUrl });
+        } catch (error) {
+          console.error('Error loading restaurant info:', error);
+          // Fallback to auth restaurant name
+          if (authRestaurantName) {
+            setRestaurantInfo({ name: authRestaurantName, address: '', panVat: '', logoUrl: '' });
+          }
+        }
+        
         // Load tables
         const tablesData = await service.getTables();
         
@@ -205,7 +218,7 @@ export default function ReceiptsScreen() {
     };
     
     loadData();
-  }, [restaurantId]);
+  }, [restaurantId, authRestaurantName]);
 
   // Refresh receipts when screen comes into focus (e.g., after settlement completion)
   useEffect(() => {
@@ -721,30 +734,64 @@ export default function ReceiptsScreen() {
     setShowPrintDialog(true);
   };
 
-  const handlePrintSummary = async () => {
+  const handlePrintSummary = async (timePeriod: 'daily' | 'weekly' | 'last30days') => {
     try {
-      Alert.alert(
-        'Print Summary',
-        'Choose a period to print',
-        [
-          { text: 'Daily', onPress: () => doPrintSummary('today') },
-          { text: 'Last 7 Days', onPress: () => doPrintSummary('lastWeek') },
-          { text: 'Last 30 Days', onPress: () => doPrintSummary('lastMonth') },
-          { text: 'Cancel', style: 'cancel' },
-        ],
-        { cancelable: true }
-      );
+      let range: SortOption;
+      switch (timePeriod) {
+        case 'daily':
+          range = 'today';
+          break;
+        case 'weekly':
+          range = 'lastWeek';
+          break;
+        case 'last30days':
+          range = 'lastMonth';
+          break;
+        default:
+          range = 'today';
+      }
+      
+      await doPrintSummary(range);
     } catch (e: any) {
       Alert.alert('Print Failed', e.message || String(e));
     }
   };
 
-  const handleSaveAsExcel = async () => {
+  const handleSaveAsExcel = async (timePeriod: 'daily' | 'weekly' | 'last30days') => {
     try {
-      const dateFilteredReceipts = filterReceiptsByDate(receipts, selectedSortOption);
-      const dateRange = getDateRangeLabel(selectedSortOption);
+      let range: SortOption;
+      switch (timePeriod) {
+        case 'daily':
+          range = 'today';
+          break;
+        case 'weekly':
+          range = 'lastWeek';
+          break;
+        case 'last30days':
+          range = 'lastMonth';
+          break;
+        default:
+          range = 'today';
+      }
       
-      const result = await ExcelExporter.exportReceiptsAsExcel(dateFilteredReceipts, dateRange);
+      await doSaveAsExcel(range);
+    } catch (error: any) {
+      Alert.alert('Export Failed', error.message || 'Failed to export Excel file');
+    }
+  };
+
+  const doSaveAsExcel = async (range: SortOption) => {
+    try {
+      const dateFilteredReceipts = filterReceiptsByDate(receipts, range);
+      const dateRange = getDateRangeLabel(range);
+      
+      const restaurantData = {
+        name: restaurantInfo?.name || authRestaurantName || 'Restaurant',
+        address: restaurantInfo?.address,
+        panVat: restaurantInfo?.panVat,
+      };
+      
+      const result = await ExcelExporter.exportReceiptsAsExcel(dateFilteredReceipts, dateRange, restaurantData);
       
       if (result.success) {
         Alert.alert('Success', 'Transaction summary exported to Excel successfully!');
@@ -820,6 +867,9 @@ export default function ReceiptsScreen() {
 
       const now = new Date();
       const data = {
+        restaurantName: restaurantInfo?.name || authRestaurantName || 'Restaurant',
+        address: restaurantInfo?.address,
+        panVat: restaurantInfo?.panVat,
         printTime: now.toLocaleString(),
         date: getDateRangeLabel(range),
         grossSales,
