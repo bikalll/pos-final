@@ -144,6 +144,8 @@ export class FirebaseAuthEnhanced {
         userId: user.uid,
         restaurantId: userMetadata.restaurantId,
         restaurantName: restaurantInfo?.name || 'Restaurant',
+        logoUrl: restaurantInfo?.logoUrl,
+        panVatImageUrl: restaurantInfo?.panVatImageUrl,
         userPhotoUrl: (user as any)?.photoURL || (userMetadata as any)?.photoURL
       }));
       

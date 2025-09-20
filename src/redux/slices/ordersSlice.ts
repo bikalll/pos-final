@@ -225,14 +225,34 @@ const ordersSlice = createSlice({
       // Mark order as needing Firebase sync
       (order as any).needsFirebaseSync = true;
     },
-    cancelOrder: (state, action: PayloadAction<{ orderId: string }>) => {
-      delete state.ordersById[action.payload.orderId];
+    cancelOrder: (state, action: PayloadAction<{ 
+      orderId: string; 
+      reason: 'void' | 'other'; 
+      otherReason?: string; 
+      cancelledBy: string; 
+    }>) => {
+      const order = state.ordersById[action.payload.orderId];
+      if (!order) return;
+
+      // Update order with cancellation info instead of deleting
+      order.status = "cancelled";
+      order.cancellationInfo = {
+        reason: action.payload.reason,
+        otherReason: action.payload.otherReason,
+        cancelledAt: Date.now(),
+        cancelledBy: action.payload.cancelledBy,
+      };
+
+      // Remove from ongoing orders
       state.ongoingOrderIds = state.ongoingOrderIds.filter(
         (id) => id !== action.payload.orderId
       );
       state.completedOrderIds = state.completedOrderIds.filter(
         (id) => id !== action.payload.orderId
       );
+      
+      // Mark order as needing Firebase sync
+      (order as any).needsFirebaseSync = true;
     },
     cancelEmptyOrder: (state, action: PayloadAction<{ orderId: string }>) => {
       const order = state.ordersById[action.payload.orderId];

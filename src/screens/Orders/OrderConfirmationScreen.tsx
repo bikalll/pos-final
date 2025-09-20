@@ -23,6 +23,7 @@ import * as Sharing from 'expo-sharing';
 import { createFirestoreService } from '../../services/firestoreService';
 import { firebaseConnectionManager } from '../../services/FirebaseConnectionManager';
 import FirebaseDebugMonitor from '../../components/FirebaseDebugMonitor';
+import OrderCancellationDialog from '../../components/OrderCancellationDialog';
 
 interface RouteParams {
   orderId: string;
@@ -38,6 +39,7 @@ const OrderConfirmationScreen: React.FC = () => {
   const [showOptionsMenu, setShowOptionsMenu] = useState(false);
   const [changeTableModalVisible, setChangeTableModalVisible] = useState(false);
   const [discountModalVisible, setDiscountModalVisible] = useState(false);
+  const [cancellationDialogVisible, setCancellationDialogVisible] = useState(false);
   const [discountType, setDiscountType] = useState<'percentage' | 'amount'>('percentage');
   const [discountValue, setDiscountValue] = useState<string>('');
   const [discountTab, setDiscountTab] = useState<'order' | 'item'>('order');
@@ -67,6 +69,23 @@ const OrderConfirmationScreen: React.FC = () => {
   const menuItems = useSelector((state: RootState) => state.menu.itemsById);
   const allOrdersById = useSelector((state: RootState) => state.orders.ordersById);
   const { restaurantId } = useSelector((state: RootState) => state.auth);
+  const staffName = useSelector((state: RootState) => state.auth.name) || 'Unknown';
+
+  const handleCancellationConfirm = (reason: 'void' | 'other', otherReason?: string) => {
+    try {
+      dispatch(cancelOrder({ 
+        orderId, 
+        reason, 
+        otherReason, 
+        cancelledBy: staffName 
+      }));
+      setCancellationDialogVisible(false);
+      (navigation as any).navigate('OngoingOrders');
+    } catch (error) {
+      console.error('Error cancelling order:', error);
+      Alert.alert('Error', 'Failed to cancel order. Please try again.');
+    }
+  };
 
   // Fallback: if the specific orderId isn't in Redux yet, try to find by tableId
   useEffect(() => {
@@ -811,15 +830,7 @@ const OrderConfirmationScreen: React.FC = () => {
               {/* Cancel Order (owners only) */}
               <TouchableOpacity style={styles.optionsMenuItem} onPress={() => { 
                 if (authRole !== 'Owner' && authRole !== 'Manager') { Alert.alert('Permission Denied', 'Only owners and managers can cancel orders.'); setShowOptionsMenu(false); return; }
-                Alert.alert('Cancel Order', 'Are you sure you want to cancel this order?', [
-                  { text: 'No', style: 'cancel' },
-                  { text: 'Yes, Cancel', style: 'destructive', onPress: () => { 
-                    try { 
-                      (dispatch as any)(cancelOrder({ orderId })); 
-                    } catch {}
-                    (navigation as any).navigate('OngoingOrders'); 
-                  } }
-                ]);
+                setCancellationDialogVisible(true);
                 setShowOptionsMenu(false);
               }} disabled={false}>
                 <Ionicons name="trash-outline" size={16} color={colors.danger} />
@@ -1395,6 +1406,13 @@ const OrderConfirmationScreen: React.FC = () => {
       <FirebaseDebugMonitor 
         visible={showDebugMonitor} 
         onClose={() => setShowDebugMonitor(false)} 
+      />
+
+      <OrderCancellationDialog
+        visible={cancellationDialogVisible}
+        onClose={() => setCancellationDialogVisible(false)}
+        onConfirm={handleCancellationConfirm}
+        title="Cancel Order"
       />
     </SafeAreaView>
   );

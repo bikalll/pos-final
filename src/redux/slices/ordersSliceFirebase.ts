@@ -199,8 +199,30 @@ const ordersSlice = createSlice({
       state.ongoingOrderIds = state.ongoingOrderIds.filter((id) => id !== order.id);
       state.completedOrderIds.unshift(order.id);
     },
-    cancelOrder: (state, action: PayloadAction<{ orderId: string }>) => {
-      delete state.ordersById[action.payload.orderId];
+    cancelOrder: (state, action: PayloadAction<{ 
+      orderId: string; 
+      reason: 'void' | 'other'; 
+      otherReason?: string; 
+      cancelledBy: string; 
+    }>) => {
+      const order = state.ordersById[action.payload.orderId];
+      if (!order) return;
+
+      // Update order with cancellation info instead of deleting
+      order.status = "cancelled";
+      order.cancellationInfo = {
+        reason: action.payload.reason,
+        otherReason: action.payload.otherReason,
+        cancelledAt: Date.now(),
+        cancelledBy: action.payload.cancelledBy,
+      };
+
+      // If cancelled with void reason, mark for inventory restoration
+      if (action.payload.reason === 'void') {
+        (order as any).needsInventoryRestoration = true;
+      }
+
+      // Remove from ongoing orders
       state.ongoingOrderIds = state.ongoingOrderIds.filter(
         (id) => id !== action.payload.orderId
       );

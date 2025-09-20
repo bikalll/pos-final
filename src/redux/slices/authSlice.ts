@@ -11,6 +11,7 @@ type AuthState = {
   restaurantName?: string;
   designation?: string;
   logoUrl?: string;
+  panVatImageUrl?: string;
   userPhotoUrl?: string;
 };
 
@@ -31,6 +32,7 @@ initialState,
       restaurantName?: string; 
       designation?: string;
       logoUrl?: string;
+      panVatImageUrl?: string;
       userPhotoUrl?: string;
     }>) => {
       console.log('🔍 REDUX DEBUG - Login action received:');
@@ -45,6 +47,7 @@ initialState,
       state.restaurantName = action.payload.restaurantName;
       state.designation = action.payload.designation;
       state.logoUrl = action.payload.logoUrl;
+      state.panVatImageUrl = action.payload.panVatImageUrl;
       state.userPhotoUrl = action.payload.userPhotoUrl;
       
       console.log('  final state.role:', state.role, '(type:', typeof state.role, ')');
@@ -59,11 +62,16 @@ initialState,
       state.restaurantId = undefined;
       state.restaurantName = undefined;
       state.designation = undefined;
-      state.logoUrl = undefined;
+      // Keep logo and PAN/VAT data for persistence across logout/login
+      // state.logoUrl = undefined;
+      // state.panVatImageUrl = undefined;
       state.userPhotoUrl = undefined;
     },
     setLogoUrl: (state, action: PayloadAction<string | undefined>) => {
       state.logoUrl = action.payload;
+    },
+    setPanVatImageUrl: (state, action: PayloadAction<string | undefined>) => {
+      state.panVatImageUrl = action.payload;
     },
     setRestaurant: (state, action: PayloadAction<{ restaurantId: string; restaurantName: string }>) => {
       console.log('🏪 Restaurant switch - triggering cleanup');
@@ -78,5 +86,5 @@ initialState,
   },
 });
 
-export const { login, logout, setRestaurant, setLogoUrl, setUserPhotoUrl } = authSlice.actions;
+export const { login, logout, setRestaurant, setLogoUrl, setPanVatImageUrl, setUserPhotoUrl } = authSlice.actions;
 export default authSlice.reducer;

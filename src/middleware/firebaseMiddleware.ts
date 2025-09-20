@@ -11,6 +11,79 @@ const lastDeductFingerprint = new Map<string, string>();
 import { cleanOrderData, removeUndefinedValues } from '../utils/orderUtils';
 import { updateTableFromFirebase } from '../redux/slices/tablesSliceFirebase';
 
+// Function to restore inventory when an order is cancelled with void reason
+async function restoreInventoryForVoidOrder(order: any, restaurantId: string) {
+  try {
+    const svc = createFirestoreService(restaurantId);
+    
+    // Get current inventory
+    const inventory = await svc.getInventoryItems();
+    
+    // Calculate inventory restoration deltas
+    const restorationDeltas: Array<{ name: string; requiredQty: number; unit?: string }> = [];
+    
+    for (const orderItem of (order?.items || [])) {
+      // Get menu item ingredients
+      let menu = null;
+      try {
+        menu = await (svc as any).read?.('menu', orderItem.menuItemId);
+      } catch (error) {
+        console.warn('Could not fetch menu item for inventory restoration:', orderItem.menuItemId);
+        continue;
+      }
+      
+      if (!menu || !Array.isArray(menu.ingredients)) {
+        continue;
+      }
+      
+      // Calculate ingredients needed for this item quantity
+      for (const ingredient of menu.ingredients) {
+        const required = (Number(ingredient.quantity) || 0) * (orderItem.quantity || 0);
+        if (required > 0 && ingredient.name) {
+          restorationDeltas.push({ 
+            name: ingredient.name, 
+            requiredQty: required, 
+            unit: ingredient.unit 
+          });
+        }
+      }
+    }
+    
+    // Aggregate restoration deltas by ingredient name
+    const aggregateRestoration: Record<string, number> = {};
+    for (const delta of restorationDeltas) {
+      const key = delta.name.toLowerCase().trim();
+      aggregateRestoration[key] = (aggregateRestoration[key] || 0) + delta.requiredQty;
+    }
+    
+    // Restore inventory items
+    for (const [ingredientName, restorationQty] of Object.entries(aggregateRestoration)) {
+      const inventoryItem = Object.values(inventory).find((item: any) => 
+        item.name?.toLowerCase().trim() === ingredientName
+      ) as any;
+      
+      if (inventoryItem) {
+        const currentStock = Number(inventoryItem.stockQuantity) || 0;
+        const newStock = currentStock + restorationQty; // Add back the quantity
+        
+        try {
+          await svc.updateInventoryItem(inventoryItem.id, { stockQuantity: newStock });
+          console.log(`✅ Restored ${restorationQty} units of ${ingredientName} (${currentStock} → ${newStock})`);
+        } catch (error) {
+          console.error(`❌ Failed to restore inventory for ${ingredientName}:`, error);
+        }
+      } else {
+        console.warn(`⚠️ Inventory item not found for restoration: ${ingredientName}`);
+      }
+    }
+    
+    console.log('✅ Inventory restoration completed for void order:', order.id);
+  } catch (error) {
+    console.error('❌ Error in inventory restoration:', error);
+    throw error;
+  }
+}
+
 export const firebaseMiddleware = (store: any) => (next: any) => (action: any) => {
   const result = next(action);
   
@@ -362,9 +435,83 @@ export const firebaseMiddleware = (store: any) => (next: any) => (action: any) =
       break;
     }
     
-    case 'orders/cancelOrder':
+    case 'orders/cancelOrder': {
+      // Handle order cancellation (update with cancellation info instead of deleting)
+      const { orderId, reason, otherReason, cancelledBy } = action.payload;
+      
+      if (orderId) {
+        setTimeout(async () => {
+          try {
+            // Get the current order from Redux state
+            const state = store.getState();
+            const order = state.orders.ordersById[orderId];
+            
+            if (order) {
+              // Update order with cancellation info
+              const svc = createFirestoreService(authRestaurantId);
+              await svc.updateOrder(orderId, {
+                status: 'cancelled',
+                cancellationInfo: {
+                  reason,
+                  otherReason,
+                  cancelledAt: Date.now(),
+                  cancelledBy,
+                }
+              });
+              console.log('🔥 Firebase middleware: Order cancelled in Firestore:', orderId, 'Reason:', reason);
+
+              // If cancelled with void reason, restore inventory
+              if (reason === 'void') {
+                try {
+                  console.log('🔄 Firebase middleware: Restoring inventory for void order:', orderId);
+                  await restoreInventoryForVoidOrder(order, authRestaurantId);
+                  console.log('✅ Firebase middleware: Inventory restored for void order:', orderId);
+                } catch (inventoryError) {
+                  console.error('❌ Firebase middleware: Failed to restore inventory for void order:', orderId, inventoryError);
+                }
+              }
+            }
+          } catch (firestoreError) {
+            console.warn('⚠️ Firebase middleware: Firestore cancel failed, attempting RTDB update:', firestoreError);
+            try {
+              // Fallback to Realtime Database update if needed
+              const firebaseService = getFirebaseService();
+              const state = store.getState();
+              const order = state.orders.ordersById[orderId];
+              
+              if (order) {
+                await firebaseService.update(`orders/${orderId}`, {
+                  status: 'cancelled',
+                  cancellationInfo: {
+                    reason,
+                    otherReason,
+                    cancelledAt: Date.now(),
+                    cancelledBy,
+                  }
+                });
+                console.log('🔥 Firebase middleware: Order cancelled in RTDB (fallback):', orderId);
+
+                // If cancelled with void reason, restore inventory
+                if (reason === 'void') {
+                  try {
+                    console.log('🔄 Firebase middleware: Restoring inventory for void order (RTDB):', orderId);
+                    await restoreInventoryForVoidOrder(order, authRestaurantId);
+                    console.log('✅ Firebase middleware: Inventory restored for void order (RTDB):', orderId);
+                  } catch (inventoryError) {
+                    console.error('❌ Firebase middleware: Failed to restore inventory for void order (RTDB):', orderId, inventoryError);
+                  }
+                }
+              }
+            } catch (rtdbError) {
+              console.error('❌ Firebase middleware: Error cancelling order in Firebase:', rtdbError);
+            }
+          }
+        }, 100);
+      }
+      break;
+    }
     case 'orders/cancelEmptyOrder': {
-      // Handle order deletion
+      // Handle empty order deletion (still delete these)
       const orderId = action.payload?.orderId || action.payload;
       
       if (orderId) {
@@ -373,16 +520,16 @@ export const firebaseMiddleware = (store: any) => (next: any) => (action: any) =
             // Prefer Cloud Firestore deletion (source of truth)
             const svc = createFirestoreService(authRestaurantId);
             await svc.deleteOrder(orderId);
-            console.log('🔥 Firebase middleware: Order deleted from Firestore:', orderId);
+            console.log('🔥 Firebase middleware: Empty order deleted from Firestore:', orderId);
           } catch (firestoreError) {
             console.warn('⚠️ Firebase middleware: Firestore delete failed, attempting RTDB delete:', firestoreError);
             try {
               // Fallback to Realtime Database deletion if needed
               const firebaseService = getFirebaseService();
               await firebaseService.delete(`orders/${orderId}`);
-              console.log('🔥 Firebase middleware: Order deleted from RTDB (fallback):', orderId);
+              console.log('🔥 Firebase middleware: Empty order deleted from RTDB (fallback):', orderId);
             } catch (rtdbError) {
-              console.error('❌ Firebase middleware: Error deleting order from Firebase:', rtdbError);
+              console.error('❌ Firebase middleware: Error deleting empty order from Firebase:', rtdbError);
             }
           }
         }, 100);

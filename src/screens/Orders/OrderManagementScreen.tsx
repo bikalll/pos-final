@@ -19,6 +19,7 @@ import { setPayment, completeOrder, removeItem, updateItemQuantity, cancelOrder,
 import { PrintService } from '../../services/printing';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { OrdersStackParamList } from '../../navigation/types';
+import OrderCancellationDialog from '../../components/OrderCancellationDialog';
 
 type OrderManagementNavigationProp = NativeStackNavigationProp<OrdersStackParamList, 'OrderManagement'>;
 
@@ -39,6 +40,7 @@ const OrderManagementScreen: React.FC = () => {
   const [amountPaid, setAmountPaid] = useState('');
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
+  const [cancellationDialogVisible, setCancellationDialogVisible] = useState(false);
   const [isSplitPayment, setIsSplitPayment] = useState(false);
   const [splitAmount, setSplitAmount] = useState('');
   
@@ -301,29 +303,30 @@ const OrderManagementScreen: React.FC = () => {
   };
 
   const authRole = useSelector((state: RootState) => state.auth.role);
+  const staffName = useSelector((state: RootState) => state.auth.name) || 'Unknown';
 
   const handleCancelOrder = () => {
     if (authRole !== 'Owner' && authRole !== 'Manager') {
       Alert.alert('Permission Denied', 'Only owners and managers can cancel orders.');
       return;
     }
-    Alert.alert(
-      'Cancel Order',
-      'Are you sure you want to cancel this order? This will discard all items and remove it from ongoing.',
-      [
-        { text: 'No', style: 'cancel' },
-        {
-          text: 'Yes',
-          style: 'destructive',
-          onPress: () => {
-            try {
-              (dispatch as any)(cancelOrder({ orderId }));
-            } catch {}
-            (navigation as any).navigate('Dashboard', { screen: 'TablesDashboard' });
-          },
-        },
-      ]
-    );
+    setCancellationDialogVisible(true);
+  };
+
+  const handleCancellationConfirm = (reason: 'void' | 'other', otherReason?: string) => {
+    try {
+      dispatch(cancelOrder({ 
+        orderId, 
+        reason, 
+        otherReason, 
+        cancelledBy: staffName 
+      }));
+      setCancellationDialogVisible(false);
+      (navigation as any).navigate('Dashboard', { screen: 'TablesDashboard' });
+    } catch (error) {
+      console.error('Error cancelling order:', error);
+      Alert.alert('Error', 'Failed to cancel order. Please try again.');
+    }
   };
 
   const totalAmount = calculateTotal();
@@ -575,6 +578,13 @@ const OrderManagementScreen: React.FC = () => {
           </View>
         </View>
       </Modal>
+
+      <OrderCancellationDialog
+        visible={cancellationDialogVisible}
+        onClose={() => setCancellationDialogVisible(false)}
+        onConfirm={handleCancellationConfirm}
+        title="Cancel Order"
+      />
     </View>
   );
 };

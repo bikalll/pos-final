@@ -408,7 +408,7 @@ export default function ReceiptsScreen() {
       return true;
     });
     
-    // Convert Firebase receipts to ReceiptData format
+    // Convert Firebase receipts to ReceiptData format, including void receipts from cancelled orders
     const convertedReceipts = receiptsData.map((receipt: any) => {
       // Resolve customer name
       const customerName = receipt.customerName || 'Walk-in Customer';
@@ -551,18 +551,79 @@ export default function ReceiptsScreen() {
       } as ReceiptData;
     });
     
+    // Add void receipts from cancelled orders
+    const voidReceipts = Object.values(ordersById)
+      .filter((order: any) => 
+        order && 
+        order.status === 'cancelled' && 
+        order.cancellationInfo?.reason === 'void'
+      )
+      .map((order: any) => {
+        // Create a receipt-like object for cancelled orders with void reason
+        const tableId = order.tableId;
+        const firebaseTable = tableId ? firebaseTables[tableId] : undefined;
+        const reduxTable = tableId ? tables[tableId] : undefined;
+        let resolvedTableName: string;
+        if (firebaseTable?.name) {
+          resolvedTableName = firebaseTable.name;
+        } else if (reduxTable?.name) {
+          resolvedTableName = reduxTable.name;
+        } else if (tableId && tableId !== 'unknown') {
+          resolvedTableName = tableId.replace('table-', '').replace('Table ', '');
+        } else {
+          resolvedTableName = 'Walk-in';
+        }
+
+        // Calculate total amount from order items
+        const totalAmount = order.items.reduce((sum: number, item: any) => {
+          return sum + (item.price * item.quantity);
+        }, 0);
+
+        return {
+          id: `void-${order.id}`,
+          orderId: order.id,
+          customer: order.customerName || 'Walk-in Customer',
+          table: resolvedTableName,
+          amount: `Rs ${totalAmount.toFixed(1)}`,
+          paymentMethod: 'Void',
+          time: new Date(order.cancellationInfo.cancelledAt).toLocaleTimeString(),
+          date: new Date(order.cancellationInfo.cancelledAt).toLocaleDateString(),
+          timestamp: order.cancellationInfo.cancelledAt,
+          orderItems: order.items.map((item: any) => ({
+            name: item.name,
+            quantity: item.quantity,
+            price: item.price,
+            total: item.price * item.quantity,
+          })),
+          baseSubtotal: totalAmount,
+          subtotal: totalAmount,
+          tax: 0,
+          serviceCharge: 0,
+          discount: 0,
+          itemDiscount: 0,
+          orderDiscount: 0,
+          netPaid: 0,
+          isVoid: true, // Mark as void receipt
+          cancellationInfo: order.cancellationInfo,
+        } as ReceiptData & { isVoid: boolean; cancellationInfo: any };
+      });
+
+    const allReceipts = [...convertedReceipts, ...voidReceipts];
+    
     console.log('🔍 Converted Firebase receipts:', convertedReceipts.length);
+    console.log('🔍 Void receipts from cancelled orders:', voidReceipts.length);
+    console.log('🔍 Total receipts (including void):', allReceipts.length);
     console.log('🔍 Converted receipts orderIds:', convertedReceipts.map((r: any) => r.orderId));
 
-    if (convertedReceipts.length === 0) {
-      console.log('⚠️ NO FIREBASE RECEIPTS FOUND - This means:');
+    if (allReceipts.length === 0) {
+      console.log('⚠️ NO RECEIPTS FOUND - This means:');
       console.log('1. Either no receipts have been saved to Firebase yet');
       console.log('2. Or receipts are being saved to the wrong path');
       console.log('3. Or there are no completed orders with payments');
       console.log('4. Use the "Create Receipts for Orders" button to manually create receipts');
     }
 
-    const receiptsList = convertedReceipts
+    const receiptsList = allReceipts
       .filter((receiptData: any) => {
         // Filter out invalid receipt data
         if (!receiptData || !receiptData.id) {
@@ -572,7 +633,7 @@ export default function ReceiptsScreen() {
         return true;
       })
       .map((receiptData: any): ReceiptData => {
-        console.log('🔄 Processing converted receipt data:', receiptData);
+        console.log('🔄 Processing receipt data:', receiptData);
         // Since we're using converted receipts, they're already in the correct format
         return receiptData as ReceiptData;
       });
@@ -583,10 +644,16 @@ export default function ReceiptsScreen() {
     return sortedReceipts;
   }, [firebaseReceipts, restaurantId]);
 
-  // Calculate payment summary from actual orders
+  // Calculate payment summary from actual orders (excluding cancelled orders)
   const summary = useMemo(() => {
-    // Use filtered receipts based on date range
-    const dateFilteredReceipts = filterReceiptsByDate(receipts, selectedSortOption);
+    // Use filtered receipts based on date range, excluding cancelled orders
+    const dateFilteredReceipts = filterReceiptsByDate(receipts, selectedSortOption)
+      .filter(receipt => {
+        // Exclude void receipts and cancelled orders
+        if ((receipt as any).isVoid) return false;
+        const order = ordersById[receipt.orderId];
+        return !order || order.status !== 'cancelled';
+      });
 
     let cashTotal = 0, cardTotal = 0, bankTotal = 0, fpayTotal = 0, creditTotal = 0;
     for (const r of dateFilteredReceipts) {
@@ -627,9 +694,15 @@ export default function ReceiptsScreen() {
     ];
   }, [receipts, selectedSortOption]);
 
-  // Compute grand total payments for the selected date range
+  // Compute grand total payments for the selected date range (excluding cancelled orders)
   const totalPayments = useMemo(() => {
-    const dateFilteredReceipts = filterReceiptsByDate(receipts, selectedSortOption);
+    const dateFilteredReceipts = filterReceiptsByDate(receipts, selectedSortOption)
+      .filter(receipt => {
+        // Exclude void receipts and cancelled orders
+        if ((receipt as any).isVoid) return false;
+        const order = ordersById[receipt.orderId];
+        return !order || order.status !== 'cancelled';
+      });
     let total = 0;
     for (const r of dateFilteredReceipts) {
       const split = (r as any).splitBreakdown as Array<{ method: string; amount: number }> | undefined;
@@ -642,12 +715,22 @@ export default function ReceiptsScreen() {
     return total;
   }, [receipts, selectedSortOption]);
 
-  // Filter and search receipts
+  // Filter and search receipts (excluding cancelled orders from sales, but keeping void receipts visible)
   const filteredReceipts = useMemo(() => {
     let filtered = receipts;
 
     // Filter by date range
     filtered = filterReceiptsByDate(filtered, selectedSortOption);
+
+    // Filter out cancelled orders (except void receipts which should be visible)
+    filtered = filtered.filter((receipt: ReceiptData) => {
+      // Keep void receipts visible
+      if ((receipt as any).isVoid) return true;
+      
+      // For regular receipts, exclude if order is cancelled
+      const order = ordersById[receipt.orderId];
+      return !order || order.status !== 'cancelled';
+    });
 
     // Filter by payment method
     if (selectedPaymentFilter) {
@@ -673,7 +756,7 @@ export default function ReceiptsScreen() {
     }
 
     return filtered;
-  }, [searchQuery, selectedPaymentFilter, selectedSortOption, receipts]);
+  }, [searchQuery, selectedPaymentFilter, selectedSortOption, receipts, ordersById]);
 
   // Calculate filtered summary based on selected payment method
   const filteredSummary = useMemo(() => {
@@ -782,8 +865,16 @@ export default function ReceiptsScreen() {
 
   const doSaveAsExcel = async (range: SortOption) => {
     try {
-      const dateFilteredReceipts = filterReceiptsByDate(receipts, range);
+      const allDateFilteredReceipts = filterReceiptsByDate(receipts, range);
       const dateRange = getDateRangeLabel(range);
+      
+      // Filter out cancelled orders for sales calculations
+      const salesReceipts = allDateFilteredReceipts.filter(receipt => {
+        // Exclude void receipts and cancelled orders from sales calculations
+        if ((receipt as any).isVoid) return false;
+        const order = ordersById[receipt.orderId];
+        return !order || order.status !== 'cancelled';
+      });
       
       const restaurantData = {
         name: restaurantInfo?.name || authRestaurantName || 'Restaurant',
@@ -791,7 +882,8 @@ export default function ReceiptsScreen() {
         panVat: restaurantInfo?.panVat,
       };
       
-      const result = await ExcelExporter.exportReceiptsAsExcel(dateFilteredReceipts, dateRange, restaurantData);
+      const voidReceiptCount = calculateVoidReceiptCount(allDateFilteredReceipts);
+      const result = await ExcelExporter.exportReceiptsAsExcel(salesReceipts, dateRange, restaurantData, voidReceiptCount);
       
       if (result.success) {
         Alert.alert('Success', 'Transaction summary exported to Excel successfully!');
@@ -803,9 +895,30 @@ export default function ReceiptsScreen() {
     }
   };
 
+  const calculateVoidReceiptCount = (receipts: ReceiptData[]): number => {
+    // Count void receipts (both from Firebase receipts and cancelled orders)
+    return receipts.filter(receipt => {
+      // Check if it's a void receipt (marked with isVoid flag)
+      if ((receipt as any).isVoid) {
+        return true;
+      }
+      // Check if it corresponds to a cancelled order with void reason
+      const order = ordersById[receipt.orderId];
+      return order && 
+             order.status === 'cancelled' && 
+             order.cancellationInfo?.reason === 'void';
+    }).length;
+  };
+
   const doPrintSummary = async (range: SortOption) => {
     try {
-      const dateFilteredReceipts = filterReceiptsByDate(receipts, range);
+      const dateFilteredReceipts = filterReceiptsByDate(receipts, range)
+        .filter(receipt => {
+          // Exclude void receipts and cancelled orders from sales calculations
+          if ((receipt as any).isVoid) return false;
+          const order = ordersById[receipt.orderId];
+          return !order || order.status !== 'cancelled';
+        });
       // Calculate gross sales (base subtotal before any discounts)
       const grossSales = dateFilteredReceipts.reduce((sum, r) => {
         const baseSubtotal = r.baseSubtotal || r.subtotal || 0;
@@ -879,7 +992,12 @@ export default function ReceiptsScreen() {
         netSales,
         salesByType,
         paymentsNet,
-        audit: { preReceiptCount: 0, receiptReprintCount: 0, voidReceiptCount: 0, totalVoidItemCount: 0 },
+        audit: { 
+          preReceiptCount: 0, 
+          receiptReprintCount: 0, 
+          voidReceiptCount: calculateVoidReceiptCount(dateFilteredReceipts), 
+          totalVoidItemCount: 0 
+        },
         firstReceipt: first ? {
           reference: first.id,
           sequence: first.orderId?.slice(-5),
@@ -993,12 +1111,30 @@ export default function ReceiptsScreen() {
     <View
       key={item.id}
       style={{
-        backgroundColor: "#1e1e1e",
+        backgroundColor: (item as any).isVoid ? "#2d1b1b" : "#1e1e1e", // Darker red background for void receipts
         borderRadius: 12,
         padding: 16,
         marginBottom: 16,
+        borderLeftWidth: (item as any).isVoid ? 4 : 0,
+        borderLeftColor: (item as any).isVoid ? "#e74c3c" : "transparent", // Red border for void receipts
       }}
     >
+      {/* Void Receipt Indicator */}
+      {(item as any).isVoid && (
+        <View style={{
+          backgroundColor: "#e74c3c",
+          paddingHorizontal: 8,
+          paddingVertical: 4,
+          borderRadius: 6,
+          alignSelf: 'flex-start',
+          marginBottom: 12,
+        }}>
+          <Text style={{ color: "#fff", fontSize: 12, fontWeight: '600' }}>
+            VOID RECEIPT
+          </Text>
+        </View>
+      )}
+      
       {/* Receipt Details */}
       <View style={{ marginBottom: 20, paddingTop: 8 }}>
         <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>

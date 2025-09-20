@@ -35,6 +35,7 @@ export interface TransactionSummaryData {
     itemDiscount?: number;
     orderDiscount?: number;
   }>;
+  voidReceiptCount?: number;
 }
 
 export class ExcelExporter {
@@ -150,7 +151,7 @@ export class ExcelExporter {
     lines.push('--- Audit ---');
     lines.push('Pre Receipt Print Count,0');
     lines.push('Receipt Re-print Count,0');
-    lines.push('Void Receipt Count,0');
+    lines.push(`Void Receipt Count,${data.voidReceiptCount || 0}`);
     lines.push('Total Void Item Count,0');
     lines.push('');
     
@@ -210,7 +211,7 @@ export class ExcelExporter {
     return lines.join('\n');
   }
   
-  static async exportReceiptsAsExcel(receipts: any[], dateRange: string, restaurantInfo?: { name?: string; address?: string; panVat?: string }): Promise<{ success: boolean; message: string; fileUri?: string }> {
+  static async exportReceiptsAsExcel(receipts: any[], dateRange: string, restaurantInfo?: { name?: string; address?: string; panVat?: string }, voidReceiptCount?: number): Promise<{ success: boolean; message: string; fileUri?: string }> {
     try {
       // Convert receipts to transaction summary format
       const totalAmount = receipts.reduce((sum, receipt) => {
@@ -268,6 +269,7 @@ export class ExcelExporter {
         totalAmount,
         paymentMethods,
         transactions,
+        voidReceiptCount: voidReceiptCount || 0,
       };
       
       return await this.exportTransactionSummary(summaryData);

@@ -42,7 +42,9 @@ export class FirebaseAuthService {
         userName: user.displayName || user.email || 'User',
         userId: user.uid,
         restaurantId: restaurantId,
-        restaurantName: restaurantInfo?.name || 'Restaurant'
+        restaurantName: restaurantInfo?.name || 'Restaurant',
+        logoUrl: restaurantInfo?.logoUrl,
+        panVatImageUrl: restaurantInfo?.panVatImageUrl
       }));
 
     } catch (error) {
@@ -78,7 +80,9 @@ export class FirebaseAuthService {
           userName: userName,
           userId: user.uid,
           restaurantId: restaurantId,
-          restaurantName: restaurantInfo?.name || 'Restaurant'
+          restaurantName: restaurantInfo?.name || 'Restaurant',
+          logoUrl: restaurantInfo?.logoUrl,
+          panVatImageUrl: restaurantInfo?.panVatImageUrl
         }));
       } else {
         // Just sign up without restaurant association

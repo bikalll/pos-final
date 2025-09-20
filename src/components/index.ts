@@ -8,6 +8,7 @@ export { default as ImageTestComponent } from './ImageTestComponent';
 export { default as Icon } from './Icon';
 export { default as MenuItemForm } from './MenuItemForm';
 export { default as MenuItemImage } from './MenuItemImage';
+export { default as OrderCancellationDialog } from './OrderCancellationDialog';
 export { default as PrintDemo } from './PrintDemo';
 export { default as PrintSummaryDialog } from './PrintSummaryDialog';
 export { default as Sidebar } from './Sidebar';

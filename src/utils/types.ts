@@ -26,7 +26,14 @@ export type PaymentInfo = {
   }>;
 };
 
-export type OrderStatus = "ongoing" | "completed";
+export type OrderStatus = "ongoing" | "completed" | "cancelled";
+
+export type CancellationInfo = {
+  reason: 'void' | 'other';
+  otherReason?: string;
+  cancelledAt: number;
+  cancelledBy: string; // Staff member who cancelled
+};
 
 export type Order = {
 id: string;
@@ -49,6 +56,8 @@ createdAt: number;
   isSaved?: boolean;
   // Whether the order has been reviewed/confirmed (affects table occupancy)
   isReviewed?: boolean;
+  // Cancellation information (only present if order is cancelled)
+  cancellationInfo?: CancellationInfo;
 };
 
 export type InventoryItem = {
