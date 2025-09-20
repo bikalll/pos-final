@@ -63,6 +63,7 @@ export default function ReceiptsScreen() {
   const [firebaseTables, setFirebaseTables] = useState<Record<string, any>>({});
   const [firebaseReceipts, setFirebaseReceipts] = useState<Record<string, any>>({});
   const [showPrintDialog, setShowPrintDialog] = useState(false);
+  const [showCancelledOrders, setShowCancelledOrders] = useState(false);
   const [restaurantInfo, setRestaurantInfo] = useState<{ name?: string; address?: string; panVat?: string; logoUrl?: string } | null>(null);
   
   const navigation = useNavigation<DrawerNavigation>();
@@ -655,19 +656,26 @@ export default function ReceiptsScreen() {
         return !order || order.status !== 'cancelled';
       });
 
-    let cashTotal = 0, cardTotal = 0, bankTotal = 0, fpayTotal = 0, creditTotal = 0;
+    let cashTotal = 0, cardTotal = 0, bankTotal = 0, fpayTotal = 0, creditTotal = 0, splitTotal = 0;
     for (const r of dateFilteredReceipts) {
       const split = (r as any).splitBreakdown as Array<{ method: string; amount: number }> | undefined;
       if (r.paymentMethod === 'Split' && split && split.length > 0) {
+        // For split payments, add to individual methods and track split total
+        const splitAmount = split.reduce((sum, sp) => sum + (Number(sp.amount) || 0), 0);
+        splitTotal += splitAmount;
+        
         for (const sp of split) {
           const amt = Number(sp.amount) || 0;
           switch (sp.method) {
             case 'Cash': cashTotal += amt; break;
             case 'Card':
             case 'Bank Card': cardTotal += amt; break;
-            case 'Bank': bankTotal += amt; break;
+            case 'Bank':
+            case 'Bank Transfer': bankTotal += amt; break;
             case 'UPI':
-            case 'Fonepay': fpayTotal += amt; break;
+            case 'Fonepay':
+            case 'PhonePe':
+            case 'Paytm': fpayTotal += amt; break;
             case 'Credit': creditTotal += amt; break;
           }
         }
@@ -677,21 +685,45 @@ export default function ReceiptsScreen() {
           case 'Cash': cashTotal += amt; break;
           case 'Card':
           case 'Bank Card': cardTotal += amt; break;
-          case 'Bank': bankTotal += amt; break;
+          case 'Bank':
+          case 'Bank Transfer': bankTotal += amt; break;
           case 'UPI':
-          case 'Fonepay': fpayTotal += amt; break;
+          case 'Fonepay':
+          case 'PhonePe':
+          case 'Paytm': fpayTotal += amt; break;
           case 'Credit': creditTotal += amt; break;
         }
       }
     }
 
-    return [
+    // Create summary array with all payment methods, including split if present
+    const summaryItems = [
       { label: "Cash", amount: `Rs ${cashTotal.toFixed(2)}`, icon: "wallet" as const, key: "Cash" },
       { label: "Card", amount: `Rs ${cardTotal.toFixed(2)}`, icon: "credit-card" as const, key: "Card" },
       { label: "Bank", amount: `Rs ${bankTotal.toFixed(2)}`, icon: "bank" as const, key: "Bank" },
       { label: "Fonepay", amount: `Rs ${fpayTotal.toFixed(2)}`, icon: "cellphone" as const, key: "Fonepay" },
       { label: "Credit", amount: `Rs ${creditTotal.toFixed(2)}`, icon: "currency-usd" as const, key: "Credit" },
     ];
+
+    // Add split payment if there are any split transactions
+    if (splitTotal > 0) {
+      (summaryItems as any).push({ 
+        label: "Split", 
+        amount: `Rs ${splitTotal.toFixed(2)}`, 
+        icon: "wallet" as const, 
+        key: "Split",
+        isSplit: true,
+        splitBreakdown: [
+          ...(cashTotal > 0 ? [{ method: 'Cash', amount: cashTotal }] : []),
+          ...(cardTotal > 0 ? [{ method: 'Card', amount: cardTotal }] : []),
+          ...(bankTotal > 0 ? [{ method: 'Bank', amount: bankTotal }] : []),
+          ...(fpayTotal > 0 ? [{ method: 'Fonepay', amount: fpayTotal }] : []),
+          ...(creditTotal > 0 ? [{ method: 'Credit', amount: creditTotal }] : []),
+        ]
+      });
+    }
+
+    return summaryItems;
   }, [receipts, selectedSortOption]);
 
   // Compute grand total payments for the selected date range (excluding cancelled orders)
@@ -715,17 +747,22 @@ export default function ReceiptsScreen() {
     return total;
   }, [receipts, selectedSortOption]);
 
-  // Filter and search receipts (excluding cancelled orders from sales, but keeping void receipts visible)
+  // Filter and search receipts (respecting showCancelledOrders checkbox)
   const filteredReceipts = useMemo(() => {
     let filtered = receipts;
 
     // Filter by date range
     filtered = filterReceiptsByDate(filtered, selectedSortOption);
 
-    // Filter out cancelled orders (except void receipts which should be visible)
+    // Filter cancelled orders based on checkbox state
     filtered = filtered.filter((receipt: ReceiptData) => {
-      // Keep void receipts visible
-      if ((receipt as any).isVoid) return true;
+      // If checkbox is checked, show all receipts (including cancelled and void)
+      if (showCancelledOrders) {
+        return true;
+      }
+      
+      // If checkbox is unchecked, hide cancelled orders AND void receipts
+      if ((receipt as any).isVoid) return false;
       
       // For regular receipts, exclude if order is cancelled
       const order = ordersById[receipt.orderId];
@@ -756,7 +793,7 @@ export default function ReceiptsScreen() {
     }
 
     return filtered;
-  }, [searchQuery, selectedPaymentFilter, selectedSortOption, receipts, ordersById]);
+  }, [searchQuery, selectedPaymentFilter, selectedSortOption, receipts, ordersById, showCancelledOrders]);
 
   // Calculate filtered summary based on selected payment method
   const filteredSummary = useMemo(() => {
@@ -809,6 +846,18 @@ export default function ReceiptsScreen() {
         />
         <Text style={{ color: "#fff", fontSize: 12, marginBottom: 3 }}>{item.label}</Text>
         <Text style={{ color: "#fff", fontWeight: "bold", fontSize: 14 }}>{item.amount}</Text>
+        
+        {/* Show split breakdown if it's a split payment */}
+        {item.isSplit && item.splitBreakdown && item.splitBreakdown.length > 0 && (
+          <View style={{ marginTop: 6, width: '100%' }}>
+            {item.splitBreakdown.map((split: any, idx: number) => (
+              <View key={idx} style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 }}>
+                <Text style={{ color: "#ccc", fontSize: 10 }}>{split.method}:</Text>
+                <Text style={{ color: "#ccc", fontSize: 10 }}>Rs {split.amount.toFixed(2)}</Text>
+              </View>
+            ))}
+          </View>
+        )}
       </View>
     </TouchableOpacity>
   );
@@ -882,7 +931,7 @@ export default function ReceiptsScreen() {
         panVat: restaurantInfo?.panVat,
       };
       
-      const voidReceiptCount = calculateVoidReceiptCount(allDateFilteredReceipts);
+      const voidReceiptCount = calculateVoidReceiptCount(filterReceiptsByDate(receipts, range));
       const result = await ExcelExporter.exportReceiptsAsExcel(salesReceipts, dateRange, restaurantData, voidReceiptCount);
       
       if (result.success) {
@@ -907,6 +956,38 @@ export default function ReceiptsScreen() {
       return order && 
              order.status === 'cancelled' && 
              order.cancellationInfo?.reason === 'void';
+    }).length;
+  };
+
+  const calculatePreReceiptCount = (receipts: ReceiptData[]): number => {
+    // Count pre-receipts (receipts marked as pre-receipt or isPreReceipt)
+    return receipts.filter(receipt => {
+      return (receipt as any).isPreReceipt === true || 
+             (receipt as any).receiptType === 'pre-receipt' ||
+             (receipt as any).paymentMethod === 'Pre-Receipt';
+    }).length;
+  };
+
+  const calculateReprintCount = (receipts: ReceiptData[]): number => {
+    // Count reprinted receipts (receipts with reprint flag or multiple receipts for same order)
+    const orderReceiptCounts: Record<string, number> = {};
+    receipts.forEach(receipt => {
+      if (receipt.orderId) {
+        orderReceiptCounts[receipt.orderId] = (orderReceiptCounts[receipt.orderId] || 0) + 1;
+      }
+    });
+    
+    // Count orders with more than one receipt (indicating reprints)
+    return Object.values(orderReceiptCounts).filter(count => count > 1).length;
+  };
+
+  const calculateCancelledOrdersCount = (receipts: ReceiptData[]): number => {
+    // Count cancelled orders (excluding void receipts which are handled separately)
+    return receipts.filter(receipt => {
+      const order = ordersById[receipt.orderId];
+      return order && 
+             order.status === 'cancelled' && 
+             order.cancellationInfo?.reason !== 'void'; // Exclude void receipts
     }).length;
   };
 
@@ -956,24 +1037,73 @@ export default function ReceiptsScreen() {
       // Calculate net sales: Gross Sales - Discounts (simplified formula)
       const netSales = grossSales - discounts;
 
-      const types = ['Card', 'Cash', 'Credit'];
-      const salesByType = types.map(type => ({
-        type,
-        count: dateFilteredReceipts.filter(r => r.paymentMethod === type).length,
-        amount: dateFilteredReceipts
-          .filter(r => r.paymentMethod === type)
-          .reduce((s, r) => s + parseFloat(r.amount.replace('Rs ', '')), 0),
-      }));
+      // Calculate payment method totals including split breakdown
+      let cashTotal = 0, cardTotal = 0, bankTotal = 0, fpayTotal = 0, creditTotal = 0, splitTotal = 0;
+      let cashCount = 0, cardCount = 0, bankCount = 0, fpayCount = 0, creditCount = 0, splitCount = 0;
+      
+      for (const r of dateFilteredReceipts) {
+        const split = (r as any).splitBreakdown as Array<{ method: string; amount: number }> | undefined;
+        if (r.paymentMethod === 'Split' && split && split.length > 0) {
+          // For split payments, add to individual methods and track split total
+          const splitAmount = split.reduce((sum, sp) => sum + (Number(sp.amount) || 0), 0);
+          splitTotal += splitAmount;
+          splitCount++;
+          
+          for (const sp of split) {
+            const amt = Number(sp.amount) || 0;
+            switch (sp.method) {
+              case 'Cash': cashTotal += amt; break;
+              case 'Card':
+              case 'Bank Card': cardTotal += amt; break;
+              case 'Bank':
+              case 'Bank Transfer': bankTotal += amt; break;
+              case 'UPI':
+              case 'Fonepay':
+              case 'PhonePe':
+              case 'Paytm': fpayTotal += amt; break;
+              case 'Credit': creditTotal += amt; break;
+            }
+          }
+        } else {
+          const amt = Number((r as any).netPaid ?? 0) || 0;
+          switch (r.paymentMethod) {
+            case 'Cash': cashTotal += amt; cashCount++; break;
+            case 'Card':
+            case 'Bank Card': cardTotal += amt; cardCount++; break;
+            case 'Bank':
+            case 'Bank Transfer': bankTotal += amt; bankCount++; break;
+            case 'UPI':
+            case 'Fonepay':
+            case 'PhonePe':
+            case 'Paytm': fpayTotal += amt; fpayCount++; break;
+            case 'Credit': creditTotal += amt; creditCount++; break;
+          }
+        }
+      }
+
+      const salesByType = [
+        { type: 'Cash', count: cashCount, amount: cashTotal },
+        { type: 'Card', count: cardCount, amount: cardTotal },
+        { type: 'Bank', count: bankCount, amount: bankTotal },
+        { type: 'Fonepay', count: fpayCount, amount: fpayTotal },
+        { type: 'Credit', count: creditCount, amount: creditTotal },
+      ];
+
+      // Split payments are already included in individual payment method totals above
+      // No need to add a separate "Split" entry
+
       const totalCount = salesByType.reduce((s, t) => s + t.count, 0);
       const totalAmount = salesByType.reduce((s, t) => s + t.amount, 0);
       salesByType.push({ type: 'Total', count: totalCount, amount: totalAmount });
 
-      const paymentsNet = ['Credit', 'Cash', 'Card'].map(type => ({
-        type,
-        amount: dateFilteredReceipts
-          .filter(r => r.paymentMethod === type)
-          .reduce((s, r) => s + parseFloat(r.amount.replace('Rs ', '')), 0),
-      }));
+      // For total payments received, exclude split and only show individual methods
+      const paymentsNet = [
+        { type: 'Cash', amount: cashTotal },
+        { type: 'Card', amount: cardTotal },
+        { type: 'Bank', amount: bankTotal },
+        { type: 'Fonepay', amount: fpayTotal },
+        { type: 'Credit', amount: creditTotal },
+      ];
 
       const first = dateFilteredReceipts[dateFilteredReceipts.length - 1];
       const last = dateFilteredReceipts[0];
@@ -993,10 +1123,11 @@ export default function ReceiptsScreen() {
         salesByType,
         paymentsNet,
         audit: { 
-          preReceiptCount: 0, 
-          receiptReprintCount: 0, 
-          voidReceiptCount: calculateVoidReceiptCount(dateFilteredReceipts), 
-          totalVoidItemCount: 0 
+          preReceiptCount: calculatePreReceiptCount(filterReceiptsByDate(receipts, range)), 
+          receiptReprintCount: calculateReprintCount(filterReceiptsByDate(receipts, range)), 
+          voidReceiptCount: calculateVoidReceiptCount(filterReceiptsByDate(receipts, range)), 
+          totalVoidItemCount: 0,
+          cancelledOrdersCount: calculateCancelledOrdersCount(filterReceiptsByDate(receipts, range))
         },
         firstReceipt: first ? {
           reference: first.id,
@@ -1210,24 +1341,24 @@ export default function ReceiptsScreen() {
         </View>
         
         {/* Discount Information */}
-        {(item.discount > 0 || item.itemDiscount > 0 || item.orderDiscount > 0) && (
+        {(item.discount > 0 || (item.itemDiscount || 0) > 0 || (item.orderDiscount || 0) > 0) && (
           <View style={{ marginBottom: 12 }}>
             <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 6 }}>
               <MaterialCommunityIcons name="tag-off" size={16} color="#e74c3c" style={{ marginRight: 8 }} />
               <Text style={{ color: "#e74c3c", fontSize: 14, fontWeight: "500" }}>Discount Applied</Text>
             </View>
             <View style={{ marginLeft: 24 }}>
-              {item.itemDiscount > 0 && (
+              {(item.itemDiscount || 0) > 0 && (
                 <Text style={{ color: "#ccc", fontSize: 12, marginBottom: 2 }}>
-                  Item Discount: -Rs {item.itemDiscount.toFixed(2)}
+                  Item Discount: -Rs {(item.itemDiscount || 0).toFixed(2)}
                 </Text>
               )}
-              {item.orderDiscount > 0 && (
+              {(item.orderDiscount || 0) > 0 && (
                 <Text style={{ color: "#ccc", fontSize: 12, marginBottom: 2 }}>
-                  Order Discount: -Rs {item.orderDiscount.toFixed(2)}
+                  Order Discount: -Rs {(item.orderDiscount || 0).toFixed(2)}
                 </Text>
               )}
-              {item.discount > 0 && (item.itemDiscount === 0 && item.orderDiscount === 0) && (
+              {item.discount > 0 && ((item.itemDiscount || 0) === 0 && (item.orderDiscount || 0) === 0) && (
                 <Text style={{ color: "#ccc", fontSize: 12, marginBottom: 2 }}>
                   Total Discount: -Rs {item.discount.toFixed(2)}
                 </Text>
@@ -1404,6 +1535,33 @@ export default function ReceiptsScreen() {
                 </Text>
               </TouchableOpacity>
             )}
+          </View>
+
+          {/* Show Cancelled Orders Checkbox */}
+          <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 16 }}>
+            <TouchableOpacity
+              onPress={() => setShowCancelledOrders(!showCancelledOrders)}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                backgroundColor: "#1e1e1e",
+                paddingHorizontal: 12,
+                paddingVertical: 8,
+                borderRadius: 8,
+                borderWidth: 1,
+                borderColor: showCancelledOrders ? "#007AFF" : "#333",
+              }}
+            >
+              <MaterialCommunityIcons
+                name={showCancelledOrders ? "checkbox-marked" : "checkbox-blank-outline"}
+                size={20}
+                color={showCancelledOrders ? "#007AFF" : "#666"}
+                style={{ marginRight: 8 }}
+              />
+              <Text style={{ color: "#fff", fontSize: 14 }}>
+                Show Cancelled Orders
+              </Text>
+            </TouchableOpacity>
           </View>
 
           {/* Receipt List */}

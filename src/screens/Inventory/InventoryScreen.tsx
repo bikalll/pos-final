@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -69,12 +69,12 @@ const InventoryScreen: React.FC = () => {
     const service = createFirestoreService(restaurantId);
     setFirestoreService(service);
     
+    let unsubscribe: (() => void) | undefined;
+    
     (async () => {
       await loadInventoryData(service);
       try {
-        const unsubscribe = service.listenToInventory?.((items: Record<string, any>) => {
-          const startTime = performance.now();
-          
+        unsubscribe = service.listenToInventory?.((items: Record<string, any>) => {
           const mapped: InventoryItem[] = Object.values(items).map((it: any) => ({
             id: it.id,
             name: it.name,
@@ -89,11 +89,6 @@ const InventoryScreen: React.FC = () => {
           }));
           
           setInventoryItems(mapped);
-          
-          // Performance monitoring
-          const endTime = performance.now();
-          recordRenderTime(endTime - startTime);
-          incrementReduxUpdates();
         });
         
         if (unsubscribe) {
@@ -106,11 +101,14 @@ const InventoryScreen: React.FC = () => {
     
     // Cleanup on unmount
     return () => {
+      if (unsubscribe) {
+        unsubscribe();
+      }
       cleanup();
     };
-  }, [restaurantId, addListener, cleanup, recordRenderTime, incrementReduxUpdates]);
+  }, [restaurantId]); // Only depend on restaurantId
 
-  const loadInventoryData = async (service = firestoreService) => {
+  const loadInventoryData = useCallback(async (service = firestoreService) => {
     if (!service) return;
     try {
       const data = await service.getInventoryItems();
@@ -136,7 +134,7 @@ const InventoryScreen: React.FC = () => {
     } catch (e) {
       Alert.alert('Error', 'Failed to load inventory');
     }
-  };
+  }, [firestoreService]);
 
   const categories = ['All', ...Array.from(new Set(inventoryItems.map(item => item.category)))];
   const filteredItems = inventoryItems.filter(item => 
@@ -171,7 +169,7 @@ const InventoryScreen: React.FC = () => {
         isActive: true,
       } as any;
       await firestoreService.createInventoryItem(item);
-      await loadInventoryData();
+      await loadInventoryData(firestoreService);
       setShowAddModal(false);
       resetNewItem();
     } catch (e: any) {
@@ -210,7 +208,7 @@ const InventoryScreen: React.FC = () => {
         return;
       }
       await firestoreService.updateInventoryItem(editingItem.id, updates);
-      await loadInventoryData();
+      await loadInventoryData(firestoreService);
       setShowAddModal(false);
       setEditingItem(null);
       resetNewItem();
@@ -231,7 +229,7 @@ const InventoryScreen: React.FC = () => {
           onPress: async () => {
             try {
               await firestoreService.deleteInventoryItem(itemId);
-              await loadInventoryData();
+              await loadInventoryData(firestoreService);
             } catch (e: any) {
               Alert.alert('Error', e?.message || 'Failed to delete inventory item');
             }

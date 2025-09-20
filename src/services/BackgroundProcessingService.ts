@@ -176,8 +176,9 @@ class BackgroundProcessingService {
       // Get current inventory state
       const inventory = await svc.getInventoryItems();
       
-      // Process inventory deductions
-      const updates: Array<{ id: string; stockQuantity: number }> = [];
+      // Process inventory deductions with validation
+      const updates: Array<{ id: string; stockQuantity: number; name: string }> = [];
+      const warnings: Array<{ name: string; required: number; available: number }> = [];
       
       for (const delta of task.deltas) {
         const inventoryItem = Object.values(inventory).find((item: any) => 
@@ -186,11 +187,28 @@ class BackgroundProcessingService {
         
         if (inventoryItem) {
           const currentStock = Number(inventoryItem.stockQuantity) || 0;
-          const newStock = Math.max(0, currentStock - delta.requiredQty);
+          const requiredQty = Number(delta.requiredQty) || 0;
+          const newStock = Math.max(0, currentStock - requiredQty);
+          
+          // Check for insufficient stock
+          if (currentStock < requiredQty) {
+            warnings.push({
+              name: delta.name,
+              required: requiredQty,
+              available: currentStock
+            });
+            console.warn(`⚠️ Insufficient stock for ${delta.name}: required ${requiredQty}, available ${currentStock}`);
+          }
+          
           updates.push({
             id: inventoryItem.id,
-            stockQuantity: newStock
+            stockQuantity: newStock,
+            name: delta.name
           });
+          
+          console.log(`🔍 Inventory deduction planned: ${delta.name} (${currentStock} → ${newStock})`);
+        } else {
+          console.warn(`⚠️ Inventory item not found for deduction: ${delta.name}`);
         }
       }
       
@@ -198,6 +216,13 @@ class BackgroundProcessingService {
       if (updates.length > 0) {
         await this.batchUpdateInventory(svc, updates);
         console.log('✅ BackgroundProcessingService: Inventory task completed:', task.id);
+        
+        // Log warnings if any
+        if (warnings.length > 0) {
+          console.warn('⚠️ Inventory warnings:', warnings);
+        }
+      } else {
+        console.log('ℹ️ BackgroundProcessingService: No inventory updates needed');
       }
       
     } catch (error) {
@@ -275,7 +300,7 @@ class BackgroundProcessingService {
   /**
    * Batch update inventory items with retry logic
    */
-  private async batchUpdateInventory(svc: any, updates: Array<{ id: string; stockQuantity: number }>) {
+  private async batchUpdateInventory(svc: any, updates: Array<{ id: string; stockQuantity: number; name?: string }>) {
     const batchSize = 5; // Process 5 items at a time
     
     for (let i = 0; i < updates.length; i += batchSize) {

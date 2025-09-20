@@ -19,6 +19,18 @@ state.customersById = action.payload || {} as Record<string, Customer>;
 resetCustomers: (state) => {
 state.customersById = {};
 },
+cleanupCustomersByRestaurant: (state, action: PayloadAction<string>) => {
+// Remove customers that don't belong to the specified restaurant
+const restaurantId = action.payload;
+state.customersById = Object.keys(state.customersById).reduce((acc, customerId) => {
+  const customer = state.customersById[customerId] as any;
+  // Keep customer if it belongs to the restaurant or has no restaurantId (legacy data)
+  if (!customer.restaurantId || customer.restaurantId === restaurantId) {
+    acc[customerId] = customer;
+  }
+  return acc;
+}, {} as Record<string, Customer>);
+},
 addOrUpdateCustomer: (state, action: PayloadAction<Customer>) => {
 state.customersById[action.payload.id] = action.payload;
 },
@@ -55,6 +67,7 @@ state.customersById[action.payload].lastVisit = Date.now();
 export const { 
 setAllCustomers,
 resetCustomers,
+cleanupCustomersByRestaurant,
 addOrUpdateCustomer, 
 addCustomer, 
 updateCustomer, 

@@ -85,12 +85,6 @@ export default function OfficeManagementScreen() {
   const [hasLoadedInitialData, setHasLoadedInitialData] = useState(false);
   const [isUpdatingPanVat, setIsUpdatingPanVat] = useState(false);
   
-  // Debug: Log when panVatImageUrl changes
-  useEffect(() => {
-    console.log('🔄 PAN/VAT URL state changed to:', panVatImageUrl);
-    console.log('🔄 PAN/VAT URL change stack trace:', new Error().stack);
-    console.log('🔄 isUpdatingPanVat flag:', isUpdatingPanVat);
-  }, [panVatImageUrl, isUpdatingPanVat]);
   const [imageViewerVisible, setImageViewerVisible] = useState(false);
   const [viewingImageUrl, setViewingImageUrl] = useState<string>('');
   const [viewingImageTitle, setViewingImageTitle] = useState<string>('');
@@ -203,71 +197,42 @@ export default function OfficeManagementScreen() {
     }
   };
 
-  // Debug: Log auth state (moved to useEffect to prevent infinite re-renders)
   const authState = useSelector((s: RootState) => s.auth);
-
-  // Debug: Log auth state changes
-  useEffect(() => {
-    console.log('🔍 Office Management - Auth state:', {
-      logoUrl: authState.logoUrl,
-      restaurantId: authState.restaurantId,
-      role: authState.role
-    });
-    console.log('🔍 Office Management - Local state:', {
-      localLogoUrl: logoUrl,
-      localPanVatImageUrl: panVatImageUrl
-    });
-    console.log('🔍 Office Management - State comparison:', {
-      authLogoUrl: authState.logoUrl,
-      localLogoUrl: logoUrl,
-      localPanVatImageUrl: panVatImageUrl,
-      areEqual: authState.logoUrl === logoUrl
-    });
-  }, [authState.logoUrl, authState.restaurantId, authState.role, logoUrl, panVatImageUrl]);
 
   // Sync logo from Redux state when it changes (e.g., after login)
   useEffect(() => {
     if (authState.logoUrl && !logoUrl) {
-      console.log('🔍 Syncing logo from Redux state:', authState.logoUrl);
       setLogoUrl(authState.logoUrl);
     }
-  }, [authState.logoUrl]); // Removed logoUrl from dependencies to prevent infinite loop
+  }, [authState.logoUrl]);
 
   // Sync PAN/VAT image from Redux state when it changes (e.g., after login)
   useEffect(() => {
     if (authState.panVatImageUrl && panVatImageUrl !== authState.panVatImageUrl && !isUpdatingPanVat) {
-      console.log('🔍 Syncing PAN/VAT image from Redux state:', authState.panVatImageUrl);
-      console.log('🔍 Current local PAN/VAT state:', panVatImageUrl);
       setPanVatImageUrl(authState.panVatImageUrl);
     }
-  }, [authState.panVatImageUrl, isUpdatingPanVat]); // Added isUpdatingPanVat to prevent conflicts
+  }, [authState.panVatImageUrl, isUpdatingPanVat]);
 
   // Initial sync from Redux state on component mount
   useEffect(() => {
     if (authState.panVatImageUrl && !panVatImageUrl && !isUpdatingPanVat) {
-      console.log('🔍 Initial sync PAN/VAT image from Redux state:', authState.panVatImageUrl);
       setPanVatImageUrl(authState.panVatImageUrl);
     }
-  }, []); // Run only on mount
+  }, []);
 
   // Load PAN/VAT image when restaurantId changes (e.g., after login)
   useEffect(() => {
     if (restaurantId && hasLoadedInitialData) {
-      console.log('🔍 Restaurant ID changed, reloading PAN/VAT image...');
-      console.log('🔍 Current PAN/VAT state:', panVatImageUrl);
       const fsSvc = createFirestoreService(restaurantId);
       fsSvc.getRestaurantInfo().then(info => {
-        console.log('🔍 Firestore PAN/VAT data:', info?.panVatImageUrl);
         if (info && info.panVatImageUrl) {
-          console.log('🔍 Reloading PAN/VAT image from Firestore:', info.panVatImageUrl);
           setPanVatImageUrl(info.panVatImageUrl);
         } else {
-          console.log('🔍 No PAN/VAT image in Firestore, setting to undefined');
           setPanVatImageUrl(undefined);
         }
       }).catch(e => console.warn('PAN/VAT reload failed', (e as Error).message));
     }
-  }, [restaurantId, hasLoadedInitialData]); // Removed panVatImageUrl from dependencies to prevent infinite loop
+  }, [restaurantId, hasLoadedInitialData]);
 
   useEffect(() => {
     if (!restaurantId || hasLoadedInitialData) return;
@@ -276,32 +241,22 @@ export default function OfficeManagementScreen() {
 
     // Initial load
     fsSvc.getRestaurantInfo().then(info => {
-      console.log('🔍 Office Management - Loaded restaurant info:', info);
       if (info) {
         setName(info.name || '');
         setOwnerName((info.ownerName || authUserName || '').toString());
         setPanVat(info.panVat || info.pan || info.vat || '');
-        console.log('🔍 Setting logoUrl to:', info.logoUrl);
-        console.log('🔍 Setting panVatImageUrl to:', info.panVatImageUrl);
-        console.log('🔍 PAN/VAT image URL details:', {
-          exists: !!info.panVatImageUrl,
-          length: info.panVatImageUrl?.length,
-          startsWith: info.panVatImageUrl?.substring(0, 20)
-        });
         
         // Set logo URL from Firestore, or fall back to Redux state
         const logoToSet = info.logoUrl || authState.logoUrl;
         setLogoUrl(logoToSet);
-        console.log('🔍 Logo URL set to:', logoToSet, '(from Firestore:', !!info.logoUrl, ', from Redux:', !!authState.logoUrl, ')');
         
         // Set PAN/VAT image URL from Firestore, or fall back to Redux state
         const panVatToSet = info.panVatImageUrl || authState.panVatImageUrl;
         setPanVatImageUrl(panVatToSet);
-        console.log('🔍 PAN/VAT image URL set to:', panVatToSet, '(from Firestore:', !!info.panVatImageUrl, ', from Redux:', !!authState.panVatImageUrl, ')');
+        
         setAddress(info.address || '');
         setContactNumber(info.contactNumber || info.phone || '');
         setHasLoadedInitialData(true);
-        console.log('🔍 Initial data loaded, flag set to true');
       }
     }).catch(e => console.warn('Office load failed', (e as Error).message));
 
@@ -349,7 +304,6 @@ export default function OfficeManagementScreen() {
   }, [restaurantId, authUserName, addListener, cleanup, isUpdatingImage, hasLoadedInitialData]);
 
   const pickImage = async (onPicked: (url: string) => void, isLogo: boolean = false) => {
-    console.log('📷 pickImage pressed. canEdit:', canEdit, 'isLogo:', isLogo);
     if (!canEdit) {
       Alert.alert('View only', 'Only owners and managers can change images.');
       return;
@@ -370,27 +324,20 @@ export default function OfficeManagementScreen() {
           if (!isLogo) {
             setIsUpdatingPanVat(true);
           }
-          console.log('📷 Converting selected image to base64...');
           const base64 = await ensureBase64FromAsset(result.assets[0]);
           const url = await uploadToImgbbBase64(base64);
-          console.log('📷 Upload success. URL:', url);
-          console.log('📷 URL length:', url.length);
-          console.log('📷 URL starts with:', url.substring(0, 20));
-          console.log('📷 URL ends with:', url.substring(url.length - 20));
           onPicked(url);
           // Update Redux state based on image type
           if (isLogo) {
             dispatch({ type: 'auth/setLogoUrl', payload: url });
-            console.log('📷 Logo updated in Redux state');
           } else {
             dispatch({ type: 'auth/setPanVatImageUrl', payload: url });
-            console.log('📷 PAN/VAT image updated in Redux state');
           }
           // Show success feedback
           const imageType = isLogo ? 'Logo' : 'PAN/VAT image';
-          Alert.alert('Success', `${imageType} selected successfully! You can see it in the circle above.`);
+          Alert.alert('Success', `${imageType} selected successfully!`);
         } catch (e) {
-          console.error('📷 Upload error:', e);
+          console.error('Upload error:', e);
           Alert.alert('Upload failed', (e as Error).message || 'Failed to upload image. Please try again.');
         } finally {
           setLoading(false);
@@ -407,7 +354,6 @@ export default function OfficeManagementScreen() {
   };
 
   const pickFromCamera = async (onPicked: (url: string) => void, isLogo: boolean = false) => {
-    console.log('📷 pickFromCamera pressed. canEdit:', canEdit, 'isLogo:', isLogo);
     if (!canEdit) {
       Alert.alert('View only', 'Only owners and managers can take images.');
       return;
@@ -427,27 +373,20 @@ export default function OfficeManagementScreen() {
           if (!isLogo) {
             setIsUpdatingPanVat(true);
           }
-          console.log('📷 Converting camera image to base64...');
           const base64 = await ensureBase64FromAsset(result.assets[0]);
           const url = await uploadToImgbbBase64(base64);
-          console.log('📷 Camera upload success. URL:', url);
-          console.log('📷 Camera URL length:', url.length);
-          console.log('📷 Camera URL starts with:', url.substring(0, 20));
-          console.log('📷 Camera URL ends with:', url.substring(url.length - 20));
           onPicked(url);
           // Update Redux state based on image type
           if (isLogo) {
             dispatch({ type: 'auth/setLogoUrl', payload: url });
-            console.log('📷 Logo updated in Redux state');
           } else {
             dispatch({ type: 'auth/setPanVatImageUrl', payload: url });
-            console.log('📷 PAN/VAT image updated in Redux state');
           }
           // Show success feedback
           const imageType = isLogo ? 'Logo' : 'PAN/VAT image';
-          Alert.alert('Success', `${imageType} captured successfully! You can see it in the circle above.`);
+          Alert.alert('Success', `${imageType} captured successfully!`);
         } catch (e) {
-          console.error('📷 Upload error:', e);
+          console.error('Upload error:', e);
           Alert.alert('Upload failed', (e as Error).message || 'Failed to upload image. Please try again.');
         } finally {
           setLoading(false);
@@ -478,20 +417,16 @@ export default function OfficeManagementScreen() {
         address: address.trim(),
         contactNumber: contactNumber.trim(),
       };
-      console.log('🔍 Office Management - Saving data:', saveData);
       await fs.createRestaurant(saveData);
-      console.log('🔍 Office Management - Save successful');
       
       // Update Redux state with the new logo URL
       if (logoUrl) {
         dispatch({ type: 'auth/setLogoUrl', payload: logoUrl });
-        console.log('🔍 Office Management - Updated Redux logoUrl:', logoUrl);
       }
       
       // Update Redux state with the new PAN/VAT image URL
       if (panVatImageUrl) {
         dispatch({ type: 'auth/setPanVatImageUrl', payload: panVatImageUrl });
-        console.log('🔍 Office Management - Updated Redux panVatImageUrl:', panVatImageUrl);
       }
       
       Alert.alert('Saved', 'Office details updated');
@@ -532,17 +467,6 @@ export default function OfficeManagementScreen() {
               <Image 
                 source={{ uri: logoUrl || authState.logoUrl }} 
                 style={styles.logoPreview}
-                onLoad={() => {
-                  console.log('📷 Logo preview loaded successfully:', logoUrl || authState.logoUrl);
-                  console.log('📷 Preview image should be 60x60');
-                  console.log('📷 Preview using URL from:', logoUrl ? 'local state' : 'auth state');
-                }}
-                onError={(error) => {
-                  console.error('📷 Logo preview load error:', error.nativeEvent.error);
-                  console.error('📷 Preview URL that failed:', logoUrl || authState.logoUrl);
-                }}
-                onLoadStart={() => console.log('📷 Logo preview loading started...')}
-                onLoadEnd={() => console.log('📷 Logo preview loading ended')}
               />
             </TouchableOpacity>
           ) : (
@@ -553,118 +477,6 @@ export default function OfficeManagementScreen() {
         </View>
       </View>
 
-      {/* Debug info - enhanced to debug image display issues */}
-      {__DEV__ && (
-        <View style={{ backgroundColor: colors.surface, padding: 8, marginBottom: 8, borderRadius: 4 }}>
-          <Text style={{ color: colors.textSecondary, fontSize: 10 }}>
-            Debug: Local logoUrl={logoUrl ? 'Set' : 'Not set'}, Auth logoUrl={authState.logoUrl ? 'Set' : 'Not set'}
-          </Text>
-          <Text style={{ color: colors.textSecondary, fontSize: 10 }}>
-            Local Logo URL: {logoUrl ? logoUrl.substring(0, 30) + '...' : 'None'}
-          </Text>
-          <Text style={{ color: colors.textSecondary, fontSize: 10 }}>
-            Auth Logo URL: {authState.logoUrl ? authState.logoUrl.substring(0, 30) + '...' : 'None'}
-          </Text>
-          <Text style={{ color: colors.textSecondary, fontSize: 10 }}>
-            PAN/VAT URL: {panVatImageUrl ? panVatImageUrl.substring(0, 30) + '...' : 'None'}
-          </Text>
-          <Text style={{ color: colors.textSecondary, fontSize: 10 }}>
-            Redux PAN/VAT URL: {authState.panVatImageUrl ? authState.panVatImageUrl.substring(0, 30) + '...' : 'None'}
-          </Text>
-          <Text style={{ color: colors.textSecondary, fontSize: 10 }}>
-            Loading: {loading ? 'Yes' : 'No'}, Updating: {isUpdatingImage ? 'Yes' : 'No'}
-          </Text>
-          <View style={{ flexDirection: 'row', gap: 4, marginTop: 4 }}>
-            <TouchableOpacity 
-              onPress={() => {
-                console.log('🧪 Testing with sample image URL...');
-                setLogoUrl('https://via.placeholder.com/96x96/ff6b35/ffffff?text=TEST');
-              }}
-              style={{ backgroundColor: colors.primary, padding: 4, borderRadius: 4, flex: 1 }}
-            >
-              <Text style={{ color: 'white', fontSize: 10, textAlign: 'center' }}>Test Sample</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              onPress={() => {
-                console.log('🔄 Syncing local state with auth state...');
-                if (authState.logoUrl) {
-                  setLogoUrl(authState.logoUrl);
-                  console.log('🔄 Synced logo URL from auth state:', authState.logoUrl);
-                }
-                if (authState.panVatImageUrl) {
-                  setPanVatImageUrl(authState.panVatImageUrl);
-                  console.log('🔄 Synced PAN/VAT URL from auth state:', authState.panVatImageUrl);
-                }
-              }}
-              style={{ backgroundColor: colors.surface2, padding: 4, borderRadius: 4, flex: 1 }}
-            >
-              <Text style={{ color: 'white', fontSize: 10, textAlign: 'center' }}>Sync Auth</Text>
-            </TouchableOpacity>
-          </View>
-          <View style={{ flexDirection: 'row', gap: 4, marginTop: 4 }}>
-            <TouchableOpacity 
-              onPress={() => {
-                console.log('🧪 Testing PAN/VAT with sample image URL...');
-                console.log('🧪 Setting panVatImageUrl to test URL');
-                setPanVatImageUrl('https://via.placeholder.com/96x96/4CAF50/ffffff?text=PAN');
-                console.log('🧪 PAN/VAT test URL set, should appear in circle');
-              }}
-              style={{ backgroundColor: colors.primary, padding: 4, borderRadius: 4, flex: 1 }}
-            >
-              <Text style={{ color: 'white', fontSize: 10, textAlign: 'center' }}>Test PAN/VAT</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              onPress={() => {
-                console.log('🔄 Reloading restaurant info...');
-                setHasLoadedInitialData(false); // Reset flag to allow reload
-                if (restaurantId) {
-                  const fsSvc = createFirestoreService(restaurantId);
-                  fsSvc.getRestaurantInfo().then(info => {
-                    console.log('🔄 Reloaded restaurant info:', info);
-                    if (info) {
-                      setLogoUrl(info.logoUrl || undefined);
-                      setPanVatImageUrl(info.panVatImageUrl || undefined);
-                      console.log('🔄 Reloaded logoUrl:', info.logoUrl);
-                      console.log('🔄 Reloaded panVatImageUrl:', info.panVatImageUrl);
-                    }
-                    setHasLoadedInitialData(true);
-                  }).catch(e => console.error('🔄 Reload failed:', e));
-                }
-              }}
-              style={{ backgroundColor: colors.surface2, padding: 4, borderRadius: 4, flex: 1 }}
-            >
-              <Text style={{ color: 'white', fontSize: 10, textAlign: 'center' }}>Reload Data</Text>
-            </TouchableOpacity>
-          </View>
-          <View style={{ flexDirection: 'row', gap: 4, marginTop: 4 }}>
-            <TouchableOpacity onPress={() => {
-              if (restaurantId) {
-                const fsSvc = createFirestoreService(restaurantId);
-                fsSvc.getRestaurantInfo().then(info => {
-                  console.log('🧪 Manual PAN/VAT reload:', info?.panVatImageUrl);
-                  setPanVatImageUrl(info?.panVatImageUrl || undefined);
-                }).catch(e => console.error('🧪 Manual PAN/VAT reload failed:', e));
-              }
-            }}>
-              <Text>Reload PAN/VAT</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => setPanVatImageUrl(undefined)}>
-              <Text>Clear PAN/VAT</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => {
-              console.log('🔄 Manual sync from Redux state...');
-              console.log('🔄 Redux PAN/VAT URL:', authState.panVatImageUrl);
-              console.log('🔄 Local PAN/VAT URL:', panVatImageUrl);
-              if (authState.panVatImageUrl) {
-                setPanVatImageUrl(authState.panVatImageUrl);
-                console.log('🔄 Synced PAN/VAT from Redux state');
-              }
-            }}>
-              <Text>Sync Redux</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
 
       <Text style={styles.label}>Restaurant Logo</Text>
       <Text style={styles.helpText}>💡 Long press to view and download</Text>
@@ -683,19 +495,6 @@ export default function OfficeManagementScreen() {
           <Image 
             source={{ uri: logoUrl || authState.logoUrl }} 
             style={styles.logo}
-            onLoad={() => {
-              console.log('📷 Logo image loaded successfully:', logoUrl || authState.logoUrl);
-              console.log('📷 Logo image dimensions should be 96x96');
-              console.log('📷 Using URL from:', logoUrl ? 'local state' : 'auth state');
-            }}
-            onError={(error) => {
-              console.error('📷 Logo image load error:', error.nativeEvent.error);
-              console.error('📷 Logo URL that failed:', logoUrl || authState.logoUrl);
-              console.error('📷 Logo URL length:', (logoUrl || authState.logoUrl)?.length);
-              console.error('📷 Logo URL starts with:', (logoUrl || authState.logoUrl)?.substring(0, 20));
-            }}
-            onLoadStart={() => console.log('📷 Logo image loading started...')}
-            onLoadEnd={() => console.log('📷 Logo image loading ended')}
           />
         ) : (
           <Text style={styles.logoPlaceholder}>Pick Logo</Text>
@@ -707,7 +506,7 @@ export default function OfficeManagementScreen() {
             <Text style={styles.secondaryBtnText}>Choose Logo</Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={() => pickFromCamera(setLogoUrl, true)} style={styles.secondaryBtnAlt}>
-            <Text style={styles.secondaryBtnText}>Use Camera</Text>
+            <Text style={styles.secondaryBtnAltText}>Use Camera</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -760,55 +559,19 @@ export default function OfficeManagementScreen() {
         {(panVatImageUrl || authState.panVatImageUrl) ? (
           <Image 
             source={{ uri: panVatImageUrl || authState.panVatImageUrl }} 
-            style={[styles.logo, { borderWidth: 2, borderColor: 'red' }]} // Add red border for debugging
-            onLoad={() => {
-              console.log('📷 PAN/VAT image loaded successfully:', panVatImageUrl || authState.panVatImageUrl);
-              console.log('📷 PAN/VAT image dimensions should be 96x96');
-              console.log('📷 Using URL from:', panVatImageUrl ? 'local state' : 'Redux state');
-            }}
-            onError={(error) => {
-              console.error('📷 PAN/VAT image load error:', error.nativeEvent.error);
-              console.error('📷 PAN/VAT URL that failed:', panVatImageUrl || authState.panVatImageUrl);
-              console.error('📷 PAN/VAT URL length:', (panVatImageUrl || authState.panVatImageUrl)?.length);
-              console.error('📷 PAN/VAT URL starts with:', (panVatImageUrl || authState.panVatImageUrl)?.substring(0, 20));
-            }}
-            onLoadStart={() => console.log('📷 PAN/VAT image loading started...')}
-            onLoadEnd={() => console.log('📷 PAN/VAT image loading ended')}
+            style={styles.logo}
           />
         ) : (
           <Text style={styles.logoPlaceholder}>Pick PAN/VAT Image</Text>
         )}
       </TouchableOpacity>
-      
-      {/* Debug PAN/VAT Image State */}
-      {__DEV__ && (
-        <View style={{ backgroundColor: colors.surface2, padding: 4, marginBottom: 8, borderRadius: 4 }}>
-          <Text style={{ color: colors.textSecondary, fontSize: 8 }}>
-            PAN/VAT Debug: {panVatImageUrl ? 'URL SET' : 'NO URL'} | Length: {panVatImageUrl?.length || 0}
-          </Text>
-          {panVatImageUrl && (
-            <Text style={{ color: colors.textSecondary, fontSize: 8 }}>
-              URL: {panVatImageUrl.substring(0, 40)}...
-            </Text>
-          )}
-          <TouchableOpacity 
-            onPress={() => {
-              console.log('🧪 Testing PAN/VAT with known working URL...');
-              setPanVatImageUrl('https://via.placeholder.com/96x96/4CAF50/ffffff?text=PAN');
-            }}
-            style={{ backgroundColor: colors.primary, padding: 2, borderRadius: 2, marginTop: 2 }}
-          >
-            <Text style={{ color: 'white', fontSize: 8, textAlign: 'center' }}>Test PAN/VAT Image</Text>
-          </TouchableOpacity>
-        </View>
-      )}
       {canEdit && (
         <View style={{ flexDirection: 'row', gap: 8 }}>
           <TouchableOpacity onPress={() => pickImage(setPanVatImageUrl, false)} style={styles.secondaryBtn}>
             <Text style={styles.secondaryBtnText}>Choose PAN/VAT Image</Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={() => pickFromCamera(setPanVatImageUrl, false)} style={styles.secondaryBtnAlt}>
-            <Text style={styles.secondaryBtnText}>Use Camera</Text>
+            <Text style={styles.secondaryBtnAltText}>Use Camera</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -895,82 +658,127 @@ export default function OfficeManagementScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  title: { fontSize: 22, fontWeight: '700', color: colors.textPrimary },
-  subtitle: { color: colors.textSecondary, marginTop: 4, marginBottom: spacing.md },
-  label: { color: colors.textPrimary, marginBottom: 6, marginTop: spacing.md },
-  helpText: { color: colors.textSecondary, fontSize: 12, marginBottom: spacing.sm, fontStyle: 'italic' },
+  title: { 
+    fontSize: 28, 
+    fontWeight: '700', 
+    color: colors.textPrimary,
+    marginBottom: 4,
+  },
+  subtitle: { 
+    color: colors.textSecondary, 
+    fontSize: 16,
+    marginBottom: spacing.xl,
+    lineHeight: 22,
+  },
+  label: { 
+    color: colors.textPrimary, 
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: spacing.sm, 
+    marginTop: spacing.lg,
+  },
+  helpText: { 
+    color: colors.textSecondary, 
+    fontSize: 13, 
+    marginBottom: spacing.sm, 
+    fontStyle: 'italic',
+  },
   input: {
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.outline,
-    borderRadius: radius.md,
-    padding: spacing.md,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
     color: colors.textPrimary,
+    fontSize: 16,
+    minHeight: 56,
   },
   card: {
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.outline,
     borderRadius: radius.lg,
-    padding: spacing.md,
+    padding: spacing.lg,
+    marginBottom: spacing.lg,
   },
   logoBox: {
-    height: 96,
-    width: 96,
-    borderRadius: 48,
+    height: 120,
+    width: 120,
+    borderRadius: 60,
     backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: colors.outline,
-    marginBottom: spacing.md,
+    marginBottom: spacing.lg,
+    alignSelf: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   logo: { 
-    height: 96, 
-    width: 96, 
-    borderRadius: 48,
+    height: 120, 
+    width: 120, 
+    borderRadius: 60,
     resizeMode: 'cover',
     backgroundColor: 'transparent'
   },
-  logoPlaceholder: { color: colors.textSecondary, fontSize: 12, textAlign: 'center', paddingHorizontal: spacing.xs },
+  logoPlaceholder: { 
+    color: colors.textSecondary, 
+    fontSize: 14, 
+    textAlign: 'center', 
+    paddingHorizontal: spacing.sm,
+    fontWeight: '500',
+  },
   previewSection: {
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.outline,
     borderRadius: radius.lg,
-    padding: spacing.md,
-    marginBottom: spacing.md,
+    padding: spacing.lg,
+    marginBottom: spacing.xl,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
   previewLabel: {
     color: colors.textPrimary,
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '600',
-    marginBottom: spacing.sm,
+    marginBottom: spacing.md,
+    textAlign: 'center',
   },
   logoPreviewContainer: {
     alignItems: 'center',
     justifyContent: 'center',
   },
   logoPreview: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     resizeMode: 'cover',
+    borderWidth: 2,
+    borderColor: colors.primary,
   },
   logoPreviewPlaceholder: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     backgroundColor: colors.surface2,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: colors.outline,
   },
   logoPreviewText: {
     color: colors.textSecondary,
-    fontSize: 10,
+    fontSize: 12,
     textAlign: 'center',
+    fontWeight: '500',
   },
   modalOverlay: {
     flex: 1,
@@ -1039,31 +847,61 @@ const styles = StyleSheet.create({
   },
   saveBtn: {
     backgroundColor: colors.primary,
-    borderRadius: radius.md,
-    padding: spacing.md,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
     alignItems: 'center',
-    marginTop: spacing.lg,
+    marginTop: spacing.xl,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
   },
-  saveText: { color: 'white', fontWeight: '600' },
+  saveText: { 
+    color: 'white', 
+    fontWeight: '700',
+    fontSize: 18,
+  },
   secondaryBtn: {
     backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.outline,
-    borderRadius: radius.md,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
+    borderWidth: 2,
+    borderColor: colors.primary,
+    borderRadius: radius.lg,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
     alignItems: 'center',
+    flex: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
   secondaryBtnAlt: {
-    backgroundColor: colors.surface2,
-    borderWidth: 1,
-    borderColor: colors.outline,
-    borderRadius: radius.md,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
+    backgroundColor: colors.primary,
+    borderWidth: 2,
+    borderColor: colors.primary,
+    borderRadius: radius.lg,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
     alignItems: 'center',
+    flex: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  secondaryBtnText: { color: colors.textPrimary, fontWeight: '500' },
+  secondaryBtnText: { 
+    color: colors.textPrimary, 
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  secondaryBtnAltText: { 
+    color: 'white', 
+    fontWeight: '600',
+    fontSize: 14,
+  },
 });
 
 

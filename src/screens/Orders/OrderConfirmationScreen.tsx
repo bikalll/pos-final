@@ -18,6 +18,7 @@ import { RootState } from '../../redux/storeFirebase';
 import { PrintService } from '../../services/printing';
 import { blePrinter } from '../../services/blePrinter';
 import { removeItem, updateItemQuantity, markOrderSaved, snapshotSavedQuantities, cancelOrder, changeOrderTable, applyDiscount, applyItemDiscount, removeItemDiscount, setOrderCustomer, markOrderReviewed, markOrderUnsaved, setOrderSpecialInstructions, updateOrderTableInFirebase } from '../../redux/slices/ordersSliceFirebase';
+import { cleanupCustomersByRestaurant } from '../../redux/slices/customersSlice';
 // Removed direct customer mutations here; selection will use existing customers only
 import * as Sharing from 'expo-sharing';
 import { createFirestoreService } from '../../services/firestoreService';
@@ -103,6 +104,11 @@ const OrderConfirmationScreen: React.FC = () => {
 
   // Load Firebase tables
   useEffect(() => {
+    // Clean up customers that don't belong to current restaurant
+    if (restaurantId) {
+      dispatch(cleanupCustomersByRestaurant(restaurantId));
+    }
+    
     const loadTables = async () => {
       if (!restaurantId) return;
       
@@ -1250,20 +1256,32 @@ const OrderConfirmationScreen: React.FC = () => {
             </View>
             {/* Customer List */}
             <View style={{ maxHeight: 280, marginBottom: spacing.md }}>
-              {Object.values(customersById as any).length === 0 ? (
-                <Text style={{ color: colors.textSecondary }}>No customers found. Add customers in the Customers section first.</Text>
-              ) : (
-                <ScrollView>
-                  {Object.values(customersById as any)
-                    .filter((c: any) => {
-                      const q = customerSearch.trim().toLowerCase();
-                      if (!q) return true;
-                      return (
-                        (c.name || '').toLowerCase().includes(q) ||
-                        (c.phone || '').toLowerCase().includes(q)
-                      );
-                    })
-                    .map((c: any) => {
+              {(() => {
+                // Filter customers by restaurant and ensure they're active
+                const allCustomers = Object.values(customersById as any);
+                
+                // Additional safety: filter by restaurantId to prevent cross-account leakage
+                const filteredCustomers = allCustomers.filter((c: any) => {
+                  // Only show customers that belong to current restaurant
+                  return !c.restaurantId || c.restaurantId === restaurantId;
+                });
+                
+                if (filteredCustomers.length === 0) {
+                  return <Text style={{ color: colors.textSecondary }}>No customers found. Add customers in the Customers section first.</Text>;
+                }
+                
+                return (
+                  <ScrollView>
+                    {filteredCustomers
+                      .filter((c: any) => {
+                        const q = customerSearch.trim().toLowerCase();
+                        if (!q) return true;
+                        return (
+                          (c.name || '').toLowerCase().includes(q) ||
+                          (c.phone || '').toLowerCase().includes(q)
+                        );
+                      })
+                      .map((c: any) => {
                       const isSelected = selectedCustomerId === c.id;
                       return (
                         <TouchableOpacity
@@ -1286,8 +1304,9 @@ const OrderConfirmationScreen: React.FC = () => {
                         </TouchableOpacity>
                       );
                     })}
-                </ScrollView>
-              )}
+                  </ScrollView>
+                );
+              })()}
             </View>
             <View style={styles.modalActions}>
               <TouchableOpacity

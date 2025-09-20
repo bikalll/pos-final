@@ -350,7 +350,7 @@ export const blePrinter = {
 			await BluetoothEscposPrinter.printerInit();
 			await BluetoothEscposPrinter.printerAlign(getAlignment('LEFT'));
 			await BluetoothEscposPrinter.printText(text + '\n', { encoding: 'GBK' });
-			await BluetoothEscposPrinter.printAndFeed(6); // 0.7cm space below general text prints
+			await BluetoothEscposPrinter.printAndFeed(26); // 3cm space below general text prints to prevent paper getting stuck in printer
 		} catch (error) {
 			console.error('Print text failed:', error);
 			throw new Error(`Print failed: ${error}`);
@@ -424,7 +424,7 @@ export const blePrinter = {
 			printContent += '\nThank you!\n';
 			
 			await BluetoothEscposPrinter.printText(printContent, { encoding: 'GBK' });
-			await BluetoothEscposPrinter.printAndFeed(6); // 0.7cm space below simple receipt
+			await BluetoothEscposPrinter.printAndFeed(26); // 3cm space below simple receipt to prevent paper getting stuck in printer
 			
 			console.log('✅ Simple receipt print completed successfully');
 		} catch (error) {
@@ -553,7 +553,7 @@ export const blePrinter = {
 				} else {
 					printContent += '\nThank you\n';
 				}
-				printContent += 'Powered by ARBI POS\n';
+				printContent += 'Powered by House of Job Pvt. Ltd\n';
 				
 				printContent += `Ref Number: ${data.receiptId}\n`;
 				
@@ -677,36 +677,26 @@ export const blePrinter = {
 			await BluetoothEscposPrinter.printText(`TOTAL: ${data.total.toFixed(1)}\n`, { widthtimes: 1, heighttimes: 1 });
 			
 			// Enhanced payment display for split payments with credit
-			if (data.payment && data.payment.method === 'Split' && Array.isArray(data.splitPayments) && data.splitPayments.length > 0) {
-				// Calculate credit amount
-				const creditAmount = data.splitPayments
-					.filter((sp: any) => sp.method === 'Credit')
+			if (Array.isArray(data.splitPayments) && data.splitPayments.length > 0) {
+				// Calculate total split amount
+				const totalSplitAmount = data.splitPayments
 					.reduce((sum: number, sp: any) => sum + (Number(sp.amount) || 0), 0);
 				
-				const cashAmount = data.splitPayments
-					.filter((sp: any) => sp.method !== 'Credit')
-					.reduce((sum: number, sp: any) => sum + (Number(sp.amount) || 0), 0);
-				
-				await BluetoothEscposPrinter.printText(`Order Total: ${data.total.toFixed(1)}\n`, {});
-				await BluetoothEscposPrinter.printText(`Amount Paid: ${cashAmount.toFixed(1)}\n`, {});
-				if (creditAmount > 0) {
-					await BluetoothEscposPrinter.printText(`Credit Amount: ${creditAmount.toFixed(1)}\n`, {});
-				}
-				
-				// Print split breakdown
-				await BluetoothEscposPrinter.printText('Split Breakdown:\n', {});
+				// Show each payment method individually
 				for (const sp of data.splitPayments) {
 					await BluetoothEscposPrinter.printText(`${sp.method}: ${sp.amount.toFixed(1)}\n`, {});
+				}
+				
+				// Calculate and show change
+				const change = Math.max(0, totalSplitAmount - data.total);
+				if (change > 0) {
+					await BluetoothEscposPrinter.printText(`Change: ${change.toFixed(1)}\n`, {});
 				}
 			} else if (data.payment) {
 				await BluetoothEscposPrinter.printText(`${data.payment.method}: ${data.payment.amountPaid.toFixed(1)}\n`, {});
 			}
-			// Print split breakdown if present (legacy support)
-			if (Array.isArray(data.splitPayments) && data.splitPayments.length > 0 && (!data.payment || data.payment.method !== 'Split')) {
-				for (const sp of data.splitPayments) {
-					await BluetoothEscposPrinter.printText(`${sp.method}: ${sp.amount.toFixed(1)}\n`, {});
-				}
-			} else if (data.isPreReceipt) {
+			// Print pre-receipt payment info
+			if (data.isPreReceipt) {
 				await BluetoothEscposPrinter.printText('Payment: Pending\n', {});
 				await BluetoothEscposPrinter.printText('Amount Due: Rs. ' + data.total.toFixed(1) + '\n', {});
 			}
@@ -723,9 +713,9 @@ export const blePrinter = {
 				await BluetoothEscposPrinter.printText('\n', {});
 				await BluetoothEscposPrinter.printText('Thank you\n', { widthtimes: 1, heighttimes: 1 });
 			}
-			await BluetoothEscposPrinter.printText('Powered by ARBI POS\n', {});
+			await BluetoothEscposPrinter.printText('Powered by House of Job Pvt. Ltd\n', {});
 			await BluetoothEscposPrinter.printText(`Ref Number: ${data.receiptId}\n`, {});
-			await BluetoothEscposPrinter.printAndFeed(6); // 0.7cm space below receipt
+			await BluetoothEscposPrinter.printAndFeed(26); // 3cm space below receipt to prevent paper getting stuck in printer
 		} catch (error) {
 			console.error('Print receipt failed:', error);
 			// Try fallback methods if Bluetooth fails
@@ -843,14 +833,14 @@ export const blePrinter = {
 			if (data.processedBy) {
 				if (typeof data.processedBy === 'object' && data.processedBy.role && data.processedBy.username) {
 					// New format: {role: "Staff", username: "John"}
-					await BluetoothEscposPrinter.printText(`${data.processedBy.role} - ${data.processedBy.username}\n`, {});
+					await BluetoothEscposPrinter.printText(`Processed By: ${data.processedBy.role} - ${data.processedBy.username}\n`, {});
 				} else if (typeof data.processedBy === 'string') {
 					// Old format: just username string, check for separate role field
 					const role = data.role || 'Staff';
-					await BluetoothEscposPrinter.printText(`${role} - ${data.processedBy}\n`, {});
+					await BluetoothEscposPrinter.printText(`Processed By: ${role} - ${data.processedBy}\n`, {});
 				} else if (data.processedBy.role) {
 					// Partial format: {role: "Staff"}
-					await BluetoothEscposPrinter.printText(`${data.processedBy.role} - Unknown\n`, {});
+					await BluetoothEscposPrinter.printText(`Processed By: ${data.processedBy.role} - Unknown\n`, {});
 				}
 			} else if (data.stewardName) {
 				await BluetoothEscposPrinter.printText(`Steward: ${data.stewardName}\n`, {});
@@ -878,7 +868,7 @@ export const blePrinter = {
 			
 			// Feed paper
 			console.log('🖨️ Feeding paper...');
-			await BluetoothEscposPrinter.printAndFeed(6); // 0.7cm space below KOT
+			await BluetoothEscposPrinter.printAndFeed(26); // 3cm space below KOT to prevent paper getting stuck in printer
 			
 			console.log('✅ KOT print completed successfully');
 		} catch (error) {
@@ -925,7 +915,7 @@ export const blePrinter = {
 			await BluetoothEscposPrinter.printText('------------------------------\n', {});
 			await BluetoothEscposPrinter.printText(`Total Entries: ${data.totalCount}\n`, {});
 			await BluetoothEscposPrinter.printText(`Total Amount: ${data.totalAmount.toFixed(2)}\n`, { widthtimes: 1, heighttimes: 1 });
-			await BluetoothEscposPrinter.printAndFeed(6); // 0.7cm space below customer history
+			await BluetoothEscposPrinter.printAndFeed(26); // 3cm space below customer history to prevent paper getting stuck in printer
 		} catch (e) {
 			throw new Error(`Customer history print failed: ${e}`);
 		}
@@ -958,7 +948,7 @@ export const blePrinter = {
 			}
 			await BluetoothEscposPrinter.printText('------------------------------\n', {});
 			await BluetoothEscposPrinter.printText(`TOTAL DUE: ${data.totalAmount.toFixed(2)}\n`, { widthtimes: 1, heighttimes: 1 });
-			await BluetoothEscposPrinter.printAndFeed(6); // 0.7cm space below credit statement
+			await BluetoothEscposPrinter.printAndFeed(26); // 3cm space below credit statement to prevent paper getting stuck in printer
 		} catch (e) {
 			throw new Error(`Credit statement print failed: ${e}`);
 		}
@@ -979,7 +969,7 @@ export const blePrinter = {
 		netSales: number;
 		salesByType: Array<{ type: string; count: number; amount: number }>;
 		paymentsNet: Array<{ type: string; amount: number }>;
-		audit?: { preReceiptCount?: number; receiptReprintCount?: number; voidReceiptCount?: number; totalVoidItemCount?: number };
+		audit?: { preReceiptCount?: number; receiptReprintCount?: number; voidReceiptCount?: number; totalVoidItemCount?: number; cancelledOrdersCount?: number };
 		firstReceipt?: { reference: string; sequence?: string; time: string; netAmount: number };
 		lastReceipt?: { reference: string; sequence?: string; time: string; netAmount: number };
 	}): Promise<void> {
@@ -1028,6 +1018,7 @@ export const blePrinter = {
 			lines.push(`Pre Receipt Print Count  ${String(audit.preReceiptCount || 0)}`);
 			lines.push(`Receipt Re-print Count   ${String(audit.receiptReprintCount || 0)}`);
 			lines.push(`Void Receipt Count       ${String(audit.voidReceiptCount || 0)}`);
+			lines.push(`Cancelled Orders Count   ${String(audit.cancelledOrdersCount || 0)}`);
 			lines.push(`Total Void Item Count    ${String(audit.totalVoidItemCount || 0)}`);
 			lines.push('');
 			if (data.firstReceipt) {
@@ -1087,6 +1078,9 @@ export const blePrinter = {
 				const count = String(s.count).padStart(5);
 				const amt = s.amount.toFixed(1).padStart(9);
 				await BluetoothEscposPrinter.printText(`${type}${count} ${amt}\n`, {});
+				
+				// Split payments are now included in individual payment method totals
+				// No need to show split breakdown in summary
 			}
 			await BluetoothEscposPrinter.printText('Total Payments Received (Net)\n', {});
 			await BluetoothEscposPrinter.printText('Type               Amount\n', {});
@@ -1101,6 +1095,7 @@ export const blePrinter = {
 			await BluetoothEscposPrinter.printText(`Pre Receipt Print Count  ${String(audit.preReceiptCount || 0)}\n`, {});
 			await BluetoothEscposPrinter.printText(`Receipt Re-print Count   ${String(audit.receiptReprintCount || 0)}\n`, {});
 			await BluetoothEscposPrinter.printText(`Void Receipt Count       ${String(audit.voidReceiptCount || 0)}\n`, {});
+			await BluetoothEscposPrinter.printText(`Cancelled Orders Count   ${String(audit.cancelledOrdersCount || 0)}\n`, {});
 			await BluetoothEscposPrinter.printText(`Total Void Item Count    ${String(audit.totalVoidItemCount || 0)}\n`, {});
 			await BluetoothEscposPrinter.printText('------------------------------\n', {});
 			if (data.firstReceipt) {
@@ -1119,7 +1114,7 @@ export const blePrinter = {
 			}
 			await BluetoothEscposPrinter.printText('------------------------------\n', {});
 			await BluetoothEscposPrinter.printText('-- End --\n', {});
-			await BluetoothEscposPrinter.printAndFeed(6); // 0.7cm space below daily summary
+			await BluetoothEscposPrinter.printAndFeed(26); // 3cm space below daily summary to prevent paper getting stuck in printer
 		} catch (error) {
 			console.error('Daily summary print failed:', error);
 			throw new Error(`Daily summary print failed: ${error}`);
@@ -1229,14 +1224,14 @@ export const blePrinter = {
 			if (data.processedBy) {
 				if (typeof data.processedBy === 'object' && data.processedBy.role && data.processedBy.username) {
 					// New format: {role: "Staff", username: "John"}
-					await BluetoothEscposPrinter.printText(`${data.processedBy.role} - ${data.processedBy.username}\n`, {});
+					await BluetoothEscposPrinter.printText(`Processed By: ${data.processedBy.role} - ${data.processedBy.username}\n`, {});
 				} else if (typeof data.processedBy === 'string') {
 					// Old format: just username string, check for separate role field
 					const role = data.role || 'Staff';
-					await BluetoothEscposPrinter.printText(`${role} - ${data.processedBy}\n`, {});
+					await BluetoothEscposPrinter.printText(`Processed By: ${role} - ${data.processedBy}\n`, {});
 				} else if (data.processedBy.role) {
 					// Partial format: {role: "Staff"}
-					await BluetoothEscposPrinter.printText(`${data.processedBy.role} - Unknown\n`, {});
+					await BluetoothEscposPrinter.printText(`Processed By: ${data.processedBy.role} - Unknown\n`, {});
 				}
 			} else {
 				await BluetoothEscposPrinter.printText('Processed By: Staff\n', {});
@@ -1263,7 +1258,7 @@ export const blePrinter = {
 			
 			// Feed paper
 			console.log('🖨️ Feeding paper...');
-			await BluetoothEscposPrinter.printAndFeed(6); // 0.7cm space below BOT
+			await BluetoothEscposPrinter.printAndFeed(26); // 3cm space below BOT to prevent paper getting stuck in printer
 			
 			console.log('✅ BOT print completed successfully');
 		} catch (error) {
@@ -1334,7 +1329,7 @@ export const blePrinter = {
 			printContent += `${new Date().toLocaleTimeString()}\n`;
 			
 			await BluetoothEscposPrinter.printText(printContent, { encoding: 'GBK' });
-			await BluetoothEscposPrinter.printAndFeed(6); // 0.7cm space below simple KOT
+			await BluetoothEscposPrinter.printAndFeed(26); // 3cm space below simple KOT to prevent paper getting stuck in printer
 			
 			console.log('✅ Simple KOT print completed successfully');
 		} catch (error) {
@@ -1398,7 +1393,7 @@ export const blePrinter = {
 			printContent += `${new Date().toLocaleTimeString()}\n`;
 			
 			await BluetoothEscposPrinter.printText(printContent, { encoding: 'GBK' });
-			await BluetoothEscposPrinter.printAndFeed(6); // 0.7cm space below simple BOT
+			await BluetoothEscposPrinter.printAndFeed(26); // 3cm space below simple BOT to prevent paper getting stuck in printer
 			
 			console.log('✅ Simple BOT print completed successfully');
 		} catch (error) {
@@ -1499,7 +1494,7 @@ export const blePrinter = {
 			// Test 2: Receipt print
 			try {
 				await this.printReceipt({
-					restaurantName: 'ARBI POS',
+					restaurantName: 'House of Job Pvt. Ltd',
 					receiptId: 'TEST-001',
 					date: new Date().toLocaleDateString(),
 					time: new Date().toLocaleTimeString(),
@@ -1526,7 +1521,7 @@ export const blePrinter = {
 			// Test 3: KOT print
 			try {
 				await this.printKOT({
-					restaurantName: 'ARBI POS',
+					restaurantName: 'House of Job Pvt. Ltd',
 					ticketId: 'KOT-TEST-001',
 					date: new Date().toLocaleDateString(),
 					time: new Date().toLocaleTimeString(),
@@ -1546,7 +1541,7 @@ export const blePrinter = {
 			// Test 4: BOT print
 			try {
 				await this.printBOT({
-					restaurantName: 'ARBI POS',
+					restaurantName: 'House of Job Pvt. Ltd',
 					ticketId: 'BOT-TEST-001',
 					date: new Date().toLocaleDateString(),
 					time: new Date().toLocaleTimeString(),
@@ -1566,7 +1561,7 @@ export const blePrinter = {
 			// Test 5: Combined tickets print
 			try {
 				await this.printCombinedTickets({
-					restaurantName: 'ARBI POS',
+					restaurantName: 'House of Job Pvt. Ltd',
 					ticketId: 'COMBO-TEST-001',
 					date: new Date().toLocaleDateString(),
 					time: new Date().toLocaleTimeString(),

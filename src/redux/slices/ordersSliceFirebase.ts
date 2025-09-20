@@ -6,6 +6,7 @@ const generateId = () => {
 };
 import { Order, OrderItem, PaymentInfo } from "../../utils/types";
 import { getFirebaseService } from "../../services/firebaseService";
+import { validateInventoryAvailability } from "../../utils/inventoryUtils";
 
 export type OrdersState = {
   ordersById: Record<string, Order>;
@@ -13,6 +14,11 @@ export type OrdersState = {
   completedOrderIds: string[];
   isLoading: boolean;
   error: string | null;
+  inventoryValidation: Record<string, {
+    isValid: boolean;
+    warnings: Array<{ ingredient: string; required: number; available: number; menuItem: string }>;
+    errors: Array<{ ingredient: string; required: number; available: number; menuItem: string }>;
+  }>;
 };
 
 const initialState: OrdersState = {
@@ -21,6 +27,7 @@ const initialState: OrdersState = {
   completedOrderIds: [],
   isLoading: false,
   error: null,
+  inventoryValidation: {},
 };
 
 // Async thunks for Firebase operations
@@ -89,6 +96,35 @@ export const updateOrderTableInFirebase = createAsyncThunk(
       return { orderId, newTableId };
     } catch (error) {
       return rejectWithValue(error instanceof Error ? error.message : 'Failed to update order table');
+    }
+  }
+);
+
+export const validateOrderInventory = createAsyncThunk(
+  'orders/validateOrderInventory',
+  async ({ orderId }: { orderId: string }, { getState, rejectWithValue }) => {
+    try {
+      const state = getState() as any;
+      const order = state.orders.ordersById[orderId];
+      const menuItems = state.menu.itemsById || {};
+      const inventoryItems = state.inventory.itemsById || {};
+      
+      if (!order) {
+        throw new Error('Order not found');
+      }
+      
+      const validation = validateInventoryAvailability(
+        order.items || [],
+        menuItems,
+        inventoryItems
+      );
+      
+      return {
+        orderId,
+        validation
+      };
+    } catch (error) {
+      return rejectWithValue(error instanceof Error ? error.message : 'Failed to validate inventory');
     }
   }
 );
@@ -217,10 +253,8 @@ const ordersSlice = createSlice({
         cancelledBy: action.payload.cancelledBy,
       };
 
-      // If cancelled with void reason, mark for inventory restoration
-      if (action.payload.reason === 'void') {
-        (order as any).needsInventoryRestoration = true;
-      }
+      // Mark for inventory restoration for all cancelled orders
+      (order as any).needsInventoryRestoration = true;
 
       // Remove from ongoing orders
       state.ongoingOrderIds = state.ongoingOrderIds.filter(
@@ -440,6 +474,13 @@ const ordersSlice = createSlice({
       })
       .addCase(updateOrderTableInFirebase.rejected, (state, action) => {
         state.isLoading = false;
+        state.error = action.payload as string;
+      })
+      .addCase(validateOrderInventory.fulfilled, (state, action) => {
+        const { orderId, validation } = action.payload;
+        state.inventoryValidation[orderId] = validation;
+      })
+      .addCase(validateOrderInventory.rejected, (state, action) => {
         state.error = action.payload as string;
       });
   },

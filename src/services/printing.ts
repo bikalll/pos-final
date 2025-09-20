@@ -158,7 +158,7 @@ export function generateReceiptHTML(receipt: ReceiptData): string {
     </head>
     <body>
       <div class="header">
-        <div class="logo">ARBI POS</div>
+        <div class="logo">House of Job Pvt. Ltd</div>
         <div>Restaurant Management System</div>
         <div>${receipt.date} - ${receipt.time}</div>
       </div>
@@ -658,7 +658,7 @@ export class PrintService {
 
       // Print via Bluetooth
       await blePrinter.printKOT({
-        restaurantName: 'ARBI POS',
+        restaurantName: 'House of Job Pvt. Ltd',
         ticketId: `KOT-${Date.now()}`,
         date: new Date(order.createdAt).toLocaleDateString(),
         time: new Date(order.createdAt).toLocaleTimeString(),
@@ -672,7 +672,8 @@ export class PrintService {
             orderType: item.orderType
           })),
         estimatedTime: '20-30 minutes',
-        specialInstructions: order.specialInstructions
+        specialInstructions: order.specialInstructions,
+        processedBy: order.processedBy
       });
 
       return {
@@ -722,7 +723,7 @@ export class PrintService {
 
       // Print via Bluetooth
       await blePrinter.printBOT({
-        restaurantName: 'ARBI POS',
+        restaurantName: 'House of Job Pvt. Ltd',
         ticketId: `BOT-${Date.now()}`,
         date: new Date(order.createdAt).toLocaleDateString(),
         time: new Date(order.createdAt).toLocaleTimeString(),
@@ -736,7 +737,8 @@ export class PrintService {
             orderType: item.orderType
           })),
         estimatedTime: '5-10 minutes',
-        specialInstructions: order.specialInstructions
+        specialInstructions: order.specialInstructions,
+        processedBy: order.processedBy
       });
 
       return {
@@ -787,7 +789,7 @@ export class PrintService {
       // The connection status is already checked above via checkPrinterConnection()
 
       // Load restaurant info for header
-      let restaurantName = 'ARBI POS';
+      let restaurantName = 'House of Job Pvt. Ltd';
       let address: string | undefined;
       let panVat: string | undefined;
       let stewardName: string | undefined;
@@ -929,6 +931,7 @@ export class PrintService {
       const total = subtotal + tax + serviceCharge - discount;
 
       // Ensure processedBy is in the correct format for pre-receipt
+      const { store } = await import('../redux/storeFirebase');
       const state: any = (store as any)?.getState?.() || {};
       const processedBy = {
         role: state?.auth?.role || 'Staff',
@@ -936,7 +939,7 @@ export class PrintService {
       };
 
       const receiptData = {
-        restaurantName: 'ARBI POS',
+        restaurantName: 'House of Job Pvt. Ltd',
         receiptId: `PR${Date.now()}`,
         date: new Date(order.createdAt).toLocaleDateString(),
         time: new Date(order.createdAt).toLocaleTimeString(),
@@ -1041,7 +1044,7 @@ export class PrintService {
 
       // Print via Bluetooth
       await blePrinter.printCombinedTickets({
-        restaurantName: 'ARBI POS',
+        restaurantName: 'House of Job Pvt. Ltd',
         ticketId: `TKT-${Date.now()}`,
         date: new Date(order.createdAt).toLocaleDateString(),
         time: new Date(order.createdAt).toLocaleTimeString(),
@@ -1137,7 +1140,7 @@ export class PrintService {
         </head>
         <body>
           <div class="header">KITCHEN ORDER TICKET</div>
-          <div class="header">ARBI POS</div>
+          <div class="header">House of Job Pvt. Ltd</div>
           <div class="divider"></div>
           <div>Ticket #${data.ticketId}</div>
           <div>Date: ${data.date} Time: ${data.time}</div>
@@ -1172,7 +1175,7 @@ export class PrintService {
         </head>
         <body>
           <div class="header">BAR ORDER TICKET</div>
-          <div class="header">ARBI POS</div>
+          <div class="header">House of Job Pvt. Ltd</div>
           <div class="divider"></div>
           <div>Ticket #${data.ticketId}</div>
           <div>Date: ${data.date} Time: ${data.time}</div>
@@ -1216,7 +1219,7 @@ export class PrintService {
       html += `
         <div class="section">
           <div class="header">KITCHEN ORDER TICKET</div>
-          <div class="header">ARBI POS</div>
+          <div class="header">House of Job Pvt. Ltd</div>
           <div class="divider"></div>
           <div>Ticket #${data.ticketId}</div>
           <div>Date: ${data.date} Time: ${data.time}</div>
@@ -1239,7 +1242,7 @@ export class PrintService {
       html += `
         <div class="section">
           <div class="header">BAR ORDER TICKET</div>
-          <div class="header">ARBI POS</div>
+          <div class="header">House of Job Pvt. Ltd</div>
           <div class="divider"></div>
           <div>Ticket #${data.ticketId}</div>
           <div>Date: ${data.date} Time: ${data.time}</div>
@@ -1300,14 +1303,14 @@ export class PrintService {
       if (data.processedBy) {
         if (typeof data.processedBy === 'object' && data.processedBy.role && data.processedBy.username) {
           // New format: {role: "Staff", username: "John"}
-          text += `${data.processedBy.role} - ${data.processedBy.username}\n`;
+          text += `Processed By: ${data.processedBy.role} - ${data.processedBy.username}\n`;
         } else if (typeof data.processedBy === 'string') {
           // Old format: just username string, check for separate role field
           const role = data.role || 'Staff';
-          text += `${role} - ${data.processedBy}\n`;
+          text += `Processed By: ${role} - ${data.processedBy}\n`;
         } else if (data.processedBy.role) {
           // Partial format: {role: "Staff"}
-          text += `${data.processedBy.role} - Unknown\n`;
+          text += `Processed By: ${data.processedBy.role} - Unknown\n`;
         }
       } else {
         text += 'Processed By: Staff\n';

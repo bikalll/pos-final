@@ -175,7 +175,7 @@ const PrinterTroubleshooter: React.FC = () => {
       
       try {
         const testData = {
-          restaurantName: 'ARBI POS',
+          restaurantName: 'House of Job Pvt. Ltd',
           receiptId: `TEST-${Date.now()}`,
           date: new Date().toLocaleDateString(),
           time: new Date().toLocaleTimeString(),

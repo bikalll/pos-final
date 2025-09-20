@@ -45,7 +45,7 @@ const PrintDebugComponent: React.FC = () => {
       console.log('🖨️ Testing KOT print...');
       
       const testData = {
-        restaurantName: 'ARBI POS',
+        restaurantName: 'House of Job Pvt. Ltd',
         ticketId: `TEST-KOT-${Date.now()}`,
         date: new Date().toLocaleDateString(),
         time: new Date().toLocaleTimeString(),
@@ -74,7 +74,7 @@ const PrintDebugComponent: React.FC = () => {
       console.log('🖨️ Testing Receipt print...');
       
       const testData = {
-        restaurantName: 'ARBI POS',
+        restaurantName: 'House of Job Pvt. Ltd',
         receiptId: `TEST-R-${Date.now()}`,
         date: new Date().toLocaleDateString(),
         time: new Date().toLocaleTimeString(),

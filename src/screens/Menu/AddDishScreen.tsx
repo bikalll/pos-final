@@ -171,7 +171,7 @@ const AddDishScreen: React.FC = () => {
         category: formData.category,
         image: formData.image,
         ingredients: ingredients
-          .filter(ing => ing.name.trim() && ing.quantity.trim())
+          .filter(ing => ing.name.trim() && Number(ing.quantity) > 0)
           .map(ing => ({ name: ing.name.trim(), quantity: Number(ing.quantity), unit: ing.unit || 'pcs' })),
         restaurantId,
         orderType: formData.orderType,
@@ -218,7 +218,7 @@ const AddDishScreen: React.FC = () => {
   };
 
   const addIngredient = () => {
-    if (newIngredient.name.trim() && newIngredient.quantity.trim()) {
+    if (newIngredient.name.trim() && Number(newIngredient.quantity) > 0) {
       setIngredients(prev => [...prev, { ...newIngredient }]);
       setNewIngredient({ name: '', quantity: '', unit: '' });
       setShowIngredientDropdown(false);

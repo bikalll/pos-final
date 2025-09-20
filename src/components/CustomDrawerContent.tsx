@@ -240,7 +240,7 @@ const CustomDrawerContent: React.FC<DrawerContentComponentProps> = ({ navigation
             <Feather name="log-out" size={18} color={colors.textSecondary} />
           </TouchableOpacity>
         </View>
-        <Text style={styles.powered}>Powered by Arbi POS</Text>
+        <Text style={styles.powered}>Powered by House of Job Pvt. Ltd</Text>
       </View>
     </View>
   );

@@ -131,7 +131,26 @@ export class ExcelExporter {
     lines.push('--- Sales ---');
     lines.push('Type,Count,Amount');
     data.paymentMethods.forEach(pm => {
-      lines.push(`${pm.method.toUpperCase()},${pm.count},${pm.amount.toFixed(1)}`);
+      // Format split payments to show breakdown
+      if (pm.method === 'Split') {
+        lines.push(`Split,${pm.count},${pm.amount.toFixed(1)}`);
+        
+        // Add split breakdown if available
+        if (pm.splitBreakdown && Array.isArray(pm.splitBreakdown)) {
+          pm.splitBreakdown.forEach((split: any) => {
+            lines.push(`  ${split.method}:,${split.count || 0},${split.amount.toFixed(1)}`);
+          });
+        } else {
+          // Fallback: get breakdown from other payment methods
+          data.paymentMethods.forEach(p => {
+            if (p.method !== 'Split' && p.amount > 0) {
+              lines.push(`  ${p.method.toUpperCase()}:,0,${p.amount.toFixed(1)}`);
+            }
+          });
+        }
+      } else {
+        lines.push(`${pm.method.toUpperCase()},${pm.count},${pm.amount.toFixed(1)}`);
+      }
     });
     // Add total row
     const totalCount = data.paymentMethods.reduce((sum, pm) => sum + pm.count, 0);
@@ -139,11 +158,14 @@ export class ExcelExporter {
     lines.push(`TOTAL,${totalCount},${totalAmount.toFixed(1)}`);
     lines.push('');
     
-    // Total Payments Received (Net) section
+    // Total Payments Received (Net) section - exclude split, only show individual methods
     lines.push('Total Payments Received (Net)');
     lines.push('Type,Amount');
     data.paymentMethods.forEach(pm => {
-      lines.push(`${pm.method.toUpperCase()},${pm.amount.toFixed(1)}`);
+      // Skip split payments in total payments received section
+      if (pm.method !== 'Split') {
+        lines.push(`${pm.method.toUpperCase()},${pm.amount.toFixed(1)}`);
+      }
     });
     lines.push('');
     
@@ -219,26 +241,68 @@ export class ExcelExporter {
         return sum + amount;
       }, 0);
       
-      // Group by payment method
+      // Group by payment method, handling split payments
       const paymentMethodsMap = new Map<string, { count: number; amount: number }>();
       receipts.forEach(receipt => {
         const amount = parseFloat(receipt.amount.replace('Rs ', '')) || 0;
         const method = receipt.paymentMethod || 'Unknown';
         
-        if (paymentMethodsMap.has(method)) {
-          const existing = paymentMethodsMap.get(method)!;
-          existing.count += 1;
-          existing.amount += amount;
+        // Handle split payments by breaking them down into individual methods
+        if (method === 'Split' && receipt.splitBreakdown && Array.isArray(receipt.splitBreakdown)) {
+          // Add to split total
+          if (paymentMethodsMap.has('Split')) {
+            const existing = paymentMethodsMap.get('Split')!;
+            existing.count += 1;
+            existing.amount += amount;
+          } else {
+            paymentMethodsMap.set('Split', { count: 1, amount });
+          }
+          
+          // Add to individual payment methods
+          receipt.splitBreakdown.forEach((split: any) => {
+            const splitMethod = split.method || 'Unknown';
+            const splitAmount = Number(split.amount) || 0;
+            
+            if (paymentMethodsMap.has(splitMethod)) {
+              const existing = paymentMethodsMap.get(splitMethod)!;
+              existing.amount += splitAmount;
+            } else {
+              paymentMethodsMap.set(splitMethod, { count: 0, amount: splitAmount });
+            }
+          });
         } else {
-          paymentMethodsMap.set(method, { count: 1, amount });
+          // Regular payment method
+          if (paymentMethodsMap.has(method)) {
+            const existing = paymentMethodsMap.get(method)!;
+            existing.count += 1;
+            existing.amount += amount;
+          } else {
+            paymentMethodsMap.set(method, { count: 1, amount });
+          }
         }
       });
       
-      const paymentMethods = Array.from(paymentMethodsMap.entries()).map(([method, data]) => ({
-        method,
-        count: data.count,
-        amount: data.amount,
-      }));
+      const paymentMethods = Array.from(paymentMethodsMap.entries()).map(([method, data]) => {
+        const result: any = {
+          method,
+          count: data.count,
+          amount: data.amount,
+        };
+        
+        // Add split breakdown for split payments
+        if (method === 'Split') {
+          result.isSplit = true;
+          result.splitBreakdown = [
+            ...(paymentMethodsMap.get('Cash')?.amount > 0 ? [{ method: 'Cash', amount: paymentMethodsMap.get('Cash')?.amount || 0, count: 0 }] : []),
+            ...(paymentMethodsMap.get('Card')?.amount > 0 ? [{ method: 'Card', amount: paymentMethodsMap.get('Card')?.amount || 0, count: 0 }] : []),
+            ...(paymentMethodsMap.get('Bank')?.amount > 0 ? [{ method: 'Bank', amount: paymentMethodsMap.get('Bank')?.amount || 0, count: 0 }] : []),
+            ...(paymentMethodsMap.get('Fonepay')?.amount > 0 ? [{ method: 'Fonepay', amount: paymentMethodsMap.get('Fonepay')?.amount || 0, count: 0 }] : []),
+            ...(paymentMethodsMap.get('Credit')?.amount > 0 ? [{ method: 'Credit', amount: paymentMethodsMap.get('Credit')?.amount || 0, count: 0 }] : []),
+          ];
+        }
+        
+        return result;
+      });
       
       // Convert receipts to transaction format
       const transactions = receipts.map(receipt => ({
