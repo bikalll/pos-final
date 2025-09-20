@@ -1052,16 +1052,16 @@ export default function ReceiptsScreen() {
           for (const sp of split) {
             const amt = Number(sp.amount) || 0;
             switch (sp.method) {
-              case 'Cash': cashTotal += amt; break;
+              case 'Cash': cashTotal += amt; cashCount++; break;
               case 'Card':
-              case 'Bank Card': cardTotal += amt; break;
+              case 'Bank Card': cardTotal += amt; cardCount++; break;
               case 'Bank':
-              case 'Bank Transfer': bankTotal += amt; break;
+              case 'Bank Transfer': bankTotal += amt; bankCount++; break;
               case 'UPI':
               case 'Fonepay':
               case 'PhonePe':
-              case 'Paytm': fpayTotal += amt; break;
-              case 'Credit': creditTotal += amt; break;
+              case 'Paytm': fpayTotal += amt; fpayCount++; break;
+              case 'Credit': creditTotal += amt; creditCount++; break;
             }
           }
         } else {

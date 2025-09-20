@@ -7,7 +7,7 @@ The warning `@firebase/database: FIREBASE WARNING: Firebase error. Please ensure
 ## ✅ **What Was Fixed**
 
 ### 1. **Database URL Configuration**
-- ✅ **Added trailing slash**: Updated URL to `https://dbarbi-4c494-default-rtdb.firebaseio.com/`
+- ✅ **Added trailing slash**: Updated URL to `https://abcd-47f2e-default-rtdb.firebaseio.com/`
 - ✅ **Added connection testing**: Added `testDatabaseConnection()` function
 - ✅ **Added debugging logs**: Console logs to help identify connection issues
 - ✅ **Updated AppInitializer**: Tests database connection on app startup
@@ -23,19 +23,19 @@ The warning `@firebase/database: FIREBASE WARNING: Firebase error. Please ensure
 ### **Step 1: Enable Firebase Realtime Database**
 
 1. **Go to Firebase Console**: https://console.firebase.google.com/
-2. **Select Project**: `dbarbi-4c494`
+2. **Select Project**: `abcd-47f2e`
 3. **Navigate to Realtime Database**: 
    - Click on "Realtime Database" in the left sidebar
    - If not enabled, click "Create Database"
 4. **Choose Location**: Select a location close to your users
 5. **Security Rules**: Choose "Start in test mode" for now
-6. **Get Database URL**: Copy the database URL (should be `https://dbarbi-4c494-default-rtdb.firebaseio.com/`)
+6. **Get Database URL**: Copy the database URL (should be `https://abcd-47f2e-default-rtdb.firebaseio.com/`)
 
 ### **Step 2: Verify Database URL**
 
 The database URL should be:
 ```
-https://dbarbi-4c494-default-rtdb.firebaseio.com/
+https://abcd-47f2e-default-rtdb.firebaseio.com/
 ```
 
 **Important**: Make sure it ends with a trailing slash `/`

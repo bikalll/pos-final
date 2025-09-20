@@ -79,7 +79,7 @@ const SettingsScreen: React.FC = () => {
       title: 'About',
       subtitle: 'App version and information',
       iconEl: <Ionicons name="information-circle-outline" size={20} color={colors.textPrimary} />,
-      onPress: () => {},
+      onPress: () => navigation.navigate('About' as any),
     },
   ];
 

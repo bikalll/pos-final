@@ -265,9 +265,10 @@ export class ExcelExporter {
             
             if (paymentMethodsMap.has(splitMethod)) {
               const existing = paymentMethodsMap.get(splitMethod)!;
+              existing.count += 1;
               existing.amount += splitAmount;
             } else {
-              paymentMethodsMap.set(splitMethod, { count: 0, amount: splitAmount });
+              paymentMethodsMap.set(splitMethod, { count: 1, amount: splitAmount });
             }
           });
         } else {

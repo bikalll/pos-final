@@ -536,7 +536,23 @@ export const blePrinter = {
 				if ((data.discount ?? 0) > 0) printContent += `Discount: ${(data.discount ?? 0).toFixed(1)}\n`;
 				printContent += `TOTAL: ${data.total.toFixed(1)}\n`;
 				
-				if (data.payment) {
+				// Handle split payments in Expo Print fallback
+				if (Array.isArray(data.splitPayments) && data.splitPayments.length > 0) {
+					// Calculate total split amount
+					const totalSplitAmount = data.splitPayments
+						.reduce((sum: number, sp: any) => sum + (Number(sp.amount) || 0), 0);
+					
+					// Show each payment method individually
+					for (const sp of data.splitPayments) {
+						printContent += `${sp.method}: ${sp.amount.toFixed(1)}\n`;
+					}
+					
+					// Calculate and show change
+					const change = Math.max(0, totalSplitAmount - data.total);
+					if (change > 0) {
+						printContent += `Change: ${change.toFixed(1)}\n`;
+					}
+				} else if (data.payment) {
 					printContent += `${data.payment.method}: ${data.payment.amountPaid.toFixed(1)}\n`;
 				} else if (data.isPreReceipt) {
 					printContent += 'Payment: Pending\n';

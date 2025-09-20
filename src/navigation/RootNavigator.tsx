@@ -32,7 +32,7 @@ import CustomerManagementScreen from "../screens/Customers/CustomerManagementScr
 import CustomerProfileScreen from "../screens/Customers/CustomerProfileScreen";
 import SettleCreditScreen from "../screens/Customers/SettleCreditScreen";
 // Settings Screens
-import { SettingsScreen, TableManagementScreen, EmployeeManagementScreen, EmployeePerformanceScreen, EmployeeDetailScreen, PrinterSetupScreen, OfficeManagementScreen } from '../screens/Settings';
+import { SettingsScreen, TableManagementScreen, EmployeeManagementScreen, EmployeePerformanceScreen, EmployeeDetailScreen, PrinterSetupScreen, OfficeManagementScreen, AboutScreen } from '../screens/Settings';
 import VendorManagementScreen from '../screens/Settings/VendorManagementScreen';
 import VendorTransactionHistoryScreen from '../screens/Settings/VendorTransactionHistoryScreen';
 import PrintDemo from "../components/PrintDemo";
@@ -150,6 +150,7 @@ function SettingsStack() {
       <Stack.Screen name="PrintDemo" component={PrintDemo} options={withMenuHeader("Printing Demo")} />
       <Stack.Screen name="BluetoothDebug" component={BluetoothDebugScreen} options={withMenuHeader("Bluetooth Debug")} />
       <Stack.Screen name="PrintDebug" component={PrintDebugComponent} options={withMenuHeader("Print Debug")} />
+      <Stack.Screen name="About" component={AboutScreen} options={withMenuHeader("About")} />
     </Stack.Navigator>
   );
 }

@@ -8,3 +8,4 @@ export { default as OfficeManagementScreen } from './OfficeManagementScreen';
 export { default as BluetoothDebugScreen } from './BluetoothDebugScreen';
 export { default as VendorManagementScreen } from './VendorManagementScreen';
 export { default as VendorTransactionHistoryScreen } from './VendorTransactionHistoryScreen';
+export { default as AboutScreen } from './AboutScreen';

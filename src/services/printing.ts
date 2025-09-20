@@ -32,6 +32,11 @@ export interface ReceiptData {
   total: number;
   paymentMethod: string;
   cashier: string;
+  // Optional split payment breakdown
+  splitPayments?: Array<{
+    method: string;
+    amount: number;
+  }>;
 }
 
 export interface TicketData {
@@ -226,10 +231,26 @@ export function generateReceiptHTML(receipt: ReceiptData): string {
           <span>Grand Total:</span>
           <span>Rs ${receipt.total.toFixed(2)}</span>
         </div>
+        ${receipt.splitPayments && receipt.splitPayments.length > 0 ? `
+        <div class="total-row" style="margin-top: 10px; border-top: 1px solid #ccc; padding-top: 10px;">
+          <span style="font-weight: bold;">Payment Breakdown:</span>
+        </div>
+        ${receipt.splitPayments.map(payment => `
+        <div class="total-row">
+          <span>${payment.method}:</span>
+          <span>Rs ${payment.amount.toFixed(2)}</span>
+        </div>
+        `).join('')}
+        <div class="total-row" style="font-weight: bold;">
+          <span>Total Paid:</span>
+          <span>Rs ${receipt.splitPayments.reduce((sum, p) => sum + p.amount, 0).toFixed(2)}</span>
+        </div>
+        ` : `
         <div class="total-row">
           <span>Payment Method:</span>
           <span>${receipt.paymentMethod}</span>
         </div>
+        `}
       </div>
       
       <div class="footer">

@@ -59,6 +59,7 @@ export type SettingsStackParamList = {
   EmployeePerformance: undefined;
   EmployeeDetail: { employee: any; performance: any };
   OfficeManagement: undefined;
+  About: undefined;
 };
 
 export type RootStackParamList = {
