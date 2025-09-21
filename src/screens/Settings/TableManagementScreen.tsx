@@ -17,6 +17,21 @@ import { colors, spacing, radius } from '../../theme';
 import { createFirestoreService } from '../../services/firestoreService';
 import { toggleTableStatus, clearDuplicates, resetTables } from '../../redux/slices/tablesSliceFirebase';
 
+// Helper function to convert different timestamp formats to numbers
+const getTimestamp = (timestamp: any): number => {
+  if (!timestamp) return 0;
+  if (typeof timestamp === 'number') return timestamp;
+  if (typeof timestamp === 'string') {
+    const parsed = new Date(timestamp).getTime();
+    return isNaN(parsed) ? 0 : parsed;
+  }
+  if (timestamp && typeof timestamp === 'object' && timestamp.seconds) {
+    // Firebase timestamp object
+    return timestamp.seconds * 1000 + (timestamp.nanoseconds || 0) / 1000000;
+  }
+  return 0;
+};
+
 const TableManagementScreen: React.FC = () => {
   const [isAddModalVisible, setIsAddModalVisible] = useState(false);
   const [isEditModalVisible, setIsEditModalVisible] = useState(false);
@@ -56,7 +71,21 @@ const TableManagementScreen: React.FC = () => {
           isActive: table.isActive !== false,
           createdAt: table.createdAt,
           restaurantId: table.restaurantId,
-        }));
+        })).sort((a, b) => {
+        // Sort by creation time (oldest first), with fallback to table number
+        const aTime = getTimestamp(a.createdAt);
+        const bTime = getTimestamp(b.createdAt);
+        const timeDiff = aTime - bTime;
+        
+        // If timestamps are very close (within 1 second), sort by table number instead
+        if (Math.abs(timeDiff) < 1000) {
+          const aNumber = parseInt(a.name?.replace(/\D/g, '') || '0');
+          const bNumber = parseInt(b.name?.replace(/\D/g, '') || '0');
+          return aNumber - bNumber;
+        }
+        
+        return timeDiff;
+        });
         setTables(tablesArray);
         
       } catch (error) {
@@ -136,7 +165,7 @@ const TableManagementScreen: React.FC = () => {
         description: newTableDescription.trim() || '',
         isActive: true,
         restaurantId: restaurantId,
-        createdAt: new Date().toISOString(),
+        createdAt: Date.now(),
       };
       
       console.log('🔥 Table data to save:', tableData);

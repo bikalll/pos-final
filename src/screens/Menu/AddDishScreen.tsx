@@ -329,7 +329,12 @@ const AddDishScreen: React.FC = () => {
             
             {showCategoryDropdown && (
               <View style={styles.categoryDropdownList}>
-                <ScrollView style={styles.categoryScrollView} showsVerticalScrollIndicator={false}>
+                <ScrollView 
+                  style={styles.categoryScrollView} 
+                  showsVerticalScrollIndicator={false}
+                  nestedScrollEnabled={true}
+                  bounces={false}
+                >
                   {(Array.isArray(categories) ? categories : Object.values(categories || {})).map((category: any) => (
                     <TouchableOpacity
                       key={category.id}
@@ -638,9 +643,10 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 4,
+    maxHeight: 200,
   },
   categoryScrollView: {
-    maxHeight: 200,
+    flexGrow: 1,
   },
   categoryItem: {
     paddingHorizontal: spacing.md,

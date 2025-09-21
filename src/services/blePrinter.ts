@@ -785,7 +785,6 @@ export const blePrinter = {
 				} else if (data.stewardName) {
 					printContent += `Steward: ${data.stewardName}\n`;
 				}
-				if (data.specialInstructions) printContent += `Notes: ${data.specialInstructions}\n`;
 				printContent += '------------------------------\n';
 				printContent += 'Item               Qty\n';
 				printContent += '------------------------------\n';
@@ -797,6 +796,11 @@ export const blePrinter = {
 				}
 				
 				printContent += '------------------------------\n';
+				
+				// Print modification notes if any
+				if (data.specialInstructions) {
+					printContent += `Notes: ${data.specialInstructions}\n`;
+				}
 				
 				await this.printWithExpoPrint(printContent, 'Kitchen Order Ticket (KOT)');
 				return;
@@ -861,7 +865,6 @@ export const blePrinter = {
 			} else if (data.stewardName) {
 				await BluetoothEscposPrinter.printText(`Steward: ${data.stewardName}\n`, {});
 			}
-			if (data.specialInstructions) { await BluetoothEscposPrinter.printText(`Notes: ${data.specialInstructions}\n`, {}); }
 			await BluetoothEscposPrinter.printText('------------------------------\n', {});
 			
 			// Set alignment to left for items
@@ -881,6 +884,11 @@ export const blePrinter = {
 			}
 			
 			await BluetoothEscposPrinter.printText('------------------------------\n', {});
+			
+			// Print modification notes if any
+			if (data.specialInstructions) { 
+				await BluetoothEscposPrinter.printText(`Notes: ${data.specialInstructions}\n`, {}); 
+			}
 			
 			// Feed paper
 			console.log('🖨️ Feeding paper...');
@@ -1189,6 +1197,11 @@ export const blePrinter = {
 				
 				printContent += '------------------------------\n';
 				
+				// Print modification notes if any
+				if (data.specialInstructions) {
+					printContent += `Notes: ${data.specialInstructions}\n`;
+				}
+				
 				await this.printWithExpoPrint(printContent, 'Bar Order Ticket (BOT)');
 				return;
 			} catch (expoError) {
@@ -1271,6 +1284,11 @@ export const blePrinter = {
 			}
 			
 			await BluetoothEscposPrinter.printText('------------------------------\n', {});
+			
+			// Print modification notes if any
+			if (data.specialInstructions) { 
+				await BluetoothEscposPrinter.printText(`Notes: ${data.specialInstructions}\n`, {}); 
+			}
 			
 			// Feed paper
 			console.log('🖨️ Feeding paper...');

@@ -34,6 +34,33 @@ const DrawerItem = (
 
 const topInset = Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : 0;
 
+// Utility function to wrap text at 25 words per line
+const wrapTextAt25Words = (text: string): string => {
+  if (!text) return text;
+  
+  const words = text.split(' ');
+  const lines: string[] = [];
+  let currentLine = '';
+  let wordCount = 0;
+  
+  for (const word of words) {
+    if (wordCount < 25) {
+      currentLine = currentLine ? currentLine + ' ' + word : word;
+      wordCount++;
+    } else {
+      lines.push(currentLine);
+      currentLine = word;
+      wordCount = 1;
+    }
+  }
+  
+  if (currentLine) {
+    lines.push(currentLine);
+  }
+  
+  return lines.join('\n');
+};
+
 const CustomDrawerContent: React.FC<DrawerContentComponentProps> = ({ navigation, state }) => {
   const dispatch = useDispatch();
   const auth = useSelector((s: RootState) => s.auth);
@@ -119,9 +146,8 @@ const CustomDrawerContent: React.FC<DrawerContentComponentProps> = ({ navigation
             <Text style={styles.logoText}>{(auth?.restaurantName || 'R').slice(0,1).toUpperCase()}</Text>
           )}
         </View>
-        <View>
+        <View style={styles.headerTextContainer}>
           <Text style={styles.brand}>{auth?.userName || 'Employee'}</Text>
-          <Text style={styles.tagline}>{auth?.restaurantName || 'Restaurant Name'}</Text>
         </View>
       </View>
 
@@ -185,7 +211,12 @@ const CustomDrawerContent: React.FC<DrawerContentComponentProps> = ({ navigation
       <View style={styles.footer}>
         {auth?.restaurantName && (
           <View style={styles.restaurantRow}>
-            <Text style={styles.restaurantName}>{auth.restaurantName}</Text>
+            <Text 
+              style={styles.restaurantName}
+              numberOfLines={3}
+            >
+              {wrapTextAt25Words(auth.restaurantName)}
+            </Text>
           </View>
         )}
         <View style={styles.userRow}>
@@ -267,8 +298,16 @@ const styles = StyleSheet.create({
     marginRight: spacing.md,
   },
   logoText: { color: 'white', fontWeight: 'bold', fontSize: 20 },
+  headerTextContainer: {
+    flex: 1,
+    minWidth: 0,
+  },
   brand: { color: 'white', fontWeight: 'bold', fontSize: 18 },
-  tagline: { color: colors.textSecondary, fontSize: 12 },
+  tagline: { 
+    color: colors.textSecondary, 
+    fontSize: 12, 
+    textAlign: 'center',
+  },
   menu: { flex: 1, paddingHorizontal: spacing.sm, paddingTop: spacing.md },
   item: {
     flexDirection: 'row',
@@ -292,8 +331,17 @@ const styles = StyleSheet.create({
   avatarText: { color: 'white', fontWeight: 'bold' },
   userName: { color: 'white', fontWeight: '600' },
   userDesignation: { color: colors.textSecondary, fontSize: 12, marginTop: 2 },
-  restaurantRow: { marginBottom: spacing.sm, paddingHorizontal: spacing.sm },
-  restaurantName: { color: colors.primary, fontSize: 14, fontWeight: '600', textAlign: 'center' },
+  restaurantRow: { 
+    marginBottom: spacing.sm, 
+    paddingHorizontal: spacing.sm,
+    alignItems: 'center',
+  },
+  restaurantName: { 
+    color: colors.primary, 
+    fontSize: 14, 
+    fontWeight: '600', 
+    textAlign: 'center',
+  },
   powered: { color: colors.textMuted, fontSize: 12, textAlign: 'center' },
 });
 

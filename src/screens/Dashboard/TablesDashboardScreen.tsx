@@ -35,6 +35,21 @@ interface Table {
   totalSeats?: number;
 }
 
+// Helper function to convert different timestamp formats to numbers
+const getTimestamp = (timestamp: any): number => {
+  if (!timestamp) return 0;
+  if (typeof timestamp === 'number') return timestamp;
+  if (typeof timestamp === 'string') {
+    const parsed = new Date(timestamp).getTime();
+    return isNaN(parsed) ? 0 : parsed;
+  }
+  if (timestamp && typeof timestamp === 'object' && timestamp.seconds) {
+    // Firebase timestamp object
+    return timestamp.seconds * 1000 + (timestamp.nanoseconds || 0) / 1000000;
+  }
+  return 0;
+};
+
 const TablesDashboardScreen: React.FC = () => {
   const [tables, setTables] = useState<Table[]>([]);
   const [refreshing, setRefreshing] = useState(false);
@@ -104,7 +119,21 @@ const TablesDashboardScreen: React.FC = () => {
         reservedBy: table.reservedBy,
         reservedNote: table.reservedNote,
         totalSeats: table.totalSeats,
-      }));
+      })).sort((a, b) => {
+        // Sort by creation time (oldest first), with fallback to table number
+        const aTime = getTimestamp(a.createdAt);
+        const bTime = getTimestamp(b.createdAt);
+        const timeDiff = aTime - bTime;
+        
+        // If timestamps are very close (within 1 second), sort by table number instead
+        if (Math.abs(timeDiff) < 1000) {
+          const aNumber = parseInt(a.name?.replace(/\D/g, '') || '0');
+          const bNumber = parseInt(b.name?.replace(/\D/g, '') || '0');
+          return aNumber - bNumber;
+        }
+        
+        return timeDiff;
+      });
       // Compute stable hash to avoid redundant state updates that can trigger loops
       const hashParts = tablesArray
         .map(t => ({ id: t.id, isActive: t.isActive, isOccupied: t.isOccupied, isReserved: t.isReserved }))
@@ -159,7 +188,12 @@ const TablesDashboardScreen: React.FC = () => {
             reservedBy: table.reservedBy,
             reservedNote: table.reservedNote,
             totalSeats: table.totalSeats,
-          }));
+          })).sort((a, b) => {
+            // Sort by creation time (oldest first)
+            const aTime = getTimestamp(a.createdAt);
+            const bTime = getTimestamp(b.createdAt);
+            return aTime - bTime;
+          });
           
           // Use batch update for better performance
           batchUpdate('tables', tablesArray);

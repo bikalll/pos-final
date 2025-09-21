@@ -33,6 +33,21 @@ interface Table {
   status: 'available' | 'occupied' | 'reserved' | 'cleaning';
 }
 
+// Helper function to convert different timestamp formats to numbers
+const getTimestamp = (timestamp: any): number => {
+  if (!timestamp) return 0;
+  if (typeof timestamp === 'number') return timestamp;
+  if (typeof timestamp === 'string') {
+    const parsed = new Date(timestamp).getTime();
+    return isNaN(parsed) ? 0 : parsed;
+  }
+  if (timestamp && typeof timestamp === 'object' && timestamp.seconds) {
+    // Firebase timestamp object
+    return timestamp.seconds * 1000 + (timestamp.nanoseconds || 0) / 1000000;
+  }
+  return 0;
+};
+
 const MenuScreen: React.FC = () => {
   const dispatch = useDispatch();
   const navigation = useNavigation<MenuNavigationProp>();
@@ -157,10 +172,10 @@ const MenuScreen: React.FC = () => {
     console.log('🔥 MenuScreen - Firebase tables data:', firebaseTables);
     
     if (firebaseTableIds.length > 0) {
-      return firebaseTableIds.map((tableId: string) => {
+      const tables = firebaseTableIds.map((tableId: string) => {
         const table = firebaseTables[tableId];
         if (!table) return null;
-        console.log('🔥 MenuScreen - Processing table:', tableId, table.name);
+        console.log('🔥 MenuScreen - Processing table:', tableId, table.name, 'createdAt:', table.createdAt);
         
         // Extract table number from name (e.g., "Table 1" -> 1)
         const tableNumber = parseInt(table.name.replace(/\D/g, '')) || 1;
@@ -177,11 +192,33 @@ const MenuScreen: React.FC = () => {
           name: table.name, // Include the actual table name
           number: tableNumber,
           capacity,
-          status: hasActiveOrder ? 'occupied' as const : 'available' as const
+          status: hasActiveOrder ? 'occupied' as const : 'available' as const,
+          createdAt: table.createdAt // Include createdAt for sorting
         };
         console.log('🔥 MenuScreen - Final table object:', tableObj);
         return tableObj;
-      }).filter(Boolean) as Table[];
+      }).filter(Boolean);
+      
+      const sortedTables = tables.sort((a, b) => {
+        // Sort by creation time (oldest first), with fallback to table number
+        const aTime = getTimestamp(a?.createdAt);
+        const bTime = getTimestamp(b?.createdAt);
+        const timeDiff = aTime - bTime;
+        
+        // If timestamps are very close (within 1 second), sort by table number instead
+        if (Math.abs(timeDiff) < 1000) {
+          const aNumber = parseInt(a?.name?.replace(/\D/g, '') || '0');
+          const bNumber = parseInt(b?.name?.replace(/\D/g, '') || '0');
+          console.log('🔥 MenuScreen - Timestamps too close, sorting by number:', a?.name, 'vs', b?.name, 'numbers:', aNumber, 'vs', bNumber);
+          return aNumber - bNumber;
+        }
+        
+        console.log('🔥 MenuScreen - Sorting by time:', a?.name, 'vs', b?.name, 'times:', aTime, 'vs', bTime);
+        return timeDiff;
+      });
+      
+      console.log('🔥 MenuScreen - Final sorted tables:', sortedTables.map(t => ({ name: t.name, createdAt: t.createdAt })));
+      return sortedTables as Table[];
     } else if (tableIds.length > 0) {
       // Fallback to Redux store tables
       return tableIds.map((tableId: string) => {
@@ -203,9 +240,24 @@ const MenuScreen: React.FC = () => {
           name: table.name, // Include the actual table name
           number: tableNumber,
           capacity,
-          status: hasActiveOrder ? 'occupied' as const : 'available' as const
+          status: hasActiveOrder ? 'occupied' as const : 'available' as const,
+          createdAt: table.createdAt // Include createdAt for sorting
         };
-      }).filter(Boolean) as Table[];
+      }).filter(Boolean).sort((a, b) => {
+        // Sort by creation time (oldest first), with fallback to table number
+        const aTime = getTimestamp(a?.createdAt);
+        const bTime = getTimestamp(b?.createdAt);
+        const timeDiff = aTime - bTime;
+        
+        // If timestamps are very close (within 1 second), sort by table number instead
+        if (Math.abs(timeDiff) < 1000) {
+          const aNumber = parseInt(a?.name?.replace(/\D/g, '') || '0');
+          const bNumber = parseInt(b?.name?.replace(/\D/g, '') || '0');
+          return aNumber - bNumber;
+        }
+        
+        return timeDiff;
+      }) as Table[];
     } else {
       // No tables configured anywhere → show none
       return [] as Table[];

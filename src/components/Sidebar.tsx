@@ -19,6 +19,33 @@ interface SidebarProps {
   onTabPress: (tabName: string) => void;
 }
 
+// Utility function to wrap text at 25 words per line
+const wrapTextAt25Words = (text: string): string => {
+  if (!text) return text;
+  
+  const words = text.split(' ');
+  const lines: string[] = [];
+  let currentLine = '';
+  let wordCount = 0;
+  
+  for (const word of words) {
+    if (wordCount < 25) {
+      currentLine = currentLine ? currentLine + ' ' + word : word;
+      wordCount++;
+    } else {
+      lines.push(currentLine);
+      currentLine = word;
+      wordCount = 1;
+    }
+  }
+  
+  if (currentLine) {
+    lines.push(currentLine);
+  }
+  
+  return lines.join('\n');
+};
+
 const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabPress }) => {
   const navigation = useNavigation();
   const dispatch = useDispatch();
@@ -47,7 +74,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabPress }) => {
     onTabPress(tabName);
     // Navigate to the appropriate screen
     try {
-      navigation.navigate(tabName as any);
+      (navigation as any).navigate(tabName);
     } catch (error) {
       console.log('Navigation error:', error);
     }
@@ -109,8 +136,9 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabPress }) => {
             <Text style={styles.logo}>{(auth?.restaurantName || 'R').slice(0,1).toUpperCase()}</Text>
           )}
         </View>
-        <Text style={styles.title}>{auth?.userName || 'Employee'}</Text>
-        <Text style={styles.restaurantName}>{(auth?.restaurantName && auth.restaurantName !== 'Restaurant') ? auth.restaurantName : 'Restaurant Name'}</Text>
+        <View style={styles.textContainer}>
+          <Text style={styles.title}>{auth?.userName || 'Employee'}</Text>
+        </View>
       </View>
 
       <ScrollView style={styles.menuContainer}>
@@ -164,7 +192,8 @@ const styles = StyleSheet.create({
     width: 280,
   },
   header: {
-    alignItems: 'center',
+    flexDirection: 'row',
+    alignItems: 'flex-start',
     padding: 20,
     paddingTop: 40,
     borderBottomWidth: 1,
@@ -177,7 +206,11 @@ const styles = StyleSheet.create({
     borderRadius: 25,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 12,
+    marginRight: 12,
+  },
+  textContainer: {
+    flex: 1,
+    justifyContent: 'flex-start',
   },
   logo: {
     fontSize: 28,
@@ -194,12 +227,12 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: 'bold',
     color: 'white',
+    marginTop: 8,
   },
   restaurantName: {
     fontSize: 14,
     color: '#cccccc',
     marginTop: 4,
-    textAlign: 'center',
   },
   menuContainer: {
     flex: 1,

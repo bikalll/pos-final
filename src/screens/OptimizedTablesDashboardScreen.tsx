@@ -29,6 +29,21 @@ interface Table {
   totalSeats?: number;
 }
 
+// Helper function to convert different timestamp formats to numbers
+const getTimestamp = (timestamp: any): number => {
+  if (!timestamp) return 0;
+  if (typeof timestamp === 'number') return timestamp;
+  if (typeof timestamp === 'string') {
+    const parsed = new Date(timestamp).getTime();
+    return isNaN(parsed) ? 0 : parsed;
+  }
+  if (timestamp && typeof timestamp === 'object' && timestamp.seconds) {
+    // Firebase timestamp object
+    return timestamp.seconds * 1000 + (timestamp.nanoseconds || 0) / 1000000;
+  }
+  return 0;
+};
+
 const OptimizedTablesDashboardScreen: React.FC = () => {
   const [tables, setTables] = useState<Table[]>([]);
   const [refreshing, setRefreshing] = useState(false);
@@ -53,7 +68,22 @@ const OptimizedTablesDashboardScreen: React.FC = () => {
         number: parseInt(table.name.replace(/\D/g, '')) || 1,
         capacity: table.seats,
         status: occupiedActive ? 'occupied' as const : reservedActive ? 'reserved' as const : 'available' as const,
+        createdAt: table.createdAt, // Include createdAt for sorting
       };
+    }).sort((a, b) => {
+      // Sort by creation time (oldest first), with fallback to table number
+      const aTime = getTimestamp(a.createdAt);
+      const bTime = getTimestamp(b.createdAt);
+      const timeDiff = aTime - bTime;
+      
+      // If timestamps are very close (within 1 second), sort by table number instead
+      if (Math.abs(timeDiff) < 1000) {
+        const aNumber = parseInt(a.name?.replace(/\D/g, '') || '0');
+        const bNumber = parseInt(b.name?.replace(/\D/g, '') || '0');
+        return aNumber - bNumber;
+      }
+      
+      return timeDiff;
     });
 
     const endTime = performance.now();
@@ -70,10 +100,17 @@ const OptimizedTablesDashboardScreen: React.FC = () => {
       setIsLoading(true);
       const tablesData = await getOptimizedTables(restaurantId);
       
-      // Use batch update for better performance
-      batchUpdate('tables', Object.values(tablesData));
+      // Sort tables by creation time (oldest first)
+      const sortedTables = Object.values(tablesData).sort((a: any, b: any) => {
+        const aTime = getTimestamp(a.createdAt);
+        const bTime = getTimestamp(b.createdAt);
+        return aTime - bTime;
+      });
       
-      setTables(Object.values(tablesData));
+      // Use batch update for better performance
+      batchUpdate('tables', sortedTables);
+      
+      setTables(sortedTables);
       incrementReduxUpdates();
     } catch (error) {
       console.error('Error loading tables:', error);
@@ -93,10 +130,26 @@ const OptimizedTablesDashboardScreen: React.FC = () => {
       return service.listenToTables((tablesData: Record<string, any>) => {
         console.log('📡 Real-time tables update received:', Object.keys(tablesData).length);
         
-        // Use batch update instead of individual dispatches
-        batchUpdate('tables', Object.values(tablesData));
+        // Sort tables by creation time (oldest first), with fallback to table number
+        const sortedTables = Object.values(tablesData).sort((a: any, b: any) => {
+          const aTime = getTimestamp(a.createdAt);
+          const bTime = getTimestamp(b.createdAt);
+          const timeDiff = aTime - bTime;
+          
+          // If timestamps are very close (within 1 second), sort by table number instead
+          if (Math.abs(timeDiff) < 1000) {
+            const aNumber = parseInt(a.name?.replace(/\D/g, '') || '0');
+            const bNumber = parseInt(b.name?.replace(/\D/g, '') || '0');
+            return aNumber - bNumber;
+          }
+          
+          return timeDiff;
+        });
         
-        setTables(Object.values(tablesData));
+        // Use batch update instead of individual dispatches
+        batchUpdate('tables', sortedTables);
+        
+        setTables(sortedTables);
         incrementReduxUpdates();
       });
     };
