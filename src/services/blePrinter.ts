@@ -458,6 +458,7 @@ export const blePrinter = {
 		processedBy?: { role: string; username: string };
 		role?: string;
 		steward?: string;
+		customerName?: string;
 	}): Promise<void> {
 		if (!this.isSupported()) {
 			if (TEMPORARILY_DISABLE_BLUETOOTH) {
@@ -619,6 +620,9 @@ export const blePrinter = {
 					heighttimes: 1,
 				});
 				await BluetoothEscposPrinter.printText(`Table ${data.table}\n`, {});
+				if (data.customerName) {
+					await BluetoothEscposPrinter.printText(`Customer: ${data.customerName}\n`, {});
+				}
 				if (data.processedBy) {
 					if (typeof data.processedBy === 'object' && data.processedBy.role && data.processedBy.username) {
 						// New format: {role: "Staff", username: "John"}

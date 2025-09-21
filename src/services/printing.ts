@@ -677,9 +677,13 @@ export class PrintService {
       // Skip connection test for KOT printing to avoid timeout issues
       // The connection status is already checked above via checkPrinterConnection()
 
+      // Get restaurant name from Redux state
+      const { store } = await import('../redux/storeFirebase');
+      const state: any = (store as any)?.getState?.() || {};
+
       // Print via Bluetooth
       await blePrinter.printKOT({
-        restaurantName: 'House of Job Pvt. Ltd',
+        restaurantName: state?.auth?.restaurantName || 'Restaurant',
         ticketId: `KOT-${Date.now()}`,
         date: new Date(order.createdAt).toLocaleDateString(),
         time: new Date(order.createdAt).toLocaleTimeString(),
@@ -742,9 +746,13 @@ export class PrintService {
       // Skip connection test for BOT printing to avoid timeout issues
       // The connection status is already checked above via checkPrinterConnection()
 
+      // Get restaurant name from Redux state
+      const { store } = await import('../redux/storeFirebase');
+      const state: any = (store as any)?.getState?.() || {};
+
       // Print via Bluetooth
       await blePrinter.printBOT({
-        restaurantName: 'House of Job Pvt. Ltd',
+        restaurantName: state?.auth?.restaurantName || 'Restaurant',
         ticketId: `BOT-${Date.now()}`,
         date: new Date(order.createdAt).toLocaleDateString(),
         time: new Date(order.createdAt).toLocaleTimeString(),
@@ -810,7 +818,7 @@ export class PrintService {
       // The connection status is already checked above via checkPrinterConnection()
 
       // Load restaurant info for header
-      let restaurantName = 'House of Job Pvt. Ltd';
+      let restaurantName = 'Restaurant';
       let address: string | undefined;
       let panVat: string | undefined;
       let stewardName: string | undefined;
@@ -818,6 +826,10 @@ export class PrintService {
         const state: any = store.getState?.() || {};
         const restaurantId = state?.auth?.restaurantId || order.restaurantId;
         stewardName = state?.auth?.userName || undefined;
+        
+        // First try to get from Redux state
+        restaurantName = state?.auth?.restaurantName || 'Restaurant';
+        
         if (restaurantId) {
           const fs = createFirestoreService(restaurantId);
           const info = await fs.getRestaurantInfo();
@@ -960,11 +972,12 @@ export class PrintService {
       };
 
       const receiptData = {
-        restaurantName: 'House of Job Pvt. Ltd',
+        restaurantName: state?.auth?.restaurantName || 'Restaurant',
         receiptId: `PR${Date.now()}`,
         date: new Date(order.createdAt).toLocaleDateString(),
         time: new Date(order.createdAt).toLocaleTimeString(),
         table: table?.name || order.tableId,
+        customerName: order.customerName || order.payment?.customerName,
         steward: state?.auth?.userName,
         processedBy: processedBy,
         items: order.items.map((item: any) => ({
@@ -1063,9 +1076,13 @@ export class PrintService {
       // Skip connection test for combined tickets printing to avoid timeout issues
       // The connection status is already checked above via checkPrinterConnection()
 
+      // Get restaurant name from Redux state
+      const { store } = await import('../redux/storeFirebase');
+      const state: any = (store as any)?.getState?.() || {};
+
       // Print via Bluetooth
       await blePrinter.printCombinedTickets({
-        restaurantName: 'House of Job Pvt. Ltd',
+        restaurantName: state?.auth?.restaurantName || 'Restaurant',
         ticketId: `TKT-${Date.now()}`,
         date: new Date(order.createdAt).toLocaleDateString(),
         time: new Date(order.createdAt).toLocaleTimeString(),
