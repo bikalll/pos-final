@@ -21,6 +21,7 @@ import { colors, spacing, radius, shadow } from '../../theme';
 import { createFirestoreService } from '../../services/firestoreService';
 import { getFirebaseService } from '../../services/firebaseService';
 import * as ImagePicker from 'expo-image-picker';
+import { imgbbService } from '../../services/imgbbService';
 
 interface Ingredient {
   name: string;
@@ -206,10 +207,14 @@ const AddDishScreen: React.FC = () => {
         allowsEditing: true,
         aspect: [4, 3],
         quality: 0.8,
+        base64: true,
       });
 
       if (!result.canceled && result.assets[0]) {
-        setFormData(prev => ({ ...prev, image: result.assets[0].uri }));
+        // Convert to base64 and upload to ImgBB, then save returned URL
+        const base64 = await imgbbService.ensureBase64FromAsset(result.assets[0]);
+        const upload = await imgbbService.uploadImage(base64);
+        setFormData(prev => ({ ...prev, image: upload.url }));
       }
     } catch (error) {
       console.error('Error picking image:', error);
