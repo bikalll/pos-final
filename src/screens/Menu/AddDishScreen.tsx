@@ -43,7 +43,7 @@ interface MenuItem {
 
 const AddDishScreen: React.FC = () => {
   const navigation = useNavigation();
-  const route = useRoute();
+  const route = useRoute<any>();
   const { restaurantId } = useSelector((state: RootState) => state.auth);
   
   const [firestoreService, setFirestoreService] = useState<any>(null);
@@ -891,4 +891,3 @@ const styles = StyleSheet.create({
 });
 
 export default AddDishScreen;
-

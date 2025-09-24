@@ -10,6 +10,8 @@ import {
   FlatList,
   Image,
 } from 'react-native';
+import { RefreshControl } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -35,6 +37,7 @@ const OrderTakingScreen: React.FC = () => {
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [firebaseTables, setFirebaseTables] = useState<Record<string, any>>({});
+  const [isRefreshing, setIsRefreshing] = useState(false);
   
   const navigation = useNavigation();
   const route = useRoute();
@@ -78,46 +81,85 @@ const OrderTakingScreen: React.FC = () => {
     isActive: firebaseTables[selectedTableId].isActive,
   } : null;
 
-  // Load menu items and tables from Firebase
+  // Cache helpers (shared behavior with Menu screen)
+  const getMenuCacheKey = (rid?: string) => `menu_cache_${rid || ''}`;
+
+  const loadMenuFromCache = async (rid: string) => {
+    try {
+      const raw = await AsyncStorage.getItem(getMenuCacheKey(rid));
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as MenuItem[];
+      return Array.isArray(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const saveMenuToCache = async (rid: string, list: MenuItem[]) => {
+    try {
+      await AsyncStorage.setItem(getMenuCacheKey(rid), JSON.stringify(list));
+    } catch {}
+  };
+
+  const fetchMenuFromFirebase = async (rid: string) => {
+    const menuData = await getOptimizedMenuItems(rid);
+    const menuItemsArray = Object.values(menuData).map((item: any) => ({
+      id: item.id || Object.keys(menuData).find(key => menuData[key] === item),
+      name: item.name,
+      description: item.description || '',
+      price: item.price,
+      category: item.category,
+      isAvailable: item.isAvailable !== false,
+      modifiers: item.modifiers || [],
+      image: item.image || '',
+      orderType: item.orderType || 'KOT',
+      ingredients: item.ingredients || [],
+    }));
+    setMenuItems(menuItemsArray);
+    await saveMenuToCache(rid, menuItemsArray);
+  };
+
+  // Initial load: cache-first for menu; tables fetched fresh
   useEffect(() => {
-    const loadData = async () => {
+    const init = async () => {
       if (!restaurantId) {
-        console.log('No restaurant ID available');
+        setIsLoading(false);
         return;
       }
-
       try {
         setIsLoading(true);
-        // Load menu items using direct service
-        const menuData = await getOptimizedMenuItems(restaurantId);
-        const menuItemsArray = Object.values(menuData).map((item: any) => ({
-          id: item.id || Object.keys(menuData).find(key => menuData[key] === item),
-          name: item.name,
-          description: item.description || '',
-          price: item.price,
-          category: item.category,
-          isAvailable: item.isAvailable !== false,
-          modifiers: item.modifiers || [],
-          image: item.image || '',
-          orderType: item.orderType || 'KOT',
-          ingredients: item.ingredients || [],
-        }));
-        setMenuItems(menuItemsArray);
-        
-        // Load tables using direct service
+        // Load tables (not cached)
         const tablesData = await getOptimizedTables(restaurantId);
         console.log('🔥 OrderTakingScreen - Firebase tables loaded:', tablesData);
         setFirebaseTables(tablesData);
-        
+
+        // Try cache first for menu
+        const cached = await loadMenuFromCache(restaurantId);
+        if (cached && cached.length > 0) {
+          setMenuItems(cached);
+        } else {
+          await fetchMenuFromFirebase(restaurantId);
+        }
       } catch (error) {
-        console.error('Error loading data:', error);
+        console.error('Error initializing order taking screen:', error);
       } finally {
         setIsLoading(false);
       }
     };
-    
-    loadData();
+    init();
   }, [restaurantId]);
+
+  const onRefreshMenu = async () => {
+    if (!restaurantId) return;
+    try {
+      setIsRefreshing(true);
+      await fetchMenuFromFirebase(restaurantId);
+    } catch (e) {
+      console.error('Manual refresh failed:', e);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   // Cancel empty order when component unmounts or when navigating back
   useEffect(() => {
@@ -337,6 +379,9 @@ const OrderTakingScreen: React.FC = () => {
         style={styles.menuList}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: spacing.lg + footerHeight }}
+        refreshControl={
+          <RefreshControl refreshing={isRefreshing} onRefresh={onRefreshMenu} />
+        }
         ListEmptyComponent={() => (
           <View style={styles.emptyState}>
             <Text style={styles.emptyText}>No items found.</Text>
