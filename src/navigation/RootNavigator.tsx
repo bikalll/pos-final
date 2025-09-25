@@ -1,4 +1,4 @@
-﻿import React from "react";
+﻿import React, { useEffect } from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createDrawerNavigator } from "@react-navigation/drawer";
 import { Ionicons } from "@expo/vector-icons";
@@ -224,6 +224,20 @@ export default function RootNavigator() {
   const isLoggedIn = useSelector((state: RootState) => state.auth.isLoggedIn);
   const userRole = useSelector((state: RootState) => state.auth.role);
   const restaurantId = useSelector((state: RootState) => state.auth.restaurantId);
+  
+  // Auto-initialize printing system on app open (no need to visit Printer Setup)
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { printManager } = await import('../services/printManager');
+        await printManager.initialize();
+      } catch (e) {
+        console.warn('Print manager init failed:', e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
   
   return (
     <RootStack.Navigator screenOptions={{ headerShown: false }}>

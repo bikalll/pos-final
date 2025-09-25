@@ -609,6 +609,7 @@ export class PrintService {
       // Check if Bluetooth printing is supported
       const { blePrinter } = await import('./blePrinter');
       const { bluetoothManager } = await import('./bluetoothManager');
+      const { printerDiscovery } = await import('./printerDiscovery');
       
       if (!blePrinter.isSupported()) {
         return {
@@ -628,13 +629,15 @@ export class PrintService {
         };
       }
 
-      // Check connection status
+      // Check connection status from multiple sources
       const connectionHealth = bluetoothManager.getConnectionHealth();
-      if (!connectionHealth.healthy) {
+      const connectedPrinters = printerDiscovery.getConnectedPrinters();
+      const anyConnected = connectedPrinters.length > 0 || connectionHealth.healthy;
+      if (!anyConnected) {
         return {
           connected: false,
-          message: `Printer connection issues: ${connectionHealth.issues.join(', ')}`,
-          details: connectionHealth
+          message: `No printer connected. Issues: ${connectionHealth.issues.join(', ')}`,
+          details: { ...connectionHealth, connectedPrinters: connectedPrinters.length }
         };
       }
 
@@ -643,8 +646,9 @@ export class PrintService {
         message: 'Printer connection available',
         details: { 
           bluetoothEnabled: true,
-          deviceConnected: bluetoothManager.getStatus().connected,
-          currentDevice: bluetoothManager.getStatus().currentDevice
+          deviceConnected: bluetoothManager.getStatus().connected || connectedPrinters.length > 0,
+          currentDevice: bluetoothManager.getStatus().currentDevice,
+          connectedPrinters: connectedPrinters.map(p => ({ id: p.id, name: p.name, address: p.address }))
         }
       };
     } catch (error) {
@@ -660,6 +664,7 @@ export class PrintService {
   static async printKOTFromOrder(order: any, table: any): Promise<{ success: boolean; message: string; fallback?: string }> {
     try {
       const { blePrinter } = await import('./blePrinter');
+      const { printManager } = await import('./printManager');
       const { bluetoothManager } = await import('./bluetoothManager');
       
       // Check printer connection
@@ -681,8 +686,8 @@ export class PrintService {
       const { store } = await import('../redux/storeFirebase');
       const state: any = (store as any)?.getState?.() || {};
 
-      // Print via Bluetooth
-      await blePrinter.printKOT({
+      // Build payload and route via role-based print manager (uses assigned printer for KOT)
+      const payload = {
         restaurantName: state?.auth?.restaurantName || 'Restaurant',
         ticketId: `KOT-${Date.now()}`,
         date: new Date(order.createdAt).toLocaleDateString(),
@@ -699,7 +704,9 @@ export class PrintService {
         estimatedTime: '20-30 minutes',
         specialInstructions: order.specialInstructions,
         processedBy: order.processedBy
-      });
+      };
+
+      await printManager.printRole('KOT', payload, 'high');
 
       return {
         success: true,
@@ -729,6 +736,7 @@ export class PrintService {
   static async printBOTFromOrder(order: any, table: any): Promise<{ success: boolean; message: string; fallback?: string }> {
     try {
       const { blePrinter } = await import('./blePrinter');
+      const { printManager } = await import('./printManager');
       const { bluetoothManager } = await import('./bluetoothManager');
       
       // Check printer connection
@@ -750,8 +758,8 @@ export class PrintService {
       const { store } = await import('../redux/storeFirebase');
       const state: any = (store as any)?.getState?.() || {};
 
-      // Print via Bluetooth
-      await blePrinter.printBOT({
+      // Build payload and route via role-based print manager (uses assigned printer for BOT)
+      const payload = {
         restaurantName: state?.auth?.restaurantName || 'Restaurant',
         ticketId: `BOT-${Date.now()}`,
         date: new Date(order.createdAt).toLocaleDateString(),
@@ -768,7 +776,9 @@ export class PrintService {
         estimatedTime: '5-10 minutes',
         specialInstructions: order.specialInstructions,
         processedBy: order.processedBy
-      });
+      };
+
+      await printManager.printRole('BOT', payload, 'high');
 
       return {
         success: true,
@@ -798,6 +808,7 @@ export class PrintService {
   static async printReceiptFromOrder(order: any, table: any): Promise<{ success: boolean; message: string; fallback?: string }> {
     try {
       const { blePrinter } = await import('./blePrinter');
+      const { printManager } = await import('./printManager');
       const { bluetoothManager } = await import('./bluetoothManager');
       const { createFirestoreService } = await import('./firestoreService');
       const { store } = await import('../redux/storeFirebase');
@@ -874,7 +885,7 @@ export class PrintService {
         };
       }
       
-      await blePrinter.printReceipt({
+      const receiptPayload = {
         restaurantName,
         receiptId: `R${Date.now()}`,
         date: new Date(order.createdAt).toLocaleDateString(),
@@ -906,7 +917,9 @@ export class PrintService {
         splitPayments,
         address,
         panVat,
-      });
+      };
+
+      await printManager.printRole('Receipt', receiptPayload, 'high');
 
       return {
         success: true,
@@ -936,6 +949,7 @@ export class PrintService {
   static async printPreReceiptFromOrder(order: any, table: any): Promise<{ success: boolean; message: string; fallback?: string }> {
     try {
       const { blePrinter } = await import('./blePrinter');
+      const { printManager } = await import('./printManager');
       const { bluetoothManager } = await import('./bluetoothManager');
       
       console.log('🖨️ Starting pre-receipt print process...');
@@ -1003,8 +1017,8 @@ export class PrintService {
         total: receiptData.total
       });
 
-      // Try to print directly - let blePrinter handle connection checks and fallbacks
-      await blePrinter.printReceipt(receiptData);
+      // Route via role-based print manager so it uses the assigned Receipt printer
+      await printManager.printRole('Receipt', receiptData, 'high');
 
       return {
         success: true,
@@ -1059,6 +1073,7 @@ export class PrintService {
       });
 
       const { blePrinter } = await import('./blePrinter');
+      const { printManager } = await import('./printManager');
       const { bluetoothManager } = await import('./bluetoothManager');
       
       // Check printer connection
@@ -1080,8 +1095,8 @@ export class PrintService {
       const { store } = await import('../redux/storeFirebase');
       const state: any = (store as any)?.getState?.() || {};
 
-      // Print via Bluetooth
-      await blePrinter.printCombinedTickets({
+      // Build single payload and create role-based jobs so each role prints on its assigned printer
+      const payload = {
         restaurantName: state?.auth?.restaurantName || 'Restaurant',
         ticketId: `TKT-${Date.now()}`,
         date: new Date(order.createdAt).toLocaleDateString(),
@@ -1095,7 +1110,17 @@ export class PrintService {
         })),
         estimatedTime: '20-30 minutes',
         specialInstructions: order.specialInstructions
-      });
+      };
+
+      const hasKitchenItems = (order.items || []).some((i: any) => (i.orderType || 'KOT') === 'KOT');
+      const hasBarItems = (order.items || []).some((i: any) => (i.orderType || 'BOT') === 'BOT');
+
+      if (hasKitchenItems) {
+        await printManager.printRole('KOT', payload, 'high');
+      }
+      if (hasBarItems) {
+        await printManager.printRole('BOT', payload, 'high');
+      }
 
       // After successful print: if KOT items were printed, mark table occupied in Firestore
       try {

@@ -117,19 +117,19 @@ const MenuScreen: React.FC = () => {
 
   const fetchMenuFromFirebase = async (rid: string) => {
     const menuData = await getOptimizedMenuItems(rid);
-    const menuItemsArray = Object.values(menuData).map((item: any) => ({
-      id: item.id || Object.keys(menuData).find(key => menuData[key] === item),
-      name: item.name,
-      description: item.description || '',
-      price: item.price,
-      category: item.category,
-      isAvailable: item.isAvailable !== false,
-      modifiers: item.modifiers || [],
-      image: item.image || '',
-      orderType: item.orderType || 'KOT',
-      ingredients: item.ingredients || [],
-    }));
-    setItems(menuItemsArray);
+        const menuItemsArray = Object.values(menuData).map((item: any) => ({
+          id: item.id || Object.keys(menuData).find(key => menuData[key] === item),
+          name: item.name,
+          description: item.description || '',
+          price: item.price,
+          category: item.category,
+          isAvailable: item.isAvailable !== false,
+          modifiers: item.modifiers || [],
+          image: item.image || '',
+          orderType: item.orderType || 'KOT',
+          ingredients: item.ingredients || [],
+        }));
+        setItems(menuItemsArray);
     await saveMenuToCache(rid, menuItemsArray);
   };
 
@@ -145,7 +145,7 @@ const MenuScreen: React.FC = () => {
         // Load tables (not cached)
         const tablesData = await getOptimizedTables(restaurantId);
         setFirebaseTables(tablesData);
-
+        
         // Try cache first
         const cached = await loadMenuFromCache(restaurantId);
         if (cached && cached.length > 0) {

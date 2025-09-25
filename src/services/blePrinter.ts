@@ -478,6 +478,17 @@ export const blePrinter = {
 					printContent += 'PRE-RECEIPT\n';
 					printContent += 'CUSTOMER COPY\n';
 					printContent += `Table ${data.table}\n`;
+					// Processed By (match KOT/BOT logic)
+					if (data.processedBy) {
+						if (typeof data.processedBy === 'object' && (data.processedBy as any).role && (data.processedBy as any).username) {
+							printContent += `${(data.processedBy as any).role} - ${(data.processedBy as any).username}\n`;
+						} else if (typeof data.processedBy === 'string') {
+							const role = (data as any).role || 'Staff';
+							printContent += `${role} - ${data.processedBy}\n`;
+						} else if ((data.processedBy as any).role) {
+							printContent += `${(data.processedBy as any).role} - Unknown\n`;
+						}
+					}
 					printContent += '------------------------------\n';
 					// Columns: name(16) qty(3) total(9)
 					printContent += 'Item Total\n';
@@ -489,6 +500,17 @@ export const blePrinter = {
 					if (data.panVat) printContent += `PAN: ${data.panVat}\n`;
 					printContent += `${data.date} ${data.time}\n`;
 					printContent += `Table ${data.table}\n`;
+					// Processed By (match KOT/BOT logic)
+					if (data.processedBy) {
+						if (typeof data.processedBy === 'object' && (data.processedBy as any).role && (data.processedBy as any).username) {
+							printContent += `${(data.processedBy as any).role} - ${(data.processedBy as any).username}\n`;
+						} else if (typeof data.processedBy === 'string') {
+							const role = (data as any).role || 'Staff';
+							printContent += `${role} - ${data.processedBy}\n`;
+						} else if ((data.processedBy as any).role) {
+							printContent += `${(data.processedBy as any).role} - Unknown\n`;
+						}
+					}
 					printContent += '------------------------------\n';
 					// Columns: name(16) qty(3) total(9)
 					printContent += 'Item               Qty      Total\n';
@@ -635,9 +657,7 @@ export const blePrinter = {
 						// Partial format: {role: "Staff"}
 						await BluetoothEscposPrinter.printText(`${data.processedBy.role} - Unknown\n`, {});
 					}
-				} else if (data.steward) {
-					await BluetoothEscposPrinter.printText(`Steward: ${data.steward}\n`, {});
-				}
+			}
 				await BluetoothEscposPrinter.printText('------------------------------\n', {});
 			} else {
 				await BluetoothEscposPrinter.printText(`${data.restaurantName}\n`, { encoding: 'GBK', fonttype: 1, widthtimes: 1, heighttimes: 1 });
@@ -866,8 +886,6 @@ export const blePrinter = {
 					// Partial format: {role: "Staff"}
 					await BluetoothEscposPrinter.printText(`Processed By: ${data.processedBy.role} - Unknown\n`, {});
 				}
-			} else if (data.stewardName) {
-				await BluetoothEscposPrinter.printText(`Steward: ${data.stewardName}\n`, {});
 			}
 			await BluetoothEscposPrinter.printText('------------------------------\n', {});
 			

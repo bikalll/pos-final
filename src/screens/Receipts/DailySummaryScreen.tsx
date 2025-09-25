@@ -1143,8 +1143,8 @@ export default function ReceiptsScreen() {
         } : undefined,
       };
 
-      const { blePrinter } = await import('../../services/blePrinter');
-      await blePrinter.printDailySummary(data as any);
+      const { printManager } = await import('../../services/printManager');
+      await printManager.printDailySummary(data as any);
       Alert.alert('Success', 'Daily summary sent to printer');
     } catch (e: any) {
       Alert.alert('Print Failed', e.message || String(e));

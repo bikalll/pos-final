@@ -1,3 +1,4 @@
+// src/screens/Orders/OrderTakingScreen.tsx
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   View,
@@ -38,13 +39,14 @@ const OrderTakingScreen: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [firebaseTables, setFirebaseTables] = useState<Record<string, any>>({});
   const [isRefreshing, setIsRefreshing] = useState(false);
-  
-  const navigation = useNavigation();
+
+  // navigation typed as any to avoid unnecessary TS noise in this file
+  const navigation = useNavigation<any>();
   const route = useRoute();
   const dispatch = useDispatch();
   const insets = useSafeAreaInsets();
   const { restaurantId } = useSelector((state: RootState) => state.auth);
-  
+
   const { tableId, orderId } = route.params as RouteParams;
   const [selectedTableId, setSelectedTableId] = useState(tableId);
   // Stage items locally when creating a brand-new order (orderId === 'new') until user presses Save
@@ -68,10 +70,11 @@ const OrderTakingScreen: React.FC = () => {
       }
     }, [orderId, pendingItems])
   );
+
   const order = useSelector((state: RootState) => state.orders.ordersById[orderId]);
   const ordersById = useSelector((state: RootState) => state.orders.ordersById);
   const activeTables = useSelector(selectActiveTables);
-  
+
   // Get the selected table from Firebase tables instead of Redux
   const selectedTable = firebaseTables[selectedTableId] ? {
     id: selectedTableId,
@@ -168,7 +171,7 @@ const OrderTakingScreen: React.FC = () => {
       if (order && order.items.length === 0) {
         dispatch(cancelOrder({ orderId: order.id }));
       }
-      
+
       // Cleanup Firebase connections
       if (restaurantId) {
         console.log('🧹 OrderTakingScreen: Cleaning up Firebase connections');
@@ -178,7 +181,7 @@ const OrderTakingScreen: React.FC = () => {
   }, [order, dispatch, restaurantId]);
 
   const categories = useMemo(() => ['All', ...Array.from(new Set(menuItems.map((i: MenuItem) => i.category)))], [menuItems]);
-  
+
   // Debug: Log table information
   console.log('=== TABLE DEBUG INFO ===');
   console.log('Active tables count:', activeTables.length);
@@ -186,9 +189,9 @@ const OrderTakingScreen: React.FC = () => {
   console.log('=== END DEBUG INFO ===');
 
   const filteredItems = useMemo(() => (
-    (menuItems || []).filter(item => 
+    (menuItems || []).filter(item =>
       (categoryFilter === 'All' || item.category === categoryFilter) &&
-      (searchQuery === '' || 
+      (searchQuery === '' ||
         item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         item.category.toLowerCase().includes(searchQuery.toLowerCase()))
     )
@@ -216,13 +219,7 @@ const OrderTakingScreen: React.FC = () => {
       }
     }));
 
-    const existing = order;
-    const existingItems = existing?.items || [];
-    const found = existingItems.find((i: any) => i.menuItemId === item.id);
-    const updatedItems = found
-      ? existingItems.map((i: any) => i.menuItemId === item.id ? { ...i, quantity: i.quantity + 1 } : i)
-      : [...existingItems, { menuItemId: item.id, name: item.name, description: item.description, price: item.price, quantity: 1, modifiers: [], orderType: item.orderType }];
-    // Do not persist to Firebase here; only update local store. Firebase save happens on Save Order in confirmation.
+    // Note: we intentionally only update local store (redux); actual Firebase persisting is handled elsewhere
   };
 
   const handleUpdateQuantity = (menuItemId: string, quantity: number) => {
@@ -241,12 +238,8 @@ const OrderTakingScreen: React.FC = () => {
     if (!order) return;
     if (quantity <= 0) {
       dispatch(removeItem({ orderId, menuItemId }));
-      const updatedItems = (order.items || []).filter((i: any) => i.menuItemId !== menuItemId);
-      // Do not persist to Firebase here
     } else {
       dispatch(updateItemQuantity({ orderId, menuItemId, quantity }));
-      const updatedItems = (order.items || []).map((i: any) => i.menuItemId === menuItemId ? { ...i, quantity } : i);
-      // Do not persist to Firebase here
     }
   };
 
@@ -268,11 +261,11 @@ const OrderTakingScreen: React.FC = () => {
     const currentQuantity = orderId === 'new' ? (pendingItems[item.id]?.quantity || 0) : (orderItem?.quantity || 0);
 
     return (
-             <TouchableOpacity
-         style={styles.menuItem}
-         onPress={() => handleAddItem(item)}
-         activeOpacity={1}
-       >
+      <TouchableOpacity
+        style={styles.menuItem}
+        onPress={() => handleAddItem(item)}
+        activeOpacity={1}
+      >
         {/* Image Placeholder */}
         <View style={styles.menuItemImage}>
           {item.image ? (
@@ -294,25 +287,25 @@ const OrderTakingScreen: React.FC = () => {
         {currentQuantity > 0 ? (
           // Show quantity controls if item is in order
           <View style={styles.quantityControls}>
-                         <TouchableOpacity
-               style={styles.quantityButton}
-               onPress={() => handleUpdateQuantity(item.id, currentQuantity - 1)}
-               activeOpacity={0.7}
-             >
-               <Ionicons name="remove" size={16} color={colors.textSecondary} />
-             </TouchableOpacity>
-            
+            <TouchableOpacity
+              style={styles.quantityButton}
+              onPress={() => handleUpdateQuantity(item.id, currentQuantity - 1)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="remove" size={16} color={colors.textSecondary} />
+            </TouchableOpacity>
+
             <View style={styles.quantityDisplay}>
               <Text style={styles.quantityText}>{currentQuantity}</Text>
             </View>
-            
-                         <TouchableOpacity
-               style={styles.quantityButton}
-               onPress={() => handleUpdateQuantity(item.id, currentQuantity + 1)}
-               activeOpacity={0.7}
-             >
-               <Ionicons name="add" size={16} color={colors.textSecondary} />
-             </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.quantityButton}
+              onPress={() => handleUpdateQuantity(item.id, currentQuantity + 1)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="add" size={16} color={colors.textSecondary} />
+            </TouchableOpacity>
           </View>
         ) : (
           // Show add button if item is not in order
@@ -344,10 +337,7 @@ const OrderTakingScreen: React.FC = () => {
       <View style={styles.header}>
         <Text style={styles.title}>Add Items to Order</Text>
         <Text style={styles.subtitle}>Add items to the order for {selectedTable?.name || `Table ${selectedTableId?.replace('table-', '') || selectedTableId}`}</Text>
-        
       </View>
-
-
 
       <View style={styles.searchSection}>
         <TextInput
@@ -359,9 +349,9 @@ const OrderTakingScreen: React.FC = () => {
         />
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryFilter}>
           {categories.map(c => (
-            <TouchableOpacity 
-              key={c} 
-              style={[styles.categoryChip, categoryFilter === c && styles.categoryChipActive]} 
+            <TouchableOpacity
+              key={c}
+              style={[styles.categoryChip, categoryFilter === c && styles.categoryChipActive]}
               onPress={() => setCategoryFilter(c)}
             >
               <Text style={[styles.categoryText, categoryFilter === c && styles.categoryTextActive]}>
@@ -390,8 +380,8 @@ const OrderTakingScreen: React.FC = () => {
       />
 
       {(orderId === 'new' ? Object.keys(pendingItems).length > 0 : (order && order.items.length > 0)) && (
-        <View 
-          style={[styles.footer, { paddingBottom: spacing.md + insets.bottom }] }
+        <View
+          style={[styles.footer, { paddingBottom: spacing.md + insets.bottom }]}
           onLayout={({ nativeEvent }) => setFooterHeight(nativeEvent.layout.height)}
         >
           <View style={styles.footerSummary}>
@@ -478,14 +468,14 @@ const OrderTakingScreen: React.FC = () => {
                   }
                   return;
                 }
-                
+
                 // Order exists and is ongoing, proceed normally
                 dispatch(markOrderReviewed({ orderId }));
                 try {
                   // @ts-ignore
-                  navigation.navigate('OrderConfirmation', { 
-                    orderId, 
-                    tableId: selectedTableId 
+                  navigation.navigate('OrderConfirmation', {
+                    orderId,
+                    tableId: selectedTableId
                   });
                 } catch (error) {
                   Alert.alert('Navigation Error', 'Unable to navigate to order confirmation. Please try again.');
@@ -500,7 +490,7 @@ const OrderTakingScreen: React.FC = () => {
       )}
     </SafeAreaView>
   );
-}
+};
 
 const styles = StyleSheet.create({
   container: {

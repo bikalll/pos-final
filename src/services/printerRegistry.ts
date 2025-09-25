@@ -67,7 +67,9 @@ class PrinterRegistryService {
 
   // Notify listeners
   private notifyListeners(): void {
-    this.listeners.forEach(listener => listener(this.state));
+    // Emit a fresh copy so UI state updates immediately
+    const snapshot = this.getState();
+    this.listeners.forEach(listener => listener(snapshot));
   }
 
   // Save state to storage
@@ -89,7 +91,11 @@ class PrinterRegistryService {
 
   // Get current state
   getState(): PrinterRegistryState {
-    return { ...this.state };
+    // Return a shallow copy with a fresh Map reference to trigger UI updates
+    return {
+      ...this.state,
+      mappings: new Map(this.state.mappings),
+    };
   }
 
   // Set printer mapping for a role
@@ -106,16 +112,32 @@ class PrinterRegistryService {
     this.notifyListeners();
     await this.saveState();
     
-    // Save printer configuration for persistence (avoid circular import)
+    // Save printer configuration for all printers to keep roles in sync across devices
     try {
       const { printerPersistence } = await import('./printerPersistence');
-      const allRoles = Array.from(this.state.mappings.values())
-        .filter(m => m.printerId === printer.id && m.enabled)
-        .map(m => m.role);
-      
-      await printerPersistence.savePrinterConfig(printer.id, printer.friendlyName || printer.name, allRoles);
+      // Aggregate roles by printerId
+      const rolesByPrinter: Record<string, { name: string; roles: string[] }> = {};
+      this.state.mappings.forEach((m) => {
+        if (!m.enabled) return;
+        if (!rolesByPrinter[m.printerId]) {
+          rolesByPrinter[m.printerId] = { name: m.printerName, roles: [] };
+        }
+        rolesByPrinter[m.printerId].roles.push(m.role);
+      });
+      // Persist each printer's roles, and remove configs for printers no longer mapped
+      const saved = await printerPersistence.loadAllPrinterConfigs();
+      const existingIds = new Set(saved.map(s => s.printerId));
+      const currentIds = new Set(Object.keys(rolesByPrinter));
+      for (const [pid, info] of Object.entries(rolesByPrinter)) {
+        await printerPersistence.savePrinterConfig(pid, info.name, info.roles);
+      }
+      for (const pid of Array.from(existingIds)) {
+        if (!currentIds.has(pid)) {
+          await printerPersistence.removePrinterConfig(pid);
+        }
+      }
     } catch (error) {
-      console.warn('Failed to save printer persistence config:', error);
+      console.warn('Failed to update printer persistence configs:', error);
     }
     
     // Also save connection preferences (avoid circular import)
@@ -129,9 +151,25 @@ class PrinterRegistryService {
 
   // Remove printer mapping for a role
   async removePrinterMapping(role: PrinterRole): Promise<void> {
+    const prev = this.state.mappings.get(role);
     this.state.mappings.delete(role);
     this.notifyListeners();
     await this.saveState();
+    
+    // Update persistence for affected printer
+    try {
+      if (prev) {
+        const { printerPersistence } = await import('./printerPersistence');
+        const remainingRoles = this.getRolesForPrinter(prev.printerId);
+        if (remainingRoles.length > 0) {
+          await printerPersistence.savePrinterConfig(prev.printerId, prev.printerName, remainingRoles);
+        } else {
+          await printerPersistence.removePrinterConfig(prev.printerId);
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to update persistence on remove mapping:', error);
+    }
   }
 
   // Get printer mapping for a role
@@ -164,6 +202,18 @@ class PrinterRegistryService {
       this.state.mappings.set(role, mapping);
       this.notifyListeners();
       await this.saveState();
+      // Persist updated roles for this printer
+      try {
+        const { printerPersistence } = await import('./printerPersistence');
+        const roles = this.getRolesForPrinter(mapping.printerId);
+        if (roles.length > 0) {
+          await printerPersistence.savePrinterConfig(mapping.printerId, mapping.printerName, roles);
+        } else {
+          await printerPersistence.removePrinterConfig(mapping.printerId);
+        }
+      } catch (error) {
+        console.warn('Failed to update persistence on enable/disable:', error);
+      }
     }
   }
 

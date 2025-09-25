@@ -30,11 +30,12 @@ const PrinterSetupScreen: React.FC<PrinterSetupScreenProps> = ({ navigation }) =
   const [selectedPrinter, setSelectedPrinter] = useState<PrinterDevice | null>(null);
   const [testingPrinter, setTestingPrinter] = useState<string | null>(null);
   const [savedPrinters, setSavedPrinters] = useState<SavedPrinterConfig[]>([]);
-  const [openMenuPrinterId, setOpenMenuPrinterId] = useState<string | null>(null);
+  const [openMenuPrinterId, setOpenMenuPrinterId] = useState<string | null>(null); // legacy; menu now always visible
 
-  // Load initial data
+  // Load initial data (no auto-refresh/spinner; do not scan)
   useEffect(() => {
-    loadData();
+    // Lightweight hydrate without triggering refresh UI or scanning
+    loadData(false);
     setupListeners();
   }, []);
 
@@ -64,12 +65,11 @@ const PrinterSetupScreen: React.FC<PrinterSetupScreenProps> = ({ navigation }) =
   };
 
   // Load data
-  const loadData = async () => {
+  const loadData = async (userInitiated: boolean = true) => {
     try {
-      setIsRefreshing(true);
+      if (userInitiated) setIsRefreshing(true);
       
-      // Initialize services
-      await printManager.initialize();
+      // Do not re-initialize here to avoid auto refresh/scan; app initializes on launch
       // Load saved (app-paired) printers
       const saved = await printerPersistence.loadAllPrinterConfigs();
       setSavedPrinters(saved);
@@ -95,7 +95,7 @@ const PrinterSetupScreen: React.FC<PrinterSetupScreenProps> = ({ navigation }) =
       console.error('Failed to load printer data:', error);
       Alert.alert('Error', 'Failed to load printer data');
     } finally {
-      setIsRefreshing(false);
+      if (userInitiated) setIsRefreshing(false);
     }
   };
 
@@ -372,7 +372,7 @@ const PrinterSetupScreen: React.FC<PrinterSetupScreenProps> = ({ navigation }) =
     const printer = printerDiscovery.getPrinter(config.printerId);
     const displayName = printer?.friendlyName || config.printerName;
     const rolesForThisPrinter = printerRegistry.getRolesForPrinter(config.printerId);
-    const isMenuOpen = openMenuPrinterId === config.printerId;
+    const isMenuOpen = true; // always show role menu for consistency; removes need for arrow/ellipsis
 
     return (
       <View key={config.printerId} style={styles.savedPrinterItem}>
@@ -386,10 +386,18 @@ const PrinterSetupScreen: React.FC<PrinterSetupScreenProps> = ({ navigation }) =
             <Text style={styles.savedPrinterError}>Error: {printer?.errorMessage}</Text>
           )}
           {isMenuOpen && (
-            <View style={styles.roleMenu}>
-              {(['KOT','BOT','Receipt'] as PrinterRole[])
-                .filter((role) => roleAvailableForPrinter(config.printerId, role))
-                .map((role) => {
+            <View style={[styles.roleMenu, { borderColor: '#e0e0e0', backgroundColor: '#fff' }]}>
+              {(() => {
+                const availableRoles = (['KOT','BOT','Receipt'] as PrinterRole[])
+                  .filter((role) => roleAvailableForPrinter(config.printerId, role));
+                if (availableRoles.length === 0) {
+                  return (
+                    <View style={{ paddingVertical: 8, paddingHorizontal: 8 }}>
+                      <Text style={{ color: '#666', fontSize: 12 }}>No roles available</Text>
+                    </View>
+                  );
+                }
+                return availableRoles.map((role) => {
                   const checked = rolesForThisPrinter.includes(role);
                   return (
                     <TouchableOpacity
@@ -405,7 +413,8 @@ const PrinterSetupScreen: React.FC<PrinterSetupScreenProps> = ({ navigation }) =
                       <Text style={styles.roleMenuText}>{role}</Text>
                     </TouchableOpacity>
                   );
-                })}
+                });
+              })()}
             </View>
           )}
         </View>
@@ -415,12 +424,6 @@ const PrinterSetupScreen: React.FC<PrinterSetupScreenProps> = ({ navigation }) =
             onPress={() => printManager.reconnectPrinter(config.printerId)}
           >
             <Text style={styles.reconnectButtonText}>Reconnect</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.moreButton, isMenuOpen && styles.moreButtonActive]}
-            onPress={() => setOpenMenuPrinterId(isMenuOpen ? null : config.printerId)}
-          >
-            <Ionicons name="ellipsis-vertical" size={18} color="#333" />
           </TouchableOpacity>
         </View>
       </View>
@@ -488,7 +491,7 @@ const PrinterSetupScreen: React.FC<PrinterSetupScreenProps> = ({ navigation }) =
         <Text style={styles.headerTitle}>Printer Setup</Text>
           <TouchableOpacity
           style={styles.refreshButton}
-          onPress={loadData}
+          onPress={() => loadData(true)}
           disabled={isRefreshing}
           >
           <Ionicons name="refresh" size={24} color="#2196F3" />

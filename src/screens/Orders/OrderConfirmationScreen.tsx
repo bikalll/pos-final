@@ -741,6 +741,52 @@ const OrderConfirmationScreen: React.FC = () => {
     }
   };
 
+  const handlePrintOnlyKOT = async () => {
+    try {
+      setShowOptionsMenu(false);
+      const kotOrder = {
+        ...orderWithOrderTypes,
+        items: (orderWithOrderTypes.items || []).filter((i: any) => (i.orderType || 'KOT') === 'KOT')
+      } as any;
+      if (!kotOrder.items || kotOrder.items.length === 0) {
+        Alert.alert('No KOT Items', 'There are no kitchen items to print.');
+        return;
+      }
+      const result = await PrintService.printKOTFromOrder(kotOrder, actualTable);
+      if (result.success) {
+        Alert.alert('Success', 'KOT printed successfully');
+      } else {
+        Alert.alert('Print Failed', result.message);
+      }
+    } catch (error: any) {
+      console.error('Error printing KOT:', error);
+      Alert.alert('Print Error', error?.message || 'Failed to print KOT');
+    }
+  };
+
+  const handlePrintOnlyBOT = async () => {
+    try {
+      setShowOptionsMenu(false);
+      const botOrder = {
+        ...orderWithOrderTypes,
+        items: (orderWithOrderTypes.items || []).filter((i: any) => (i.orderType || 'KOT') === 'BOT')
+      } as any;
+      if (!botOrder.items || botOrder.items.length === 0) {
+        Alert.alert('No BOT Items', 'There are no bar items to print.');
+        return;
+      }
+      const result = await PrintService.printBOTFromOrder(botOrder, actualTable);
+      if (result.success) {
+        Alert.alert('Success', 'BOT printed successfully');
+      } else {
+        Alert.alert('Print Failed', result.message);
+      }
+    } catch (error: any) {
+      console.error('Error printing BOT:', error);
+      Alert.alert('Print Error', error?.message || 'Failed to print BOT');
+    }
+  };
+
   const handleSettlePayment = () => {
     (navigation as any).navigate('Payment', { orderId, tableId, totalAmount: calculateTotal() });
   };
@@ -805,9 +851,6 @@ const OrderConfirmationScreen: React.FC = () => {
                 accessibilityLabel="Options Menu"
               >
                 <Ionicons name="ellipsis-vertical" size={20} color={order?.isSaved ? colors.textSecondary : colors.textMuted} />
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.actionButton} onPress={() => setShowDebugMonitor(true)}>
-                <Ionicons name="bug" size={20} color={colors.primary} />
               </TouchableOpacity>
             </View>
           </View>
@@ -1434,13 +1477,15 @@ const OrderConfirmationScreen: React.FC = () => {
                 <Ionicons name="close" size={24} color={colors.textPrimary} />
               </TouchableOpacity>
             </View>
-            <Text style={styles.modalDescription}>
-              Choose what you want to print:
-            </Text>
+            <Text style={styles.modalDescription}>Choose what you want to print:</Text>
             <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.printActionButton} onPress={handlePrintKOTBOT}>
+              <TouchableOpacity style={styles.printActionButton} onPress={handlePrintOnlyKOT}>
                 <Ionicons name="restaurant" size={20} color="white" />
-                <Text style={styles.printButtonText}>Print KOT/BOT</Text>
+                <Text style={styles.printButtonText}>Print KOT</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.printActionButton, styles.botPrintButton]} onPress={handlePrintOnlyBOT}>
+                <Ionicons name="wine" size={20} color="white" />
+                <Text style={styles.printButtonText}>Print BOT</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.saveButton} onPress={handlePrintPreReceiptOnly}>
                 <Ionicons name="receipt" size={20} color="white" />
@@ -1546,6 +1591,7 @@ const styles = StyleSheet.create({
   modalDescription: { fontSize: 14, color: colors.textSecondary, marginBottom: spacing.lg, lineHeight: 20 },
   modalActions: { gap: spacing.sm },
   printActionButton: { backgroundColor: colors.primary, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center' },
+  botPrintButton: { backgroundColor: '#8B0000' },
   printButtonText: { color: 'white', fontSize: 14, fontWeight: 'bold' },
   saveButton: { backgroundColor: colors.surface2, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.outline },
   saveButtonText: { color: colors.textPrimary, fontSize: 14, fontWeight: 'bold' },
