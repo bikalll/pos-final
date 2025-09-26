@@ -526,7 +526,14 @@ const MenuScreen: React.FC = () => {
         const kotOrder = { ...orderDelta, items: orderDelta.items.filter((i: any) => (i.orderType || 'KOT') === 'KOT') };
         const botOrder = { ...orderDelta, items: orderDelta.items.filter((i: any) => (i.orderType || 'KOT') === 'BOT') };
         const kotResult = await PrintService.printKOTFromOrder(kotOrder, table);
-        const botResult = await PrintService.printBOTFromOrder(botOrder, table);
+        // Ensure KOT completes and give Bluetooth stack time before BOT
+        await new Promise(r => setTimeout(r, 2000));
+        let botResult = await PrintService.printBOTFromOrder(botOrder, table);
+        if (!botResult.success) {
+          // Retry BOT once after a short delay
+          await new Promise(r => setTimeout(r, 500));
+          botResult = await PrintService.printBOTFromOrder(botOrder, table);
+        }
         printSuccess = kotResult.success || botResult.success;
       } else {
         const result = await PrintService.printCombinedTicketsFromOrder(orderDelta, table);
@@ -545,8 +552,9 @@ const MenuScreen: React.FC = () => {
         } catch (error) {
           console.error('Firestore save error:', error);
         }
-        // Mark saved after successful print; middleware will snapshot after deduction
+        // Mark saved after successful print and snapshot baseline immediately
         (dispatch as any)(markOrderSaved({ orderId: pendingOrderInfo.orderId }));
+        (dispatch as any)(snapshotSavedQuantities({ orderId: pendingOrderInfo.orderId }));
         (dispatch as any)(markOrderReviewed({ orderId: pendingOrderInfo.orderId }));
         (dispatch as any)(loadOrders());
 

@@ -54,6 +54,10 @@ export interface TicketData {
     specialInstructions?: string;
   }>;
   specialInstructions?: string;
+  // Added to mirror pre-receipt processedBy logic
+  processedBy?: { role: string; username: string } | string;
+  role?: string;
+  stewardName?: string;
 }
 
 export interface KOTData {
@@ -257,6 +261,7 @@ export function generateReceiptHTML(receipt: ReceiptData): string {
         Thank you for dining with us!<br>
         Please visit again
       </div>
+      <div style="height: 180mm;"></div>
     </body>
     </html>
   `;
@@ -332,6 +337,18 @@ export function generateTicketHTML(ticket: TicketData): string {
       <div class="order-info">
         <div><strong>Ticket ID:</strong> ${ticket.ticketId}</div>
         <div><strong>Estimated Time:</strong> ${ticket.estimatedTime}</div>
+        ${(() => {
+          const pb: any = (ticket as any).processedBy;
+          if (pb && typeof pb === 'object' && pb.role && pb.username) {
+            return `<div><strong>Processed By:</strong> ${pb.role} - ${pb.username}</div>`;
+          } else if (typeof pb === 'string') {
+            const role = (ticket as any).role || 'Staff';
+            return `<div><strong>Processed By:</strong> ${role} - ${pb}</div>`;
+          } else if (pb && (pb as any).role) {
+            return `<div><strong>Processed By:</strong> ${(pb as any).role} - Unknown</div>`;
+          }
+          return '';
+        })()}
       </div>
       
       <div class="items-list">
@@ -348,6 +365,7 @@ export function generateTicketHTML(ticket: TicketData): string {
         <strong>PLEASE PREPARE WITH CARE</strong><br>
         ${new Date().toLocaleTimeString()}
       </div>
+      <div style="height: 180mm;"></div>
     </body>
     </html>
   `;
@@ -489,6 +507,7 @@ export function generateReportHTML(report: ReportData): string {
         Report generated on ${new Date().toLocaleString()}<br>
         Arbi POS - Restaurant Management System
       </div>
+      <div style="height: 180mm;"></div>
     </body>
     </html>
   `;
@@ -686,6 +705,18 @@ export class PrintService {
       const { store } = await import('../redux/storeFirebase');
       const state: any = (store as any)?.getState?.() || {};
 
+      // Ensure processedBy exists in unified format
+      let processedBy = order.processedBy;
+      try {
+        if (!processedBy || typeof processedBy !== 'object' || !processedBy.role || !processedBy.username) {
+          const state: any = (store as any)?.getState?.() || {};
+          processedBy = {
+            role: order.role || state?.auth?.role || 'Staff',
+            username: (order.processedBy && (order.processedBy as any).username) || state?.auth?.userName || 'Unknown'
+          };
+        }
+      } catch {}
+
       // Build payload and route via role-based print manager (uses assigned printer for KOT)
       const payload = {
         restaurantName: state?.auth?.restaurantName || 'Restaurant',
@@ -703,7 +734,7 @@ export class PrintService {
           })),
         estimatedTime: '20-30 minutes',
         specialInstructions: order.specialInstructions,
-        processedBy: order.processedBy
+        processedBy
       };
 
       await printManager.printRole('KOT', payload, 'high');
@@ -758,6 +789,18 @@ export class PrintService {
       const { store } = await import('../redux/storeFirebase');
       const state: any = (store as any)?.getState?.() || {};
 
+      // Ensure processedBy exists in unified format
+      let processedBy = order.processedBy;
+      try {
+        if (!processedBy || typeof processedBy !== 'object' || !processedBy.role || !processedBy.username) {
+          const state: any = (store as any)?.getState?.() || {};
+          processedBy = {
+            role: order.role || state?.auth?.role || 'Staff',
+            username: (order.processedBy && (order.processedBy as any).username) || state?.auth?.userName || 'Unknown'
+          };
+        }
+      } catch {}
+
       // Build payload and route via role-based print manager (uses assigned printer for BOT)
       const payload = {
         restaurantName: state?.auth?.restaurantName || 'Restaurant',
@@ -775,7 +818,7 @@ export class PrintService {
           })),
         estimatedTime: '5-10 minutes',
         specialInstructions: order.specialInstructions,
-        processedBy: order.processedBy
+        processedBy
       };
 
       await printManager.printRole('BOT', payload, 'high');
@@ -1095,31 +1138,70 @@ export class PrintService {
       const { store } = await import('../redux/storeFirebase');
       const state: any = (store as any)?.getState?.() || {};
 
-      // Build single payload and create role-based jobs so each role prints on its assigned printer
-      const payload = {
+      // Build role-specific payloads with unique ticket IDs
+      // Ensure processedBy exists in unified format
+      let processedBy = order.processedBy;
+      try {
+        if (!processedBy || typeof processedBy !== 'object' || !processedBy.role || !processedBy.username) {
+          processedBy = {
+            role: order.role || state?.auth?.role || 'Staff',
+            username: (order.processedBy && (order.processedBy as any).username) || state?.auth?.userName || 'Unknown'
+          };
+        }
+      } catch {}
+
+      const basePayload = {
         restaurantName: state?.auth?.restaurantName || 'Restaurant',
-        ticketId: `TKT-${Date.now()}`,
         date: new Date(order.createdAt).toLocaleDateString(),
         time: new Date(order.createdAt).toLocaleTimeString(),
         table: table?.name || order.tableId,
-        items: order.items.map((item: any) => ({
-          name: item.name,
-          quantity: item.quantity,
-          price: item.price,
-          orderType: item.orderType
-        })),
         estimatedTime: '20-30 minutes',
-        specialInstructions: order.specialInstructions
+        specialInstructions: order.specialInstructions,
+        processedBy
+      } as any;
+
+      const kotPayload = {
+        ...basePayload,
+        ticketId: `KOT-${Date.now()}`,
+        items: (order.items || [])
+          .filter((item: any) => (item.orderType || 'KOT') === 'KOT')
+          .map((item: any) => ({ name: item.name, quantity: item.quantity, price: item.price, orderType: 'KOT' }))
+      };
+
+      const botPayload = {
+        ...basePayload,
+        ticketId: `BOT-${Date.now()}`,
+        items: (order.items || [])
+          .filter((item: any) => (item.orderType || 'KOT') === 'BOT')
+          .map((item: any) => ({ name: item.name, quantity: item.quantity, price: item.price, orderType: 'BOT' }))
       };
 
       const hasKitchenItems = (order.items || []).some((i: any) => (i.orderType || 'KOT') === 'KOT');
       const hasBarItems = (order.items || []).some((i: any) => (i.orderType || 'BOT') === 'BOT');
 
       if (hasKitchenItems) {
-        await printManager.printRole('KOT', payload, 'high');
+        try {
+          await printManager.printRole('KOT', kotPayload, 'high');
+        } catch (e) {
+          console.warn('KOT print failed in combined flow, retrying once...', e);
+          await new Promise(r => setTimeout(r, 500));
+          await printManager.printRole('KOT', kotPayload, 'high');
+        }
       }
+
+      // Explicit delay to ensure KOT finishes and Bluetooth stack settles before BOT
+      if (hasKitchenItems && hasBarItems) {
+        await new Promise(r => setTimeout(r, 2000));
+      }
+
       if (hasBarItems) {
-        await printManager.printRole('BOT', payload, 'high');
+        try {
+          await printManager.printRole('BOT', botPayload, 'high');
+        } catch (e) {
+          console.warn('BOT print failed in combined flow, retrying once...', e);
+          await new Promise(r => setTimeout(r, 500));
+          await printManager.printRole('BOT', botPayload, 'high');
+        }
       }
 
       // After successful print: if KOT items were printed, mark table occupied in Firestore
@@ -1208,6 +1290,18 @@ export class PrintService {
           <div>Ticket #${data.ticketId}</div>
           <div>Date: ${data.date} Time: ${data.time}</div>
           <div>Table: ${data.table}</div>
+          ${(() => {
+            const pb: any = data.processedBy;
+            if (pb && typeof pb === 'object' && pb.role && pb.username) {
+              return `<div>Processed By: ${pb.role} - ${pb.username}</div>`;
+            } else if (typeof pb === 'string') {
+              const role = data.role || 'Staff';
+              return `<div>Processed By: ${role} - ${pb}</div>`;
+            } else if (pb && pb.role) {
+              return `<div>Processed By: ${pb.role} - Unknown</div>`;
+            }
+            return '';
+          })()}
           <div>Est. Time: ${data.estimatedTime}</div>
           ${data.specialInstructions ? `<div>Special: ${data.specialInstructions}</div>` : ''}
           <div class="divider"></div>
@@ -1218,6 +1312,7 @@ export class PrintService {
           <div class="divider"></div>
           <div class="total">PLEASE PREPARE WITH CARE</div>
           <div>${new Date().toLocaleTimeString()}</div>
+          <div style="height: 180mm;"></div>
         </body>
       </html>
     `;
@@ -1243,6 +1338,18 @@ export class PrintService {
           <div>Ticket #${data.ticketId}</div>
           <div>Date: ${data.date} Time: ${data.time}</div>
           <div>Table: ${data.table}</div>
+          ${(() => {
+            const pb: any = data.processedBy;
+            if (pb && typeof pb === 'object' && pb.role && pb.username) {
+              return `<div>Processed By: ${pb.role} - ${pb.username}</div>`;
+            } else if (typeof pb === 'string') {
+              const role = data.role || 'Staff';
+              return `<div>Processed By: ${role} - ${pb}</div>`;
+            } else if (pb && pb.role) {
+              return `<div>Processed By: ${pb.role} - Unknown</div>`;
+            }
+            return '';
+          })()}
           <div>Est. Time: ${data.estimatedTime}</div>
           ${data.specialInstructions ? `<div>Special: ${data.specialInstructions}</div>` : ''}
           <div class="divider"></div>
@@ -1253,6 +1360,7 @@ export class PrintService {
           <div class="divider"></div>
           <div class="total">PLEASE PREPARE WITH CARE</div>
           <div>${new Date().toLocaleTimeString()}</div>
+          <div style="height: 180mm;"></div>
         </body>
       </html>
     `;
@@ -1325,6 +1433,7 @@ export class PrintService {
     }
 
     html += `
+          <div style="height: 180mm;"></div>
         </body>
       </html>
     `;
@@ -1346,6 +1455,7 @@ export class PrintService {
         <body>
           <div class="title">${title}</div>
           ${content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}
+          <div style="height: 180mm;"></div>
         </body>
       </html>
     `;

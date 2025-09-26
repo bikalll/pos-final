@@ -34,9 +34,16 @@ const PrinterSetupScreen: React.FC<PrinterSetupScreenProps> = ({ navigation }) =
 
   // Load initial data (no auto-refresh/spinner; do not scan)
   useEffect(() => {
-    // Lightweight hydrate without triggering refresh UI or scanning
-    loadData(false);
-    setupListeners();
+    const cleanup = setupListeners();
+    (async () => {
+      try {
+        // Ensure registry is hydrated from storage so checkboxes reflect immediately
+        await printerRegistry.initialize();
+      } catch {}
+      // Lightweight hydrate without triggering refresh UI or scanning
+      await loadData(false);
+    })();
+    return cleanup;
   }, []);
 
   // Setup listeners

@@ -602,9 +602,13 @@ const OrderConfirmationScreen: React.FC = () => {
         const kotOrder = { ...orderDelta, items: orderDelta.items.filter((i: any) => (i.orderType || 'KOT') === 'KOT') };
         const botOrder = { ...orderDelta, items: orderDelta.items.filter((i: any) => (i.orderType || 'KOT') === 'BOT') };
         const kotResult = await PrintService.printKOTFromOrder(kotOrder, actualTable);
+        // Ensure KOT completes and give Bluetooth stack time before BOT
+        await new Promise(r => setTimeout(r, 2000));
         const botResult = await PrintService.printBOTFromOrder(botOrder, actualTable);
         if (kotResult.success || botResult.success) {
           console.log('✅ handlePrint - Split KOT/BOT print successful, proceeding with finalizeSave');
+          // Snapshot baseline immediately so subsequent prints use delta
+          try { (dispatch as any)(snapshotSavedQuantities({ orderId })); } catch {}
           await finalizeSave();
           setPrintModalVisible(false);
           return;
@@ -616,6 +620,8 @@ const OrderConfirmationScreen: React.FC = () => {
       const result = await PrintService.printCombinedTicketsFromOrder(orderDelta, actualTable);
       if (result.success) {
         console.log('✅ handlePrint - Print successful, proceeding with finalizeSave');
+        // Snapshot baseline immediately so subsequent prints use delta
+        try { (dispatch as any)(snapshotSavedQuantities({ orderId })); } catch {}
         await finalizeSave();
         setPrintModalVisible(false);
       } else {

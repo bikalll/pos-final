@@ -278,7 +278,7 @@ export const blePrinter = {
 			const Sharing = await import('expo-sharing');
 			
 			// Create simple HTML content
-			const html = `
+            const html = `
 				<html>
 					<head>
 						<style>
@@ -290,6 +290,7 @@ export const blePrinter = {
 					<body>
 						<div class="header">${title}</div>
 						<div class="content">${content}</div>
+						<div style="height: 180mm;"></div>
 					</body>
 				</html>
 			`;
@@ -350,7 +351,7 @@ export const blePrinter = {
 			await BluetoothEscposPrinter.printerInit();
 			await BluetoothEscposPrinter.printerAlign(getAlignment('LEFT'));
 			await BluetoothEscposPrinter.printText(text + '\n', { encoding: 'GBK' });
-			await BluetoothEscposPrinter.printAndFeed(26); // 3cm space below general text prints to prevent paper getting stuck in printer
+            await BluetoothEscposPrinter.printAndFeed(156); // ~18cm space below general text prints to prevent paper getting stuck in printer
 		} catch (error) {
 			console.error('Print text failed:', error);
 			throw new Error(`Print failed: ${error}`);
@@ -424,7 +425,7 @@ export const blePrinter = {
 			printContent += '\nThank you!\n';
 			
 			await BluetoothEscposPrinter.printText(printContent, { encoding: 'GBK' });
-			await BluetoothEscposPrinter.printAndFeed(26); // 3cm space below simple receipt to prevent paper getting stuck in printer
+            await BluetoothEscposPrinter.printAndFeed(156); // ~18cm space below simple receipt to prevent paper getting stuck in printer
 			
 			console.log('✅ Simple receipt print completed successfully');
 		} catch (error) {
@@ -755,7 +756,7 @@ export const blePrinter = {
 			}
 			await BluetoothEscposPrinter.printText('Powered by House of Job Pvt. Ltd\n', {});
 			await BluetoothEscposPrinter.printText(`Ref Number: ${data.receiptId}\n`, {});
-			await BluetoothEscposPrinter.printAndFeed(26); // 3cm space below receipt to prevent paper getting stuck in printer
+            await BluetoothEscposPrinter.printAndFeed(156); // ~18cm space below receipt to prevent paper getting stuck in printer
 		} catch (error) {
 			console.error('Print receipt failed:', error);
 			// Try fallback methods if Bluetooth fails
@@ -874,19 +875,16 @@ export const blePrinter = {
 			await BluetoothEscposPrinter.printText(`${data.ticketId}\n`, {});
 			await BluetoothEscposPrinter.printText(`${data.date} ${data.time}\n`, {});
 			await BluetoothEscposPrinter.printText(`Table ${data.table}\n`, {});
-			if (data.processedBy) {
-				if (typeof data.processedBy === 'object' && data.processedBy.role && data.processedBy.username) {
-					// New format: {role: "Staff", username: "John"}
-					await BluetoothEscposPrinter.printText(`Processed By: ${data.processedBy.role} - ${data.processedBy.username}\n`, {});
-				} else if (typeof data.processedBy === 'string') {
-					// Old format: just username string, check for separate role field
-					const role = data.role || 'Staff';
-					await BluetoothEscposPrinter.printText(`Processed By: ${role} - ${data.processedBy}\n`, {});
-				} else if (data.processedBy.role) {
-					// Partial format: {role: "Staff"}
-					await BluetoothEscposPrinter.printText(`Processed By: ${data.processedBy.role} - Unknown\n`, {});
-				}
-			}
+            if (data.processedBy) {
+                if (typeof data.processedBy === 'object' && (data.processedBy as any).role && (data.processedBy as any).username) {
+                    await BluetoothEscposPrinter.printText(`Processed By: ${(data.processedBy as any).role} - ${(data.processedBy as any).username}\n`, {});
+                } else if (typeof data.processedBy === 'string') {
+                    const role = data.role || 'Staff';
+                    await BluetoothEscposPrinter.printText(`Processed By: ${role} - ${data.processedBy}\n`, {});
+                } else if ((data.processedBy as any)?.role) {
+                    await BluetoothEscposPrinter.printText(`Processed By: ${(data.processedBy as any).role} - Unknown\n`, {});
+                }
+            }
 			await BluetoothEscposPrinter.printText('------------------------------\n', {});
 			
 			// Set alignment to left for items
@@ -914,7 +912,7 @@ export const blePrinter = {
 			
 			// Feed paper
 			console.log('🖨️ Feeding paper...');
-			await BluetoothEscposPrinter.printAndFeed(26); // 3cm space below KOT to prevent paper getting stuck in printer
+            await BluetoothEscposPrinter.printAndFeed(156); // ~18cm space below KOT to prevent paper getting stuck in printer
 			
 			console.log('✅ KOT print completed successfully');
 		} catch (error) {
@@ -961,7 +959,7 @@ export const blePrinter = {
 			await BluetoothEscposPrinter.printText('------------------------------\n', {});
 			await BluetoothEscposPrinter.printText(`Total Entries: ${data.totalCount}\n`, {});
 			await BluetoothEscposPrinter.printText(`Total Amount: ${data.totalAmount.toFixed(2)}\n`, { widthtimes: 1, heighttimes: 1 });
-			await BluetoothEscposPrinter.printAndFeed(26); // 3cm space below customer history to prevent paper getting stuck in printer
+            await BluetoothEscposPrinter.printAndFeed(156); // ~18cm space below customer history to prevent paper getting stuck in printer
 		} catch (e) {
 			throw new Error(`Customer history print failed: ${e}`);
 		}
@@ -994,7 +992,7 @@ export const blePrinter = {
 			}
 			await BluetoothEscposPrinter.printText('------------------------------\n', {});
 			await BluetoothEscposPrinter.printText(`TOTAL DUE: ${data.totalAmount.toFixed(2)}\n`, { widthtimes: 1, heighttimes: 1 });
-			await BluetoothEscposPrinter.printAndFeed(26); // 3cm space below credit statement to prevent paper getting stuck in printer
+            await BluetoothEscposPrinter.printAndFeed(156); // ~18cm space below credit statement to prevent paper getting stuck in printer
 		} catch (e) {
 			throw new Error(`Credit statement print failed: ${e}`);
 		}
@@ -1160,7 +1158,7 @@ export const blePrinter = {
 			}
 			await BluetoothEscposPrinter.printText('------------------------------\n', {});
 			await BluetoothEscposPrinter.printText('-- End --\n', {});
-			await BluetoothEscposPrinter.printAndFeed(26); // 3cm space below daily summary to prevent paper getting stuck in printer
+            await BluetoothEscposPrinter.printAndFeed(156); // ~18cm space below daily summary to prevent paper getting stuck in printer
 		} catch (error) {
 			console.error('Daily summary print failed:', error);
 			throw new Error(`Daily summary print failed: ${error}`);
@@ -1272,21 +1270,16 @@ export const blePrinter = {
 			await BluetoothEscposPrinter.printText(`${data.ticketId}\n`, {});
 			await BluetoothEscposPrinter.printText(`${data.date} ${data.time}\n`, {});
 			await BluetoothEscposPrinter.printText(`Table ${data.table}\n`, {});
-			if (data.processedBy) {
-				if (typeof data.processedBy === 'object' && data.processedBy.role && data.processedBy.username) {
-					// New format: {role: "Staff", username: "John"}
-					await BluetoothEscposPrinter.printText(`Processed By: ${data.processedBy.role} - ${data.processedBy.username}\n`, {});
-				} else if (typeof data.processedBy === 'string') {
-					// Old format: just username string, check for separate role field
-					const role = data.role || 'Staff';
-					await BluetoothEscposPrinter.printText(`Processed By: ${role} - ${data.processedBy}\n`, {});
-				} else if (data.processedBy.role) {
-					// Partial format: {role: "Staff"}
-					await BluetoothEscposPrinter.printText(`Processed By: ${data.processedBy.role} - Unknown\n`, {});
-				}
-			} else {
-				await BluetoothEscposPrinter.printText('Processed By: Staff\n', {});
-			}
+            if (data.processedBy) {
+                if (typeof data.processedBy === 'object' && data.processedBy.role && data.processedBy.username) {
+                    await BluetoothEscposPrinter.printText(`Processed By: ${data.processedBy.role} - ${data.processedBy.username}\n`, {});
+                } else if (typeof data.processedBy === 'string') {
+                    const role = data.role || 'Staff';
+                    await BluetoothEscposPrinter.printText(`Processed By: ${role} - ${data.processedBy}\n`, {});
+                } else if ((data.processedBy as any).role) {
+                    await BluetoothEscposPrinter.printText(`Processed By: ${(data.processedBy as any).role} - Unknown\n`, {});
+                }
+            }
 			await BluetoothEscposPrinter.printText('------------------------------\n', {});
 			
 			// Set alignment to left for items
@@ -1314,7 +1307,7 @@ export const blePrinter = {
 			
 			// Feed paper
 			console.log('🖨️ Feeding paper...');
-			await BluetoothEscposPrinter.printAndFeed(26); // 3cm space below BOT to prevent paper getting stuck in printer
+            await BluetoothEscposPrinter.printAndFeed(156); // ~18cm space below BOT to prevent paper getting stuck in printer
 			
 			console.log('✅ BOT print completed successfully');
 		} catch (error) {
@@ -1385,7 +1378,7 @@ export const blePrinter = {
 			printContent += `${new Date().toLocaleTimeString()}\n`;
 			
 			await BluetoothEscposPrinter.printText(printContent, { encoding: 'GBK' });
-			await BluetoothEscposPrinter.printAndFeed(26); // 3cm space below simple KOT to prevent paper getting stuck in printer
+            await BluetoothEscposPrinter.printAndFeed(156); // ~18cm space below simple KOT to prevent paper getting stuck in printer
 			
 			console.log('✅ Simple KOT print completed successfully');
 		} catch (error) {
@@ -1449,7 +1442,7 @@ export const blePrinter = {
 			printContent += `${new Date().toLocaleTimeString()}\n`;
 			
 			await BluetoothEscposPrinter.printText(printContent, { encoding: 'GBK' });
-			await BluetoothEscposPrinter.printAndFeed(26); // 3cm space below simple BOT to prevent paper getting stuck in printer
+            await BluetoothEscposPrinter.printAndFeed(156); // ~18cm space below simple BOT to prevent paper getting stuck in printer
 			
 			console.log('✅ Simple BOT print completed successfully');
 		} catch (error) {

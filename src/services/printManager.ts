@@ -60,6 +60,25 @@ class PrintManagerService {
   private eventListeners: Set<(event: PrintEvent) => void> = new Set();
   private processingIntervals: Map<string, NodeJS.Timeout> = new Map();
   private isProcessing = false;
+  // Global mutex to serialize Bluetooth printing
+  private jobLock: Promise<void> = Promise.resolve();
+  private jobLockResolver: (() => void) | null = null;
+
+  private async runExclusively<T>(fn: () => Promise<T>): Promise<T> {
+    const previous = this.jobLock;
+    let release: () => void;
+    this.jobLock = new Promise<void>((resolve) => { release = resolve; });
+    this.jobLockResolver = release!;
+    await previous.catch(() => {});
+    try {
+      return await fn();
+    } finally {
+      if (this.jobLockResolver) {
+        this.jobLockResolver();
+        this.jobLockResolver = null;
+      }
+    }
+  }
 
   // Initialize the print manager
   async initialize(): Promise<void> {
@@ -180,24 +199,17 @@ class PrintManagerService {
     try {
       // Get printer mapping for role
       let mapping = printerRegistry.getPrinterMapping(role);
+      // Strict routing: require an enabled mapping for this role
+      if (!mapping || !mapping.enabled) {
+        throw new Error(`No enabled printer mapping for role: ${role}. Assign a printer in Printer Setup.`);
+      }
 
-      // Fallbacks: default printer -> any connected printer
-      let targetPrinter = mapping && mapping.enabled ? printerDiscovery.getPrinter(mapping.printerId) : undefined;
+      const targetPrinter = printerDiscovery.getPrinter(mapping.printerId);
       if (!targetPrinter) {
-        const defaultId = printerRegistry.getDefaultPrinter();
-        if (defaultId) {
-          targetPrinter = printerDiscovery.getPrinter(defaultId);
-        }
+        throw new Error(`Assigned printer not found for role: ${role}. Check Printer Setup.`);
       }
-      if (!targetPrinter) {
-        const connected = printerDiscovery.getConnectedPrinters();
-        if (connected.length > 0) {
-          targetPrinter = connected[0];
-        }
-      }
-      if (!targetPrinter) {
-        throw new Error(`No printer available for role: ${role}. Assign a printer in Printer Setup.`);
-      }
+
+      console.log(`🎯 Routing print for role ${role} -> ${targetPrinter.name} (${targetPrinter.address})`);
 
       // Create print job
       const job: PrintJob = {
@@ -315,16 +327,7 @@ class PrintManagerService {
       while (queue.jobs.length > 0) {
         const job = queue.jobs[0];
         
-        // Check if printer is connected
-        const printer = printerDiscovery.getPrinter(printerId);
-        if (!printer || !printer.connected) {
-          console.warn(`⚠️ Printer ${printerId} not connected, skipping job ${job.id}`);
-          job.status = 'failed';
-          job.error = 'Printer not connected';
-          job.completedAt = new Date();
-          queue.jobs.shift();
-          continue;
-        }
+        // Do not pre-skip jobs based on connection; processJob will handle reconnects
 
         // Process the job
         await this.processJob(job);
@@ -346,69 +349,78 @@ class PrintManagerService {
   private async processJob(job: PrintJob): Promise<void> {
     try {
       console.log(`🖨️ Processing job ${job.id} for ${job.role}`);
-      
-      job.status = 'printing';
-      job.startedAt = new Date();
-      this.updateStatus();
 
-      this.emitEvent({
-        type: 'job_started',
-        jobId: job.id,
-        printerId: job.printerId,
-        role: job.role,
-        message: `Job started printing`,
-        timestamp: new Date(),
-      });
+      await this.runExclusively(async () => {
+        job.status = 'printing';
+        job.startedAt = new Date();
+        this.updateStatus();
 
-      // Get printer and ensure connection (force switch if connected to a different device)
-      const printer = printerDiscovery.getPrinter(job.printerId);
-      if (!printer) {
-        throw new Error(`Printer not found: ${job.printerId}`);
-      }
+        this.emitEvent({
+          type: 'job_started',
+          jobId: job.id,
+          printerId: job.printerId,
+          role: job.role,
+          message: `Job started printing`,
+          timestamp: new Date(),
+        });
 
-      // If another device is currently connected, disconnect and connect to target
-      try {
-        const { bluetoothManager } = await import('./bluetoothManager');
-        const currentStatus = bluetoothManager.getStatus();
-        const currentlyConnectedAddress = currentStatus.currentDevice?.address;
-        const isDifferentDevice = Boolean(currentlyConnectedAddress && currentlyConnectedAddress !== printer.address);
-
-        if (isDifferentDevice) {
-          console.log(`🔌 Switching Bluetooth device: ${currentlyConnectedAddress} -> ${printer.address}`);
-          try { await blePrinter.disconnect(); } catch {}
+        // Get printer and ensure connection (force switch)
+        const printer = printerDiscovery.getPrinter(job.printerId);
+        if (!printer) {
+          throw new Error(`Printer not found: ${job.printerId}`);
         }
-      } catch (switchErr) {
-        console.warn('Bluetooth switch pre-check failed (continuing):', switchErr);
-      }
 
-      // Connect to printer if not connected
-      if (!printer.connected) {
-        console.log(`🔗 Connecting to printer: ${printer.name}`);
-        await blePrinter.connect(printer.address);
-        printerDiscovery.updatePrinterStatus(job.printerId, 'connected');
-        console.log(`✅ Connected to printer: ${printer.name}`);
-      }
+        // Disconnect current, then connect to target with delays/retries
+        try {
+          console.log('🔌 Forcing disconnect from any current Bluetooth printer');
+          try { await blePrinter.disconnect(); } catch {}
+          await new Promise(resolve => setTimeout(resolve, 400));
 
-      // Print based on role
-      await this.printJobContent(job);
+          console.log(`🔗 Connecting to mapped printer: ${printer.name} (${printer.address})`);
+          try {
+            await blePrinter.connect(printer.address);
+          } catch (firstErr) {
+            console.warn('First connect attempt failed, retrying once...', firstErr);
+            await new Promise(resolve => setTimeout(resolve, 600));
+            try {
+              await blePrinter.connect(printer.address);
+            } catch (secondErr) {
+              console.warn('Second connect attempt failed, trying manager-assisted reconnect...', secondErr);
+              try {
+                await this.reconnectPrinter(job.printerId);
+              } catch (mgrErr) {
+                throw secondErr;
+              }
+            }
+          }
 
-      // Mark job as completed
-      job.status = 'completed';
-      job.completedAt = new Date();
-      
-      // Reset retry count on success
-      printerRegistry.resetRetryAttempts();
+          try { printerDiscovery.updatePrinterStatus(job.printerId, 'connected'); } catch {}
+          console.log(`✅ Connected to printer: ${printer.name}`);
+        } catch (switchErr) {
+          console.warn('Bluetooth forced reconnect failed (continuing):', switchErr);
+        }
 
-      this.emitEvent({
-        type: 'job_completed',
-        jobId: job.id,
-        printerId: job.printerId,
-        role: job.role,
-        message: `Job completed successfully`,
-        timestamp: new Date(),
+        // Print based on role
+        await this.printJobContent(job);
+
+        // Mark job as completed
+        job.status = 'completed';
+        job.completedAt = new Date();
+
+        // Reset retry count on success
+        printerRegistry.resetRetryAttempts();
+
+        this.emitEvent({
+          type: 'job_completed',
+          jobId: job.id,
+          printerId: job.printerId,
+          role: job.role,
+          message: `Job completed successfully`,
+          timestamp: new Date(),
+        });
+
+        console.log(`✅ Job ${job.id} completed successfully`);
       });
-
-      console.log(`✅ Job ${job.id} completed successfully`);
     } catch (error) {
       console.error(`❌ Job ${job.id} failed:`, error);
       
@@ -789,23 +801,15 @@ class PrintManagerService {
 
   // Print daily summary via the Receipt role's assigned/default/connected printer
   async printDailySummary(data: any): Promise<void> {
-    // Resolve printer targeting similarly to printRole('Receipt', ...)
-    let mapping = printerRegistry.getPrinterMapping('Receipt');
-    let targetPrinter = mapping && mapping.enabled ? printerDiscovery.getPrinter(mapping.printerId) : undefined;
-    if (!targetPrinter) {
-      const defaultId = printerRegistry.getDefaultPrinter();
-      if (defaultId) {
-        targetPrinter = printerDiscovery.getPrinter(defaultId);
-      }
+    // Strict routing: require an enabled Receipt mapping
+    const mapping = printerRegistry.getPrinterMapping('Receipt');
+    if (!mapping || !mapping.enabled) {
+      throw new Error('No enabled printer mapping for Receipt role. Assign a printer in Printer Setup.');
     }
+
+    const targetPrinter = printerDiscovery.getPrinter(mapping.printerId);
     if (!targetPrinter) {
-      const connected = printerDiscovery.getConnectedPrinters();
-      if (connected.length > 0) {
-        targetPrinter = connected[0];
-      }
-    }
-    if (!targetPrinter) {
-      throw new Error('No printer available for Receipt role. Assign a printer in Printer Setup.');
+      throw new Error('Assigned printer not found for Receipt role. Check Printer Setup.');
     }
 
     // Ensure connection
