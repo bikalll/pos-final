@@ -28,6 +28,8 @@ class BluetoothManager {
   private connectionTimeout: NodeJS.Timeout | null = null;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 3;
+  private keepAliveTimer: NodeJS.Timeout | null = null;
+  private keepAliveIntervalMs = 15000;
 
   // Get current status
   getStatus(): BluetoothStatus {
@@ -369,6 +371,29 @@ class BluetoothManager {
       clearTimeout(this.connectionTimeout);
       this.connectionTimeout = null;
     }
+
+    if (this.keepAliveTimer) {
+      clearInterval(this.keepAliveTimer);
+      this.keepAliveTimer = null;
+    }
+  }
+
+  // Start a periodic keep-alive ping to reduce idle disconnects
+  startKeepAlive(): void {
+    if (this.keepAliveTimer) return;
+    this.keepAliveTimer = setInterval(async () => {
+      try {
+        if (!this.status.connected || !this.status.currentDevice) return;
+        // Send a minimal ping; many printers ignore blank but maintain link
+        await blePrinter.printText('\n');
+        // If it succeeds, keep going silently
+      } catch (error: any) {
+        // Mark as disconnected and allow print manager to reconnect
+        this.status.connected = false;
+        this.status.currentDevice = undefined;
+        // Do not alert; connection monitor will handle recovery
+      }
+    }, this.keepAliveIntervalMs) as any;
   }
 
   // Get connection health status

@@ -426,21 +426,36 @@ const ordersSlice = createSlice({
       .addCase(loadOrders.fulfilled, (state, action) => {
         state.isLoading = false;
         const { ongoingOrders, completedOrders } = action.payload;
-        
-        // Clear existing orders
+
+        // Preserve local-only fields for existing orders before clearing
+        const previousOrders = state.ordersById;
+
+        // Clear existing orders lists
         state.ordersById = {};
         state.ongoingOrderIds = [];
         state.completedOrderIds = [];
-        
-        // Add ongoing orders
-        ongoingOrders.forEach(order => {
-          state.ordersById[order.id] = order;
+
+        // Helper to merge local-only fields
+        const mergeLocalFields = (incoming: any, existing?: any) => {
+          return {
+            ...incoming,
+            savedQuantities: existing?.savedQuantities ?? incoming.savedQuantities ?? {},
+            isSaved: existing?.isSaved ?? incoming.isSaved,
+            isReviewed: existing?.isReviewed ?? incoming.isReviewed,
+          } as any;
+        };
+
+        // Add ongoing orders (preserving local-only fields if present)
+        ongoingOrders.forEach((order: any) => {
+          const merged = mergeLocalFields(order, previousOrders[order.id]);
+          state.ordersById[order.id] = merged as any;
           state.ongoingOrderIds.push(order.id);
         });
-        
-        // Add completed orders
-        completedOrders.forEach(order => {
-          state.ordersById[order.id] = order;
+
+        // Add completed orders (preserving local-only fields if present)
+        completedOrders.forEach((order: any) => {
+          const merged = mergeLocalFields(order, previousOrders[order.id]);
+          state.ordersById[order.id] = merged as any;
           state.completedOrderIds.push(order.id);
         });
       })

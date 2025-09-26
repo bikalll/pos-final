@@ -63,6 +63,10 @@ class PrintManagerService {
   // Global mutex to serialize Bluetooth printing
   private jobLock: Promise<void> = Promise.resolve();
   private jobLockResolver: (() => void) | null = null;
+  // Auto-reconnect monitoring
+  private connectionMonitor: NodeJS.Timeout | null = null;
+  private reconnectBackoffMs = 2000;
+  private readonly reconnectBackoffMaxMs = 30000;
 
   private async runExclusively<T>(fn: () => Promise<T>): Promise<T> {
     const previous = this.jobLock;
@@ -109,11 +113,79 @@ class PrintManagerService {
       this.updateStatus();
       
       console.log('✅ Print Manager initialized successfully');
+
+      // Start auto-reconnect monitoring
+      this.startConnectionMonitor();
     } catch (error) {
       console.error('❌ Failed to initialize Print Manager:', error);
       this.status.error = `Initialization failed: ${error}`;
       throw error;
     }
+  }
+
+  // Periodically ensure assigned printers stay connected; backoff on failures
+  private startConnectionMonitor(): void {
+    if (this.connectionMonitor) return;
+    this.connectionMonitor = setInterval(async () => {
+      try {
+        const registryState = printerRegistry.getState();
+        // Build set of assigned printerIds
+        const assigned = new Set<string>();
+        registryState.mappings.forEach((m) => { if (m.enabled) assigned.add(m.printerId); });
+        if (assigned.size === 0) return;
+
+        const printers = (await import('./printerDiscovery')).printerDiscovery.getDiscoveredPrinters();
+        // Check each assigned printer
+        for (const printerId of Array.from(assigned)) {
+          const printer = printers.find(p => p.id === printerId);
+          if (!printer) {
+            // Not discovered recently, try a soft reconnect using saved ID
+            const ok = await this.reconnectPrinter(printerId).catch(() => false);
+            if (!ok) {
+              // Slow down interval via backoff if repeated failures
+              this.reconnectBackoffMs = Math.min(this.reconnectBackoffMs * 2, this.reconnectBackoffMaxMs);
+            } else {
+              this.reconnectBackoffMs = 2000;
+            }
+            continue;
+          }
+          // If connected, skip
+          if (printer.connected) continue;
+          // If we have RSSI and it's very low, treat as possibly out of range; skip aggressive attempts
+          if (typeof printer.rssi === 'number' && printer.rssi < -90) {
+            continue;
+          }
+          // Attempt reconnect
+          const ok = await this.reconnectPrinter(printerId).catch(() => false);
+          if (!ok) {
+            this.reconnectBackoffMs = Math.min(this.reconnectBackoffMs * 2, this.reconnectBackoffMaxMs);
+          } else {
+            this.reconnectBackoffMs = 2000;
+          }
+        }
+      } catch (e) {
+        // On unexpected error, don't crash the monitor
+        // Slightly increase backoff to reduce churn
+        this.reconnectBackoffMs = Math.min(this.reconnectBackoffMs * 2, this.reconnectBackoffMaxMs);
+      } finally {
+        // If backoff changed, recreate interval with new delay
+        if (this.connectionMonitor) {
+          clearInterval(this.connectionMonitor);
+          this.connectionMonitor = null;
+          this.connectionMonitor = setInterval(() => this.startConnectionMonitorTick(), this.reconnectBackoffMs) as any;
+        }
+      }
+    }, this.reconnectBackoffMs) as any;
+  }
+
+  // Separate tick function to allow resetting interval after backoff changes
+  private async startConnectionMonitorTick(): Promise<void> {
+    // Clear and restart monitor to apply current backoff
+    if (this.connectionMonitor) {
+      clearInterval(this.connectionMonitor);
+      this.connectionMonitor = null;
+    }
+    this.startConnectionMonitor();
   }
 
   // Attempt to reconnect to saved printers on startup without requiring a scan
