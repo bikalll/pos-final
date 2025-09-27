@@ -13,53 +13,30 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { getFirebaseAuthEnhanced } from '../../services/firebaseAuthEnhanced';
 
-interface EmailVerificationScreenProps {
+interface EmailVerificationRequiredScreenProps {
   email: string;
   onVerificationComplete: () => void;
   onResendVerification: () => void;
-  onSkipVerification?: () => void;
+  onLogout: () => void;
+  onAccessSettings?: () => void; // New prop to access settings
 }
 
-export const EmailVerificationScreen: React.FC<EmailVerificationScreenProps> = ({
+export const EmailVerificationRequiredScreen: React.FC<EmailVerificationRequiredScreenProps> = ({
   email,
   onVerificationComplete,
   onResendVerification,
-  onSkipVerification,
+  onLogout,
+  onAccessSettings,
 }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [isResending, setIsResending] = useState(false);
-  const [verificationStatus, setVerificationStatus] = useState<{
-    isVerified: boolean;
-    email: string | null;
-    lastVerificationSent?: number;
-  }>({
-    isVerified: false,
-    email: null,
-  });
   const [timeUntilResend, setTimeUntilResend] = useState(0);
 
   const authService = getFirebaseAuthEnhanced();
 
   useEffect(() => {
-    checkVerificationStatus();
     startResendTimer();
   }, []);
-
-  const checkVerificationStatus = async () => {
-    try {
-      setIsLoading(true);
-      const status = await authService.getEmailVerificationStatus();
-      setVerificationStatus(status);
-      
-      if (status.isVerified) {
-        onVerificationComplete();
-      }
-    } catch (error) {
-      console.error('Error checking verification status:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   const startResendTimer = () => {
     const timer = setInterval(() => {
@@ -72,13 +49,44 @@ export const EmailVerificationScreen: React.FC<EmailVerificationScreenProps> = (
       });
     }, 1000);
 
-    // Set initial timer based on last verification sent
-    if (verificationStatus.lastVerificationSent) {
-      const timeSinceLastSent = Date.now() - verificationStatus.lastVerificationSent;
-      const remainingTime = Math.max(0, 60 - Math.floor(timeSinceLastSent / 1000));
-      setTimeUntilResend(remainingTime);
-    } else {
-      setTimeUntilResend(60); // 1 minute default
+    // Set initial timer (1 minute cooldown)
+    setTimeUntilResend(60);
+  };
+
+  const handleCheckVerification = async () => {
+    try {
+      setIsLoading(true);
+      const isVerified = await authService.isEmailVerified();
+      
+      if (isVerified) {
+        // Email verified - automatically proceed to main app
+        Alert.alert(
+          'Email Verified!',
+          'Your email has been successfully verified. You can now access all features.',
+          [
+            {
+              text: 'Continue',
+              onPress: () => {
+                onVerificationComplete();
+              }
+            }
+          ]
+        );
+      } else {
+        Alert.alert(
+          'Email Not Verified',
+          'Your email address is still not verified. Please check your email and click the verification link.',
+          [{ text: 'OK' }]
+        );
+      }
+    } catch (error: any) {
+      Alert.alert(
+        'Error',
+        error.message || 'Failed to check verification status. Please try again.',
+        [{ text: 'OK' }]
+      );
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -118,13 +126,13 @@ export const EmailVerificationScreen: React.FC<EmailVerificationScreenProps> = (
     });
   };
 
-  const handleSkipVerification = () => {
+  const handleLogout = () => {
     Alert.alert(
-      'Skip Email Verification',
-      'Are you sure you want to skip email verification? You may not be able to access all features without a verified email.',
+      'Logout',
+      'Are you sure you want to logout? You will need to verify your email before logging in again.',
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Skip', style: 'destructive', onPress: onSkipVerification },
+        { text: 'Logout', style: 'destructive', onPress: onLogout },
       ]
     );
   };
@@ -140,18 +148,25 @@ export const EmailVerificationScreen: React.FC<EmailVerificationScreenProps> = (
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.header}>
           <View style={styles.iconContainer}>
-            <Ionicons name="mail-outline" size={50} color="#007AFF" />
+            <Ionicons name="mail-unread" size={50} color="#FF9500" />
           </View>
-          <Text style={styles.title}>Verify Your Email</Text>
+          <Text style={styles.title}>Email Verification Required</Text>
           <Text style={styles.subtitle}>
-            We've sent a verification link to:
+            You must verify your email address before you can access the app.
           </Text>
           <Text style={styles.emailText}>{email}</Text>
         </View>
 
         <View style={styles.content}>
+          <View style={styles.warningContainer}>
+            <Ionicons name="warning" size={24} color="#FF9500" />
+            <Text style={styles.warningText}>
+              Your account has been created, but you cannot log in until your email is verified.
+            </Text>
+          </View>
+
           <View style={styles.instructionsContainer}>
-            <Text style={styles.instructionsTitle}>Next Steps:</Text>
+            <Text style={styles.instructionsTitle}>To verify your email:</Text>
             <View style={styles.stepContainer}>
               <Text style={styles.stepNumber}>1</Text>
               <Text style={styles.stepText}>
@@ -175,7 +190,7 @@ export const EmailVerificationScreen: React.FC<EmailVerificationScreenProps> = (
           <View style={styles.buttonContainer}>
             <TouchableOpacity
               style={styles.primaryButton}
-              onPress={checkVerificationStatus}
+              onPress={handleCheckVerification}
               disabled={isLoading}
             >
               {isLoading ? (
@@ -219,14 +234,23 @@ export const EmailVerificationScreen: React.FC<EmailVerificationScreenProps> = (
               )}
             </TouchableOpacity>
 
-            {onSkipVerification && (
+            {onAccessSettings && (
               <TouchableOpacity
-                style={styles.skipButton}
-                onPress={handleSkipVerification}
+                style={styles.settingsButton}
+                onPress={onAccessSettings}
               >
-                <Text style={styles.skipButtonText}>Skip for Now</Text>
+                <Ionicons name="settings" size={16} color="#007AFF" />
+                <Text style={styles.settingsButtonText}>Access Settings</Text>
               </TouchableOpacity>
             )}
+
+            <TouchableOpacity
+              style={styles.logoutButton}
+              onPress={handleLogout}
+            >
+              <Ionicons name="log-out" size={16} color="#FF3B30" />
+              <Text style={styles.logoutButtonText}>Logout</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </ScrollView>
@@ -245,13 +269,13 @@ const styles = StyleSheet.create({
   },
   header: {
     alignItems: 'center',
-    marginBottom: 24,
+    marginBottom: 20,
   },
   iconContainer: {
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: '#F0F8FF',
+    backgroundColor: '#FFF4E6',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 12,
@@ -277,6 +301,22 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
+  },
+  warningContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#FFF4E6',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+    gap: 10,
+  },
+  warningText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#FF9500',
+    fontWeight: '500',
+    lineHeight: 20,
   },
   instructionsContainer: {
     backgroundColor: '#F8F9FA',
@@ -363,16 +403,38 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
   },
-  skipButton: {
+  settingsButton: {
     backgroundColor: 'transparent',
+    borderRadius: 12,
     padding: 12,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderColor: '#007AFF',
   },
-  skipButtonText: {
-    color: '#999999',
+  settingsButtonText: {
+    color: '#007AFF',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  logoutButton: {
+    backgroundColor: 'transparent',
+    borderRadius: 12,
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderColor: '#FF3B30',
+  },
+  logoutButtonText: {
+    color: '#FF3B30',
     fontSize: 14,
     fontWeight: '500',
   },
 });
 
-export default EmailVerificationScreen;
+export default EmailVerificationRequiredScreen;

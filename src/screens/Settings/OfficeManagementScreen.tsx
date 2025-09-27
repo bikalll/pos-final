@@ -14,8 +14,15 @@ import { colors, spacing, radius } from '../../theme';
 import { createFirestoreService } from '../../services/firestoreService';
 import { useOptimizedListenerCleanup } from '../../services/OptimizedListenerManager';
 import { usePerformanceMonitor } from '../../services/PerformanceMonitor';
+import { getFirebaseAuthEnhanced } from '../../services/firebaseAuthEnhanced';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const IMGBB_API_KEY = 'ff7e9b429a79828004e588b651c7e041';
+
+// AsyncStorage keys
+const EMAIL_VERIFICATION_STATUS_KEY = 'email_verification_status';
+const EMAIL_VERIFICATION_TIMESTAMP_KEY = 'email_verification_timestamp';
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes cache
 
 async function uploadToImgbbBase64(imageBase64: string): Promise<string> {
   const form = new FormData();
@@ -89,8 +96,84 @@ export default function OfficeManagementScreen() {
   const [viewingImageUrl, setViewingImageUrl] = useState<string>('');
   const [viewingImageTitle, setViewingImageTitle] = useState<string>('');
   const [isDownloading, setIsDownloading] = useState(false);
+  const [isEmailVerified, setIsEmailVerified] = useState(false);
+  const [isCheckingVerification, setIsCheckingVerification] = useState(true);
+  const [isUsingCachedData, setIsUsingCachedData] = useState(false);
 
   const canEdit = role === 'Owner' || role === 'Manager';
+  const authService = getFirebaseAuthEnhanced();
+
+  // Check email verification status with local cache
+  const checkEmailVerificationStatus = async (forceRefresh = false) => {
+    try {
+      setIsCheckingVerification(true);
+      
+      // Check if we have cached data and it's still valid
+      if (!forceRefresh) {
+        const cachedStatus = await AsyncStorage.getItem(EMAIL_VERIFICATION_STATUS_KEY);
+        const cachedTimestamp = await AsyncStorage.getItem(EMAIL_VERIFICATION_TIMESTAMP_KEY);
+        
+        if (cachedStatus && cachedTimestamp) {
+          const timestamp = parseInt(cachedTimestamp);
+          const now = Date.now();
+          
+          // If cache is still valid (less than 5 minutes old)
+          if (now - timestamp < CACHE_DURATION) {
+            setIsEmailVerified(cachedStatus === 'true');
+            setIsCheckingVerification(false);
+            setIsUsingCachedData(true);
+            console.log('Using cached email verification status:', cachedStatus === 'true');
+            return;
+          }
+        }
+      }
+      
+      // Fetch fresh data from Firebase
+      console.log('Fetching fresh email verification status from Firebase');
+      const isVerified = await authService.isEmailVerified();
+      setIsEmailVerified(isVerified);
+      setIsUsingCachedData(false);
+      
+      // Cache the result
+      await AsyncStorage.setItem(EMAIL_VERIFICATION_STATUS_KEY, isVerified.toString());
+      await AsyncStorage.setItem(EMAIL_VERIFICATION_TIMESTAMP_KEY, Date.now().toString());
+      
+    } catch (error) {
+      console.error('Error checking email verification:', error);
+      
+      // Try to use cached data as fallback
+      try {
+        const cachedStatus = await AsyncStorage.getItem(EMAIL_VERIFICATION_STATUS_KEY);
+        if (cachedStatus) {
+          setIsEmailVerified(cachedStatus === 'true');
+          console.log('Using cached data as fallback:', cachedStatus === 'true');
+        } else {
+          setIsEmailVerified(false);
+        }
+      } catch (cacheError) {
+        console.error('Error reading cached data:', cacheError);
+        setIsEmailVerified(false);
+      }
+    } finally {
+      setIsCheckingVerification(false);
+    }
+  };
+
+  // Clear verification cache (useful when verification status changes)
+  const clearVerificationCache = async () => {
+    try {
+      await AsyncStorage.removeItem(EMAIL_VERIFICATION_STATUS_KEY);
+      await AsyncStorage.removeItem(EMAIL_VERIFICATION_TIMESTAMP_KEY);
+      console.log('Email verification cache cleared');
+    } catch (error) {
+      console.error('Error clearing verification cache:', error);
+    }
+  };
+
+  // Check verification status on component mount
+  useEffect(() => {
+    checkEmailVerificationStatus();
+  }, []);
 
   // Image viewer functions
   const openImageViewer = (imageUrl: string, title: string) => {
@@ -450,6 +533,43 @@ export default function OfficeManagementScreen() {
       >
       <Text style={styles.title}>Office Management</Text>
       <Text style={styles.subtitle}>Update restaurant profile, owner details, and PAN/VAT</Text>
+      
+      {/* Email Verification Status */}
+      <View style={styles.emailVerificationContainer}>
+        {isCheckingVerification ? (
+          <>
+            <Ionicons name="time" size={24} color={colors.textMuted} />
+            <Text style={styles.emailVerificationText}>Checking verification...</Text>
+          </>
+        ) : isEmailVerified ? (
+          <>
+            <Ionicons name="checkmark-circle" size={24} color={colors.success} />
+            <Text style={styles.emailVerificationText}>
+              Email Verified
+              {isUsingCachedData && <Text style={styles.cachedIndicator}> (cached)</Text>}
+            </Text>
+          </>
+        ) : (
+          <>
+            <Ionicons name="mail-unread" size={24} color={colors.warning} />
+            <Text style={styles.emailVerificationText}>
+              Email Not Verified
+              {isUsingCachedData && <Text style={styles.cachedIndicator}> (cached)</Text>}
+            </Text>
+          </>
+        )}
+        <TouchableOpacity 
+          style={styles.refreshButton}
+          onPress={() => checkEmailVerificationStatus(true)}
+          disabled={isCheckingVerification}
+        >
+          <Ionicons 
+            name="refresh" 
+            size={20} 
+            color={isCheckingVerification ? colors.textMuted : colors.textSecondary} 
+          />
+        </TouchableOpacity>
+      </View>
       
       {/* Current Logo Preview Section */}
       <View style={styles.previewSection}>
@@ -901,6 +1021,28 @@ const styles = StyleSheet.create({
     color: 'white', 
     fontWeight: '600',
     fontSize: 14,
+  },
+  emailVerificationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.lg,
+  },
+  emailVerificationText: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: colors.textPrimary,
+    marginLeft: spacing.sm,
+    flex: 1,
+  },
+  refreshButton: {
+    padding: spacing.sm,
+    borderRadius: radius.sm,
+  },
+  cachedIndicator: {
+    fontSize: 12,
+    color: colors.textMuted,
+    fontStyle: 'italic',
   },
 });
 

@@ -5,7 +5,15 @@ import {
   onAuthStateChanged,
   User,
   updateProfile,
-  getAuth
+  getAuth,
+  sendEmailVerification,
+  reload,
+  applyActionCode,
+  checkActionCode,
+  verifyPasswordResetCode,
+  updatePassword,
+  sendPasswordResetEmail,
+  confirmPasswordReset
 } from 'firebase/auth';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { doc, setDoc, getDoc, updateDoc, serverTimestamp, collection, getDocs, query, where } from 'firebase/firestore';
@@ -38,11 +46,32 @@ export class FirebaseAuthEnhanced {
     this.dispatch = dispatch;
   }
 
-  // Sign in with email and password
+  // Sign in with email and password (MANDATORY EMAIL VERIFICATION)
   async signIn(email: string, password: string): Promise<UserMetadata> {
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
+      
+      // MANDATORY EMAIL VERIFICATION - BLOCK LOGIN IF NOT VERIFIED
+      if (!user.emailVerified) {
+        // Sign out the user immediately since email is not verified
+        await signOut(auth);
+        
+        // Send verification email to help user verify
+        try {
+          // Create a temporary auth instance to send verification email
+          const tempAuth = getAuth();
+          const tempUserCredential = await signInWithEmailAndPassword(tempAuth, email, password);
+          await sendEmailVerification(tempUserCredential.user);
+          await signOut(tempAuth);
+          console.log('Email verification sent to:', email);
+        } catch (verificationError) {
+          console.warn('Failed to send verification email:', verificationError);
+        }
+        
+        // Throw specific error for email verification requirement
+        throw new Error('EMAIL_VERIFICATION_REQUIRED');
+      }
       
       // Get user metadata from Firestore
       let userMetadata = await this.getUserMetadata(user.uid);
@@ -159,7 +188,7 @@ export class FirebaseAuthEnhanced {
     }
   }
 
-  // Create new user account (only for owners)
+  // Create new user account (only for owners) - MANDATORY EMAIL VERIFICATION
   async createUser(
     email: string, 
     password: string, 
@@ -184,6 +213,15 @@ export class FirebaseAuthEnhanced {
 
       // Update user profile
       await updateProfile(user, { displayName });
+
+      // AUTOMATIC: Send email verification (non-blocking)
+      try {
+        await sendEmailVerification(user);
+        console.log('Email verification sent to:', email);
+      } catch (verificationError) {
+        console.error('Failed to send email verification:', verificationError);
+        // Don't fail user creation, but log the error
+      }
 
       // Create user metadata
       const userMetadata: UserMetadata = {
@@ -221,6 +259,9 @@ export class FirebaseAuthEnhanced {
         role: restaurantRole
       });
 
+      // User remains logged in after creation
+      // Email verification happens in background
+
       return userMetadata;
 
     } catch (error) {
@@ -230,6 +271,7 @@ export class FirebaseAuthEnhanced {
   }
 
   // Create employee credentials (owner/manager only) via Cloud Function (prevents auth session switching)
+  // MANDATORY EMAIL VERIFICATION - Employee must verify email before first login
   async createEmployeeCredentials(
     email: string,
     displayName: string,
@@ -237,7 +279,7 @@ export class FirebaseAuthEnhanced {
     createdBy: string,
     password?: string,
     staffRole?: 'manager' | 'staff'
-  ): Promise<{ credentials: { email: string; password: string }; userMetadata: UserMetadata }> {
+  ): Promise<{ credentials: { email: string; password: string }; userMetadata: UserMetadata; emailVerificationSent: boolean }> {
     try {
       // Verify creator permissions locally for fast feedback
       const creatorMetadata = await this.getUserMetadata(createdBy);
@@ -247,6 +289,8 @@ export class FirebaseAuthEnhanced {
 
       const createFn = httpsCallable(functions, 'createEmployeeCredentials');
       let response: any;
+      let emailVerificationSent = false;
+      
       try {
         response = await createFn({
           email: email.toLowerCase(),
@@ -254,7 +298,9 @@ export class FirebaseAuthEnhanced {
           restaurantId,
           password,
           staffRole,
+          requireEmailVerification: true, // Tell the function to send verification email
         });
+        emailVerificationSent = true;
       } catch (fnError: any) {
         // Fallback if function is not deployed/found in region
         const isNotFound = (fnError?.code === 'functions/not-found') || /not-found/i.test(fnError?.message || '');
@@ -269,6 +315,7 @@ export class FirebaseAuthEnhanced {
             displayName,
             role: 'employee',
             restaurantId,
+            requireEmailVerification: true,
           });
           // Normalize shape to match primary path
           response = { data: {
@@ -278,6 +325,7 @@ export class FirebaseAuthEnhanced {
             password: (password || ''),
             role: (staffRole === 'manager') ? 'manager' : 'staff',
           }};
+          emailVerificationSent = true;
 
           // Best-effort: mirror to Firestore so the app state remains consistent
           try {
@@ -316,6 +364,15 @@ export class FirebaseAuthEnhanced {
           const cred = await createUserWithEmailAndPassword(secondaryAuth, email.toLowerCase(), finalPassword);
           if (displayName) {
             await updateProfile(cred.user, { displayName });
+          }
+
+          // AUTOMATIC: Send email verification (non-blocking)
+          try {
+            await sendEmailVerification(cred.user);
+            emailVerificationSent = true;
+            console.log('Email verification sent to employee:', email);
+          } catch (verificationError) {
+            console.error('Failed to send email verification to employee:', verificationError);
           }
 
           // Sign out secondary session to avoid lingering state
@@ -374,6 +431,7 @@ export class FirebaseAuthEnhanced {
       return {
         credentials: { email: email.toLowerCase(), password: generatedPassword },
         userMetadata,
+        emailVerificationSent,
       };
     } catch (error) {
       console.error('Create employee credentials error:', error);
@@ -609,6 +667,91 @@ export class FirebaseAuthEnhanced {
     }
   }
 
+  // Update user password (Firebase Auth)
+  async updatePassword(newPassword: string): Promise<void> {
+    try {
+      const user = auth.currentUser;
+      if (!user) throw new Error('No user logged in');
+
+      await updatePassword(user, newPassword);
+      console.log('Password updated successfully');
+    } catch (error) {
+      console.error('Update password error:', error);
+      throw error;
+    }
+  }
+
+  // Send password reset email
+  async sendPasswordResetEmail(email: string): Promise<void> {
+    try {
+      await sendPasswordResetEmail(auth, email);
+      console.log('Password reset email sent to:', email);
+    } catch (error: any) {
+      console.error('Send password reset email error:', error);
+      
+      // Handle specific Firebase Auth errors
+      switch (error.code) {
+        case 'auth/user-not-found':
+          throw new Error('No account found with this email address.');
+        case 'auth/invalid-email':
+          throw new Error('Please enter a valid email address.');
+        case 'auth/too-many-requests':
+          throw new Error('Too many password reset attempts. Please try again later.');
+        case 'auth/network-request-failed':
+          throw new Error('Network error. Please check your internet connection and try again.');
+        default:
+          throw new Error('Failed to send password reset email. Please try again.');
+      }
+    }
+  }
+
+  // Verify password reset code
+  async verifyPasswordResetCode(code: string): Promise<string> {
+    try {
+      const email = await verifyPasswordResetCode(auth, code);
+      console.log('Password reset code verified for email:', email);
+      return email;
+    } catch (error: any) {
+      console.error('Verify password reset code error:', error);
+      
+      // Handle specific Firebase Auth errors
+      switch (error.code) {
+        case 'auth/invalid-action-code':
+          throw new Error('Invalid or expired reset code. Please request a new password reset.');
+        case 'auth/expired-action-code':
+          throw new Error('Reset code has expired. Please request a new password reset.');
+        case 'auth/user-disabled':
+          throw new Error('This account has been disabled. Please contact support.');
+        default:
+          throw new Error('Invalid reset code. Please check your email and try again.');
+      }
+    }
+  }
+
+  // Confirm password reset with code
+  async confirmPasswordReset(code: string, newPassword: string): Promise<void> {
+    try {
+      await confirmPasswordReset(auth, code, newPassword);
+      console.log('Password reset successful');
+    } catch (error: any) {
+      console.error('Confirm password reset error:', error);
+      
+      // Handle specific Firebase Auth errors
+      switch (error.code) {
+        case 'auth/invalid-action-code':
+          throw new Error('Invalid or expired reset code. Please request a new password reset.');
+        case 'auth/expired-action-code':
+          throw new Error('Reset code has expired. Please request a new password reset.');
+        case 'auth/weak-password':
+          throw new Error('Password is too weak. Please choose a stronger password with at least 6 characters.');
+        case 'auth/user-disabled':
+          throw new Error('This account has been disabled. Please contact support.');
+        default:
+          throw new Error('Failed to reset password. Please try again.');
+      }
+    }
+  }
+
   // Activate a user account (admin function)
   async activateUser(uid: string): Promise<void> {
     try {
@@ -685,6 +828,237 @@ export class FirebaseAuthEnhanced {
     } catch (error) {
       console.error('Get restaurant users error:', error);
       throw error;
+    }
+  }
+
+  // ==================== EMAIL VERIFICATION METHODS ====================
+
+  // Send email verification to current user
+  async sendEmailVerification(): Promise<void> {
+    try {
+      const user = this.getCurrentUser();
+      if (!user) {
+        throw new Error('No user logged in');
+      }
+
+      if (user.emailVerified) {
+        throw new Error('Email is already verified');
+      }
+
+      await sendEmailVerification(user);
+      console.log('Email verification sent successfully');
+    } catch (error) {
+      console.error('Send email verification error:', error);
+      throw error;
+    }
+  }
+
+  // Send email verification to specific user (admin function)
+  async sendEmailVerificationToUser(uid: string): Promise<void> {
+    try {
+      // This would typically be done via a Cloud Function for security
+      // since we can't sign in as another user from the client
+      const sendVerificationFn = httpsCallable(functions, 'sendEmailVerification');
+      await sendVerificationFn({ targetUid: uid });
+      console.log('Email verification sent to user:', uid);
+    } catch (error) {
+      console.error('Send email verification to user error:', error);
+      throw error;
+    }
+  }
+
+  // Check if current user's email is verified
+  async isEmailVerified(): Promise<boolean> {
+    try {
+      const user = this.getCurrentUser();
+      if (!user) {
+        return false;
+      }
+
+      // Reload user to get latest verification status
+      await reload(user);
+      return user.emailVerified;
+    } catch (error) {
+      console.error('Check email verification error:', error);
+      return false;
+    }
+  }
+
+  // Verify email with action code (when user clicks verification link)
+  async verifyEmail(actionCode: string): Promise<void> {
+    try {
+      // First check if the action code is valid
+      await checkActionCode(auth, actionCode);
+      
+      // Apply the action code to verify the email
+      await applyActionCode(auth, actionCode);
+      
+      console.log('Email verified successfully');
+    } catch (error) {
+      console.error('Verify email error:', error);
+      throw error;
+    }
+  }
+
+  // Check if action code is valid (before showing verification UI)
+  async checkEmailVerificationCode(actionCode: string): Promise<{ valid: boolean; email?: string }> {
+    try {
+      const info = await checkActionCode(auth, actionCode);
+      return {
+        valid: true,
+        email: info.data.email
+      };
+    } catch (error) {
+      console.error('Check email verification code error:', error);
+      return { valid: false };
+    }
+  }
+
+  // Get email verification status for current user
+  async getEmailVerificationStatus(): Promise<{
+    isVerified: boolean;
+    email: string | null;
+    lastVerificationSent?: number;
+  }> {
+    try {
+      const user = this.getCurrentUser();
+      if (!user) {
+        return { isVerified: false, email: null };
+      }
+
+      // Reload user to get latest verification status
+      await reload(user);
+
+      return {
+        isVerified: user.emailVerified,
+        email: user.email,
+        lastVerificationSent: user.metadata.lastSignInTime ? 
+          new Date(user.metadata.lastSignInTime).getTime() : undefined
+      };
+    } catch (error) {
+      console.error('Get email verification status error:', error);
+      return { isVerified: false, email: null };
+    }
+  }
+
+  // Require email verification for login (enhanced sign in)
+  async signInWithEmailVerification(email: string, password: string): Promise<{
+    userMetadata: UserMetadata;
+    emailVerified: boolean;
+    requiresVerification: boolean;
+  }> {
+    try {
+      // First, perform normal sign in
+      const userMetadata = await this.signIn(email, password);
+      
+      // Check email verification status
+      const verificationStatus = await this.getEmailVerificationStatus();
+      
+      return {
+        userMetadata,
+        emailVerified: verificationStatus.isVerified,
+        requiresVerification: !verificationStatus.isVerified
+      };
+    } catch (error) {
+      console.error('Sign in with email verification error:', error);
+      throw error;
+    }
+  }
+
+  // Create user with email verification requirement
+  async createUserWithEmailVerification(
+    email: string, 
+    password: string, 
+    displayName: string, 
+    role: UserRole,
+    restaurantId: string,
+    createdBy: string,
+    requireVerification: boolean = true
+  ): Promise<{
+    userMetadata: UserMetadata;
+    emailVerificationSent: boolean;
+  }> {
+    try {
+      // Create the user
+      const userMetadata = await this.createUser(
+        email, 
+        password, 
+        displayName, 
+        role,
+        restaurantId,
+        createdBy
+      );
+
+      let emailVerificationSent = false;
+
+      // Send email verification if required
+      if (requireVerification) {
+        try {
+          await this.sendEmailVerification();
+          emailVerificationSent = true;
+        } catch (verificationError) {
+          console.warn('Failed to send email verification:', verificationError);
+          // Don't fail user creation if verification email fails
+        }
+      }
+
+      return {
+        userMetadata,
+        emailVerificationSent
+      };
+    } catch (error) {
+      console.error('Create user with email verification error:', error);
+      throw error;
+    }
+  }
+
+  // Resend email verification (with rate limiting)
+  async resendEmailVerification(): Promise<void> {
+    try {
+      const user = this.getCurrentUser();
+      if (!user) {
+        throw new Error('No user logged in');
+      }
+
+      if (user.emailVerified) {
+        throw new Error('Email is already verified');
+      }
+
+      // Check if we can resend (basic rate limiting)
+      const lastSent = await this.getLastVerificationSentTime();
+      const now = Date.now();
+      const timeSinceLastSent = now - (lastSent || 0);
+      
+      // Rate limit: 1 minute between verification emails
+      if (lastSent && timeSinceLastSent < 60000) {
+        throw new Error('Please wait before requesting another verification email');
+      }
+
+      await sendEmailVerification(user);
+      
+      // Store the time this verification was sent
+      await this.updateUserMetadata(user.uid, { 
+        lastVerificationSent: now 
+      });
+      
+      console.log('Email verification resent successfully');
+    } catch (error) {
+      console.error('Resend email verification error:', error);
+      throw error;
+    }
+  }
+
+  // Get last verification sent time
+  private async getLastVerificationSentTime(): Promise<number | null> {
+    try {
+      const user = this.getCurrentUser();
+      if (!user) return null;
+
+      const metadata = await this.getUserMetadata(user.uid);
+      return (metadata as any)?.lastVerificationSent || null;
+    } catch (error) {
+      console.error('Get last verification sent time error:', error);
+      return null;
     }
   }
 }

@@ -2,13 +2,15 @@
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createDrawerNavigator } from "@react-navigation/drawer";
 import { Ionicons } from "@expo/vector-icons";
-import { TouchableOpacity } from "react-native";
+import { TouchableOpacity, Alert } from "react-native";
 import { useSelector } from "react-redux";
 import { colors } from "../theme";
 import { RootState } from "../redux/storeFirebase";
 
 // Screens
 import LoginScreen from "../screens/Auth/LoginScreen";
+import ForgotPasswordScreen from "../screens/Auth/ForgotPasswordScreen";
+import ResetPasswordScreen from "../screens/Auth/ResetPasswordScreen";
 import SignupScreen from "../screens/Auth/SignupScreen";
 import CreateAccountScreen from "../screens/Auth/CreateAccountScreen";
 import EmployeeLoginScreen from "../screens/Auth/EmployeeLoginScreen";
@@ -146,6 +148,8 @@ function SettingsStack() {
       <Stack.Screen name="EmployeeDetail" component={EmployeeDetailScreen} options={withMenuHeader("Employee Details")} />
       <Stack.Screen name="VendorManagement" component={VendorManagementScreen} options={withMenuHeader("Vendor Management")} />
       <Stack.Screen name="VendorTransactionHistory" component={VendorTransactionHistoryScreen} options={withMenuHeader("Transaction History")} />
+      <Stack.Screen name="InventoryManagement" component={InventoryScreen} options={withMenuHeader("Inventory Management")} />
+      <Stack.Screen name="MenuManagement" component={MenuManagementScreen} options={withMenuHeader("Menu Management")} />
       <Stack.Screen name="PrinterSetup" component={PrinterSetupScreen} options={withMenuHeader("Printer Setup")} />
       <Stack.Screen name="PrintDemo" component={PrintDemo} options={withMenuHeader("Printing Demo")} />
       <Stack.Screen name="BluetoothDebug" component={BluetoothDebugScreen} options={withMenuHeader("Bluetooth Debug")} />
@@ -246,6 +250,50 @@ export default function RootNavigator() {
           {() => (
             <AuthStack.Navigator screenOptions={defaultHeader}>
               <AuthStack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
+              <AuthStack.Screen name="ForgotPassword">
+                {(props) => (
+                  <ForgotPasswordScreen
+                    {...props}
+                    onBackToLogin={() => {
+                      props.navigation.navigate('Login');
+                    }}
+                    onPasswordResetSent={(email) => {
+                      // Password reset email sent successfully
+                      // In a real app, user would check their email and click the reset link
+                      // For now, just show success and return to login
+                      Alert.alert(
+                        'Reset Link Sent',
+                        `We've sent a password reset link to ${email}. Please check your email and follow the instructions to reset your password.`,
+                        [
+                          {
+                            text: 'OK',
+                            onPress: () => {
+                              // Return to login screen
+                              props.navigation.navigate('Login');
+                            },
+                          },
+                        ]
+                      );
+                    }}
+                  />
+                )}
+              </AuthStack.Screen>
+              <AuthStack.Screen name="ResetPassword">
+                {(props) => (
+                  <ResetPasswordScreen
+                    {...props}
+                    email={props.route.params?.email || ''}
+                    resetCode={props.route.params?.resetCode || ''}
+                    onPasswordResetSuccess={() => {
+                      // Password reset successful - go back to login
+                      props.navigation.navigate('Login');
+                    }}
+                    onBackToForgotPassword={() => {
+                      props.navigation.navigate('ForgotPassword');
+                    }}
+                  />
+                )}
+              </AuthStack.Screen>
               <AuthStack.Screen name="Signup" component={SignupScreen} />
               <AuthStack.Screen name="CreateAccount" component={CreateAccountScreen} options={{ title: "Create Account" }} />
               <AuthStack.Screen name="EmployeeLogin" component={EmployeeLoginScreen} options={{ headerShown: false }} />

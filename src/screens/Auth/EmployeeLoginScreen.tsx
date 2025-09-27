@@ -20,6 +20,7 @@ import { AuthStackParamList } from '../../navigation/types';
 import { colors, spacing, radius } from '../../theme';
 import { getFirebaseAuthEnhanced, createFirebaseAuthEnhanced } from '../../services/firebaseAuthEnhanced';
 import { RootState } from '../../redux/storeFirebase';
+import EmailVerificationDialog from '../../components/EmailVerificationDialog';
 
 type EmployeeLoginScreenNavigationProp = NativeStackNavigationProp<AuthStackParamList, 'EmployeeLogin'>;
 
@@ -29,6 +30,8 @@ const EmployeeLoginScreen: React.FC = () => {
   const [ownerEmail, setOwnerEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [showVerificationDialog, setShowVerificationDialog] = useState(false);
+  const [verificationEmail, setVerificationEmail] = useState('');
   const navigation = useNavigation<EmployeeLoginScreenNavigationProp>();
   const dispatch = useDispatch();
   const authState = useSelector((state: RootState) => state.auth);
@@ -122,6 +125,14 @@ const EmployeeLoginScreen: React.FC = () => {
     } catch (error: any) {
       console.error('Employee login error:', error);
       
+      // Handle email verification requirement
+      if (error.message === 'EMAIL_VERIFICATION_REQUIRED') {
+        setVerificationEmail(email.trim());
+        setShowVerificationDialog(true);
+        setIsLoading(false);
+        return;
+      }
+      
       let errorMessage = 'Login failed. Please try again.';
       
       if (error.code === 'auth/user-not-found') {
@@ -170,6 +181,16 @@ const EmployeeLoginScreen: React.FC = () => {
 
   const handleBackToOwnerLogin = () => {
     navigation.goBack();
+  };
+
+  const handleCloseVerificationDialog = () => {
+    setShowVerificationDialog(false);
+    setVerificationEmail('');
+  };
+
+  const handleRetryLogin = () => {
+    // Retry the login process
+    handleLogin();
   };
 
   return (
@@ -279,6 +300,13 @@ const EmployeeLoginScreen: React.FC = () => {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+      
+      <EmailVerificationDialog
+        visible={showVerificationDialog}
+        email={verificationEmail}
+        onClose={handleCloseVerificationDialog}
+        onRetryLogin={handleRetryLogin}
+      />
     </SafeAreaView>
   );
 };

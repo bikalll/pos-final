@@ -21,6 +21,7 @@ import { login } from '../../redux/slices/authSlice';
 import { colors, spacing, radius } from '../../theme';
 import { getFirebaseAuthEnhanced, createFirebaseAuthEnhanced } from '../../services/firebaseAuthEnhanced';
 import { RootState } from '../../redux/storeFirebase';
+import EmailVerificationDialog from '../../components/EmailVerificationDialog';
 
 type LoginScreenNavigationProp = NativeStackNavigationProp<AuthStackParamList, 'Login'>;
 
@@ -29,6 +30,8 @@ const LoginScreen: React.FC = () => {
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [showVerificationDialog, setShowVerificationDialog] = useState(false);
+  const [verificationEmail, setVerificationEmail] = useState('');
   const navigation = useNavigation<LoginScreenNavigationProp>();
   const dispatch = useDispatch();
   const authState = useSelector((state: RootState) => state.auth);
@@ -97,6 +100,14 @@ const LoginScreen: React.FC = () => {
         stack: error.stack
       });
       
+      // Handle email verification requirement
+      if (error.message === 'EMAIL_VERIFICATION_REQUIRED') {
+        setVerificationEmail(email.trim());
+        setShowVerificationDialog(true);
+        setIsLoading(false);
+        return;
+      }
+      
       let errorMessage = 'Login failed. Please try again.';
       
       if (error.code === 'auth/user-not-found') {
@@ -130,11 +141,8 @@ const LoginScreen: React.FC = () => {
   };
 
   const handleForgotPassword = () => {
-    Alert.alert(
-      'Forgot Password',
-      'Please contact your restaurant administrator to reset your password.',
-      [{ text: 'OK' }]
-    );
+    // Navigate to forgot password screen
+    navigation.navigate('ForgotPassword' as any);
   };
 
   const handleCreateAccount = () => {
@@ -145,6 +153,16 @@ const LoginScreen: React.FC = () => {
   const handleEmployeeLogin = () => {
     // Navigate to employee login screen
     navigation.navigate('EmployeeLogin' as any);
+  };
+
+  const handleCloseVerificationDialog = () => {
+    setShowVerificationDialog(false);
+    setVerificationEmail('');
+  };
+
+  const handleRetryLogin = () => {
+    // Retry the login process
+    handleLogin();
   };
 
   return (
@@ -242,6 +260,13 @@ const LoginScreen: React.FC = () => {
         </View>
       </ScrollView>
       </KeyboardAvoidingView>
+      
+      <EmailVerificationDialog
+        visible={showVerificationDialog}
+        email={verificationEmail}
+        onClose={handleCloseVerificationDialog}
+        onRetryLogin={handleRetryLogin}
+      />
     </SafeAreaView>
   );
 };
