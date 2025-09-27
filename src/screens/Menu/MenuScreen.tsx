@@ -12,6 +12,7 @@ import {
   Image
 } from 'react-native';
 import { RefreshControl } from 'react-native';
+import { imageCacheService } from '../../services/ImageCacheService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSelector, useDispatch } from 'react-redux';
@@ -117,20 +118,29 @@ const MenuScreen: React.FC = () => {
 
   const fetchMenuFromFirebase = async (rid: string) => {
     const menuData = await getOptimizedMenuItems(rid);
-        const menuItemsArray = Object.values(menuData).map((item: any) => ({
-          id: item.id || Object.keys(menuData).find(key => menuData[key] === item),
-          name: item.name,
-          description: item.description || '',
-          price: item.price,
-          category: item.category,
-          isAvailable: item.isAvailable !== false,
-          modifiers: item.modifiers || [],
-          image: item.image || '',
-          orderType: item.orderType || 'KOT',
-          ingredients: item.ingredients || [],
-        }));
-        setItems(menuItemsArray);
-    await saveMenuToCache(rid, menuItemsArray);
+    const menuItemsArray = Object.values(menuData).map((item: any) => ({
+      id: item.id || Object.keys(menuData).find(key => menuData[key] === item),
+      name: item.name,
+      description: item.description || '',
+      price: item.price,
+      category: item.category,
+      isAvailable: item.isAvailable !== false,
+      modifiers: item.modifiers || [],
+      image: item.image || '',
+      orderType: item.orderType || 'KOT',
+      ingredients: item.ingredients || [],
+    }));
+
+    // Prime image cache and rewrite image URIs to local when available
+    const urls = menuItemsArray.map((i) => i.image).filter(Boolean);
+    const urlToLocal = await imageCacheService.primeCache(urls);
+    const withLocalImages = menuItemsArray.map((i) => ({
+      ...i,
+      image: urlToLocal[i.image || ''] || i.image,
+    }));
+
+    setItems(withLocalImages);
+    await saveMenuToCache(rid, withLocalImages);
   };
 
   // Initial load: show cached menu if present; only fetch if cache missing

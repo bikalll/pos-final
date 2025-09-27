@@ -25,6 +25,7 @@ import { MenuItem } from '../../redux/slices/menuSliceFirebase';
 import { colors, spacing, radius, shadow } from '../../theme';
 import { getOptimizedTables, getOptimizedMenuItems } from '../../services/DirectFirebaseService';
 import { firebaseConnectionManager } from '../../services/FirebaseConnectionManager';
+import { imageCacheService } from '../../services/ImageCacheService';
 
 interface RouteParams {
   tableId: string;
@@ -118,8 +119,17 @@ const OrderTakingScreen: React.FC = () => {
       orderType: item.orderType || 'KOT',
       ingredients: item.ingredients || [],
     }));
-    setMenuItems(menuItemsArray);
-    await saveMenuToCache(rid, menuItemsArray);
+
+    // Prime and apply local image URIs
+    const urls = menuItemsArray.map((i: any) => i.image).filter(Boolean);
+    const urlToLocal = await imageCacheService.primeCache(urls);
+    const withLocalImages = menuItemsArray.map((i: any) => ({
+      ...i,
+      image: urlToLocal[i.image || ''] || i.image,
+    }));
+
+    setMenuItems(withLocalImages);
+    await saveMenuToCache(rid, withLocalImages);
   };
 
   // Initial load: cache-first for menu; tables fetched fresh
