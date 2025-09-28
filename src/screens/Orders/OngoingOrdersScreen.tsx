@@ -95,26 +95,54 @@ const OngoingOrdersScreen: React.FC = () => {
       if (order) {
         
         // Additional check: if the table is marked as inactive in Firebase, don't show orders for it
+        // BUT only if the order is very old (more than 1 hour) to prevent accidental hiding of recent orders
         const firebaseTable = firebaseTables[order.tableId];
         if (firebaseTable && firebaseTable.isActive === false) {
-          console.log('🚫 Filtering out order for inactive table:', {
-            orderId: order.id,
-            tableId: order.tableId,
-            isActive: firebaseTable.isActive
-          });
-          return false;
+          const orderAge = Date.now() - (order.createdAt || 0);
+          const oneHour = 60 * 60 * 1000; // 1 hour in milliseconds
+          
+          if (orderAge > oneHour) {
+            console.log('🚫 Filtering out order for inactive table (order is old):', {
+              orderId: order.id,
+              tableId: order.tableId,
+              isActive: firebaseTable.isActive,
+              orderAge: Math.round(orderAge / 1000 / 60) + ' minutes'
+            });
+            return false;
+          } else {
+            console.log('⚠️ Keeping order for inactive table (order is recent):', {
+              orderId: order.id,
+              tableId: order.tableId,
+              isActive: firebaseTable.isActive,
+              orderAge: Math.round(orderAge / 1000 / 60) + ' minutes'
+            });
+          }
         }
         
         // Additional check: if the table doesn't exist in Firebase at all, don't show orders for it
-        // (This could happen if the table was deleted or merged)
+        // BUT only if the order is very old (more than 1 hour) to prevent accidental hiding of recent orders
         if (!firebaseTable && !tables[order.tableId]) {
-          console.log('🚫 Filtering out order for non-existent table:', {
-            orderId: order.id,
-            tableId: order.tableId,
-            hasFirebaseTable: !!firebaseTable,
-            hasReduxTable: !!tables[order.tableId]
-          });
-          return false;
+          const orderAge = Date.now() - (order.createdAt || 0);
+          const oneHour = 60 * 60 * 1000; // 1 hour in milliseconds
+          
+          if (orderAge > oneHour) {
+            console.log('🚫 Filtering out order for non-existent table (order is old):', {
+              orderId: order.id,
+              tableId: order.tableId,
+              hasFirebaseTable: !!firebaseTable,
+              hasReduxTable: !!tables[order.tableId],
+              orderAge: Math.round(orderAge / 1000 / 60) + ' minutes'
+            });
+            return false;
+          } else {
+            console.log('⚠️ Keeping order for non-existent table (order is recent):', {
+              orderId: order.id,
+              tableId: order.tableId,
+              hasFirebaseTable: !!firebaseTable,
+              hasReduxTable: !!tables[order.tableId],
+              orderAge: Math.round(orderAge / 1000 / 60) + ' minutes'
+            });
+          }
         }
       }
       

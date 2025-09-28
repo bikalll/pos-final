@@ -1,0 +1,157 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions for role-based access control
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function getUserRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function getUserRestaurantId() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.restaurantId;
+    }
+
+    // Allow only specific roles (case-insensitive). Prefer custom claims; fallback to user doc
+    function hasAllowedRole() {
+      return isAuthenticated() && (
+        (
+          request.auth.token.role != null &&
+          lower(request.auth.token.role) in ['owner', 'manager', 'staff']
+        ) || (
+          lower(getUserRole()) in ['owner', 'manager', 'staff']
+        )
+      );
+    }
+
+    function isOwner() {
+      return hasAllowedRole() && lower(getUserRole()) == 'owner';
+    }
+
+    function isManager() {
+      return hasAllowedRole() && lower(getUserRole()) in ['owner', 'manager'];
+    }
+
+    function isEmployee() {
+      // Treat Staff as employee-level access
+      return hasAllowedRole() && lower(getUserRole()) in ['owner', 'manager', 'staff'];
+    }
+
+    function belongsToRestaurant(restaurantId) {
+      return hasAllowedRole() && getUserRestaurantId() == restaurantId;
+    }
+
+    function isActiveUser() {
+      return isAuthenticated() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isActive == true;
+    }
+
+    // User documents - users can only access their own data (and must have allowed role)
+    match /users/{userId} {
+      allow read, write: if hasAllowedRole() && request.auth.uid == userId;
+      allow create: if hasAllowedRole() && request.auth.uid == userId;
+    }
+
+    // Restaurant documents - strict role-based access
+    match /restaurants/{restaurantId} {
+      // Restaurant info - only managers+ can modify
+      allow read: if belongsToRestaurant(restaurantId) && isActiveUser();
+      allow write: if belongsToRestaurant(restaurantId) && isActiveUser() && isManager();
+
+      // Receipts - employees can create/read, managers+ can modify
+      match /receipts/{receiptId} {
+        allow create: if belongsToRestaurant(restaurantId) && isActiveUser() && isEmployee();
+        allow read: if belongsToRestaurant(restaurantId) && isActiveUser() && isEmployee();
+        allow update, delete: if belongsToRestaurant(restaurantId) && isActiveUser() && isManager();
+
+        // Validate receipt data
+        allow create: if belongsToRestaurant(restaurantId) && isActiveUser() && isEmployee()
+          && request.resource.data.keys().hasAll(['id', 'restaurantId', 'tableId', 'items', 'total', 'createdAt'])
+          && request.resource.data.restaurantId == restaurantId
+          && request.resource.data.total is number
+          && request.resource.data.total >= 0;
+      }
+
+      // Tables - employees can read, managers+ can modify
+      match /tables/{tableId} {
+        allow read: if belongsToRestaurant(restaurantId) && isActiveUser() && isEmployee();
+        allow write: if belongsToRestaurant(restaurantId) && isActiveUser() && isManager();
+      }
+
+      // Menu items - employees can read, managers+ can modify
+      match /menu/{menuId} {
+        allow read: if belongsToRestaurant(restaurantId) && isActiveUser() && isEmployee();
+        allow write: if belongsToRestaurant(restaurantId) && isActiveUser() && isManager();
+
+        // Validate menu item data
+        allow create: if belongsToRestaurant(restaurantId) && isActiveUser() && isManager()
+          && request.resource.data.keys().hasAll(['id', 'name', 'price', 'category'])
+          && request.resource.data.price is number
+          && request.resource.data.price >= 0;
+      }
+
+      // Inventory - managers+ only
+      match /inventory/{itemId} {
+        allow read: if belongsToRestaurant(restaurantId) && isActiveUser() && isManager();
+        allow write: if belongsToRestaurant(restaurantId) && isActiveUser() && isManager();
+      }
+
+      // Customer data - employees can read, managers+ can modify
+      match /customers/{customerId} {
+        allow read: if belongsToRestaurant(restaurantId) && isActiveUser() && isEmployee();
+        allow write: if belongsToRestaurant(restaurantId) && isActiveUser() && isManager();
+      }
+
+      // Employee management - owners only
+      match /users/{userId} {
+        allow read: if belongsToRestaurant(restaurantId) && isActiveUser() && isManager();
+        allow write: if belongsToRestaurant(restaurantId) && isActiveUser() && isOwner();
+      }
+
+      // Orders - employees can create/read, managers+ can modify
+      match /orders/{orderId} {
+        allow create: if belongsToRestaurant(restaurantId) && isActiveUser() && isEmployee();
+        allow read: if belongsToRestaurant(restaurantId) && isActiveUser() && isEmployee();
+        allow update, delete: if belongsToRestaurant(restaurantId) && isActiveUser() && isManager();
+      }
+
+      // Attendance - employees can read their own, managers+ can read all
+      match /attendance/{attendanceId} {
+        allow read: if belongsToRestaurant(restaurantId) && isActiveUser() && isEmployee();
+        allow write: if belongsToRestaurant(restaurantId) && isActiveUser() && isManager();
+      }
+
+      // Analytics and reports - managers+ only
+      match /analytics/{reportId} {
+        allow read, write: if belongsToRestaurant(restaurantId) && isActiveUser() && isManager();
+      }
+
+      // Settings - owners only
+      match /settings/{settingId} {
+        allow read: if belongsToRestaurant(restaurantId) && isActiveUser() && isManager();
+        allow write: if belongsToRestaurant(restaurantId) && isActiveUser() && isOwner();
+      }
+    }
+
+    // Global collections with strict access
+    match /audit_logs/{logId} {
+      allow read: if isAuthenticated() && isManager();
+      allow write: if false; // Only Cloud Functions can write audit logs
+    }
+
+    match /system_settings/{settingId} {
+      allow read: if isAuthenticated() && isOwner();
+      allow write: if false; // Only Cloud Functions can write system settings
+    }
+
+    // Keep your temporary allow-all rule until 2025-10-28
+    // This applies to any document path. More specific matches above will still apply when they are more specific.
+    match /{document=**} {
+      allow read, write: if request.time < timestamp.date(2025, 10, 28);
+    }
+  }
+}
+
+

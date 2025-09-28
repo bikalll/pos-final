@@ -127,12 +127,20 @@ export class RealtimeSyncService {
         store.dispatch(updateOrderFromFirebase(o));
       });
 
-      // Remove orders that are no longer in Firestore (but keep merged orders)
+      // Only remove orders that are no longer in Firestore AND have been explicitly completed/cancelled
+      // This prevents accidental removal of ongoing orders due to sync issues
       Array.from(currentOrderIds).forEach((orderId: string) => {
         if (!firestoreOrderIds.has(orderId)) {
           const order = currentState.orders?.ordersById?.[orderId];
-          console.log('🔄 Removing order from state (no longer in Firestore):', orderId);
-          store.dispatch(removeOrderFromFirebase(orderId));
+          
+          // Only remove if the order has been explicitly completed or cancelled
+          // This prevents ongoing orders from being removed due to sync issues
+          if (order && (order.status === 'completed' || order.status === 'cancelled')) {
+            console.log('🔄 Removing completed/cancelled order from state (no longer in Firestore):', orderId);
+            store.dispatch(removeOrderFromFirebase(orderId));
+          } else if (order && order.status === 'ongoing') {
+            console.log('⚠️ Ongoing order not found in Firestore, but keeping in local state to prevent data loss:', orderId);
+          }
         }
       });
 
