@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "502584633925",
+    "project_id": "arbi-trial",
+    "storage_bucket": "arbi-trial.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:502584633925:android:99bcac106f62aca67b112c",
+        "android_client_info": {
+          "package_name": "com.arbi.rnpos"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB4yGhcEWOnQYFyk0Ck3IKd139OaDh_exM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
