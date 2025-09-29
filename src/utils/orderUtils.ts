@@ -1,82 +1,136 @@
-import { Order } from './types';
+import { Order } from '../types/Order';
 
-/**
- * Cleans order data by removing undefined values and ensuring proper types
- * This prevents Firebase errors when saving orders with undefined properties
- */
-export function cleanOrderData(order: Order): Order {
-  const cleanedOrder = {
-    ...order,
-    // Ensure other optional fields are properly handled
-    customerName: order.customerName || null,
-    customerPhone: order.customerPhone || null,
-    payment: order.payment || null,
-    savedQuantities: order.savedQuantities || {},
-    // Ensure boolean fields are properly set
-    isSaved: order.isSaved || false,
-    isReviewed: order.isReviewed || false,
-    // Ensure items array is preserved with all discount fields
-    items: (order.items || []).map(item => {
-      const cleanedItem = {
-        ...item,
-        // Ensure other item fields are properly set
-        modifiers: item.modifiers || [],
-        orderType: item.orderType || 'KOT',
-      };
-      
-      // Always include discount fields, even if they are undefined/null
-      // This ensures that discount data is preserved during the save process
-      cleanedItem.discountPercentage = item.discountPercentage;
-      cleanedItem.discountAmount = item.discountAmount;
-      
-      return cleanedItem;
-    }),
-  };
-  
-  // Debug logging for discount data
-  const itemsWithDiscounts = cleanedOrder.items.filter(item => 
-    item.discountPercentage !== undefined || item.discountAmount !== undefined
-  );
-  if (itemsWithDiscounts.length > 0) {
-    console.log('🧹 cleanOrderData: Found items with discounts:', {
-      orderId: cleanedOrder.id,
-      itemsWithDiscounts: itemsWithDiscounts.map(item => ({
-        name: item.name,
-        discountPercentage: item.discountPercentage,
-        discountAmount: item.discountAmount
-      }))
-    });
-  }
-  
-  return cleanedOrder;
-}
-
-/**
- * Removes undefined values from an object recursively
- * This is useful for cleaning data before sending to Firebase
- */
-export function removeUndefinedValues(obj: any): any {
+// Remove undefined values from an object recursively
+export const removeUndefinedValues = (obj: any): any => {
   if (obj === null || obj === undefined) {
-    return null;
+    return obj;
   }
   
   if (Array.isArray(obj)) {
-    return obj.map(removeUndefinedValues).filter(item => item !== undefined);
+    return obj.map(item => removeUndefinedValues(item)).filter(item => item !== undefined);
   }
   
   if (typeof obj === 'object') {
     const cleaned: any = {};
     for (const [key, value] of Object.entries(obj)) {
       if (value !== undefined) {
-        const cleanedValue = removeUndefinedValues(value);
-        // Only add the property if the cleaned value is not undefined
-        if (cleanedValue !== undefined) {
-          cleaned[key] = cleanedValue;
-        }
+        cleaned[key] = removeUndefinedValues(value);
       }
     }
     return cleaned;
   }
   
   return obj;
-}
+};
+
+// Clean order data for Firebase storage
+export const cleanOrderData = (order: Order): Order => {
+  return {
+    id: order.id,
+    tableId: order.tableId,
+    items: order.items,
+    total: order.total,
+    status: order.status,
+    createdAt: order.createdAt,
+    updatedAt: order.updatedAt,
+    customerName: order.customerName,
+    customerPhone: order.customerPhone,
+    specialInstructions: order.specialInstructions,
+    paymentMethod: order.paymentMethod,
+    discount: order.discount,
+    tax: order.tax,
+    subtotal: order.subtotal,
+    // Remove any undefined or null values
+    ...Object.fromEntries(
+      Object.entries(order).filter(([_, value]) => value !== undefined && value !== null)
+    )
+  };
+};
+
+// Validate order data
+export const validateOrderData = (order: Order): { isValid: boolean; errors: string[] } => {
+  const errors: string[] = [];
+  
+  if (!order.id) {
+    errors.push('Order ID is required');
+  }
+  
+  if (!order.tableId) {
+    errors.push('Table ID is required');
+  }
+  
+  if (!order.items || order.items.length === 0) {
+    errors.push('Order must have at least one item');
+  }
+  
+  if (order.total <= 0) {
+    errors.push('Order total must be greater than 0');
+  }
+  
+  if (!order.status) {
+    errors.push('Order status is required');
+  }
+  
+  return {
+    isValid: errors.length === 0,
+    errors
+  };
+};
+
+// Calculate order totals
+export const calculateOrderTotals = (order: Order): Order => {
+  const subtotal = order.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  const discountAmount = order.discount || 0;
+  const taxAmount = order.tax || 0;
+  const total = subtotal - discountAmount + taxAmount;
+  
+  return {
+    ...order,
+    subtotal,
+    total: Math.max(0, total)
+  };
+};
+
+// Format order for display
+export const formatOrderForDisplay = (order: Order): string => {
+  const items = order.items.map(item => 
+    `${item.quantity}x ${item.name} - $${(item.price * item.quantity).toFixed(2)}`
+  ).join('\n');
+  
+  return `Order #${order.id}
+Table: ${order.tableId}
+Items:
+${items}
+Subtotal: $${order.subtotal.toFixed(2)}
+Discount: $${(order.discount || 0).toFixed(2)}
+Tax: $${(order.tax || 0).toFixed(2)}
+Total: $${order.total.toFixed(2)}`;
+};
+
+// Get order status color
+export const getOrderStatusColor = (status: string): string => {
+  switch (status) {
+    case 'ongoing':
+      return '#ff9800';
+    case 'completed':
+      return '#4caf50';
+    case 'cancelled':
+      return '#f44336';
+    default:
+      return '#666';
+  }
+};
+
+// Get order status text
+export const getOrderStatusText = (status: string): string => {
+  switch (status) {
+    case 'ongoing':
+      return 'In Progress';
+    case 'completed':
+      return 'Completed';
+    case 'cancelled':
+      return 'Cancelled';
+    default:
+      return 'Unknown';
+  }
+};

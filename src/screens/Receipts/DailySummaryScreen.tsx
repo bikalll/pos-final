@@ -1,5 +1,5 @@
-import React, { useState, useMemo, useEffect } from "react";
-import { View, Text, TextInput, FlatList, TouchableOpacity, ScrollView, Alert } from "react-native";
+import React, { useState, useMemo, useEffect, useCallback } from "react";
+import { View, Text, TextInput, FlatList, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useSelector, useDispatch } from "react-redux";
 import { useNavigation } from "@react-navigation/native";
@@ -16,6 +16,7 @@ import { createOrder, completeOrder, migrateOrdersWithRestaurantId } from "../..
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import PrintSummaryDialog from "../../components/PrintSummaryDialog";
 import { ExcelExporter } from "../../utils/excelExporter";
+import { useOptimizedReceipts } from "../../hooks/useOptimizedReceipts";
 
 type DrawerParamList = {
   Dashboard: undefined;
@@ -66,6 +67,19 @@ export default function ReceiptsScreen() {
   const [showCancelledOrders, setShowCancelledOrders] = useState(false);
   const [restaurantInfo, setRestaurantInfo] = useState<{ name?: string; address?: string; panVat?: string; logoUrl?: string } | null>(null);
   
+  // Use optimized receipts hook for better performance with lazy loading
+  const {
+    receipts: optimizedReceipts,
+    loading: receiptsLoading,
+    refreshing: receiptsRefreshing,
+    loadingMore: receiptsLoadingMore,
+    hasMore: receiptsHasMore,
+    error: receiptsError,
+    loadMoreReceipts,
+    refreshReceipts,
+    clearCache
+  } = useOptimizedReceipts(restaurantId || '');
+  
   const navigation = useNavigation<DrawerNavigation>();
   
   // Get orders data from Redux store (fallback)
@@ -73,7 +87,7 @@ export default function ReceiptsScreen() {
   const ordersById = useSelector((state: RootState) => state.orders.ordersById);
   const tables = useSelector((state: RootState) => state.tables.tablesById);
   const receiptsRefreshTrigger = useSelector((state: RootState) => state.orders.receiptsRefreshTrigger);
-  const { restaurantId, restaurantName: authRestaurantName } = useSelector((state: RootState) => state.auth);
+  const { restaurantId, restaurantName: authRestaurantName, userName: currentUserName } = useSelector((state: RootState) => state.auth);
 
   // Debug logging for troubleshooting
   console.log('DailySummaryScreen - restaurantId:', restaurantId);
@@ -197,21 +211,16 @@ export default function ReceiptsScreen() {
           setFirebaseTables(tablesData);
         }
         
-        // Load receipts
-        const receiptsData = await service.getReceipts();
-        console.log('DailySummaryScreen - Loaded receipts count:', Object.keys(receiptsData).length);
+        // Load receipts as fallback if optimized hook fails
+        try {
+          const receiptsData = await service.getReceipts();
+          console.log('DailySummaryScreen - Loaded receipts count (fallback):', Object.keys(receiptsData).length);
+          setFirebaseReceipts(receiptsData);
+        } catch (error) {
+          console.error('Error loading receipts (fallback):', error);
+        }
         
-        // Debug: Log all receipts to see what's being loaded
-        console.log('🔍 All loaded receipts:', Object.keys(receiptsData).map(id => ({
-          id,
-          orderId: receiptsData[id].orderId,
-          tableId: receiptsData[id].tableId,
-          tableName: receiptsData[id].tableName,
-          amount: receiptsData[id].amount,
-          customerName: receiptsData[id].customerName
-        })));
-        
-        setFirebaseReceipts(receiptsData);
+        console.log('DailySummaryScreen - Using optimized receipts hook for better performance');
         
       } catch (error) {
         console.error('Error loading data in DailySummaryScreen:', error);
@@ -360,54 +369,53 @@ export default function ReceiptsScreen() {
         }
       }
       
-      // Always refresh Firebase receipts after processing
+      // Always refresh receipts after processing using optimized hook
       try {
-        console.log('🔄 Refreshing Firebase receipts...');
-        const receiptsData = await autoReceiptService.getReceipts();
-        console.log('🔄 Refreshed Firebase receipts:', receiptsData);
-        console.log('🔄 Refreshed Firebase receipts count:', Object.keys(receiptsData).length);
-        setFirebaseReceipts(receiptsData);
+        console.log('🔄 Refreshing receipts using optimized hook...');
+        await refreshReceipts();
+        console.log('✅ Receipts refreshed using optimized hook');
       } catch (error) {
         console.error('❌ Error refreshing receipts after auto-save:', error);
       }
     };
     
     autoSaveReceipts();
-  }, [completedOrders.length, restaurantId]);
+  }, [completedOrders.length, restaurantId, refreshReceipts]);
 
-  // Convert Firebase receipts to receipts format
+  // Convert optimized receipts to receipts format (maintaining exact same UI)
   const receipts = useMemo((): ReceiptData[] => {
-    // Canary check for receipts from other restaurants
-    const bad = Object.values(firebaseReceipts||{}).filter((r: any) => r.restaurantId && r.restaurantId !== restaurantId);
-    if (bad.length > 0) console.error('SECURITY: receipts from other restaurants found', bad.slice(0,5));
+    console.log('🔄 Converting receipts data:', {
+      restaurantId,
+      optimizedReceiptsCount: optimizedReceipts.length,
+      firebaseReceiptsCount: Object.keys(firebaseReceipts).length,
+      usingOptimized: optimizedReceipts.length > 0,
+      receiptsError
+    });
     
-    // ONLY use Firebase receipts - no Redux fallback for security
-    const receiptsData = Object.values(firebaseReceipts).filter((receipt: any) => {
-      // Additional security check for Firebase receipts
-      if (receipt.restaurantId && receipt.restaurantId !== restaurantId) {
-        console.error('SECURITY: Firebase receipt from different restaurant found:', {
-          receiptId: receipt.id,
-          receiptRestaurantId: receipt.restaurantId,
-          expectedRestaurantId: restaurantId
-        });
-        return false;
-      }
-      
-      // Debug: Log settlement receipts specifically
-      if (receipt.tableId && receipt.tableId.startsWith('credit-')) {
-        console.log('🔍 Settlement receipt found:', {
+    // Use optimized receipts data if available and no error, otherwise fallback to firebaseReceipts
+    const receiptsData = (optimizedReceipts.length > 0 && !receiptsError) 
+      ? optimizedReceipts.map((receipt: any) => ({
           id: receipt.id,
           orderId: receipt.orderId,
           tableId: receipt.tableId,
           tableName: receipt.tableName,
           amount: receipt.amount,
           customerName: receipt.customerName,
-          restaurantId: receipt.restaurantId
-        });
-      }
-      
-      return true;
-    });
+          paymentMethod: receipt.paymentMethod,
+          createdAt: receipt.createdAt,
+          restaurantId: receipt.restaurantId,
+          isVoid: receipt.isVoid || false,
+          splitPayments: receipt.splitPayments,
+          baseSubtotal: receipt.baseSubtotal,
+          subtotal: receipt.subtotal,
+          tax: receipt.tax,
+          serviceCharge: receipt.serviceCharge,
+          discount: receipt.discount,
+          itemDiscount: receipt.itemDiscount,
+          orderDiscount: receipt.orderDiscount,
+          items: receipt.items
+        }))
+      : Object.values(firebaseReceipts);
     
     // Convert Firebase receipts to ReceiptData format, including void receipts from cancelled orders
     const convertedReceipts = receiptsData.map((receipt: any) => {
@@ -606,6 +614,12 @@ export default function ReceiptsScreen() {
           netPaid: 0,
           isVoid: true, // Mark as void receipt
           cancellationInfo: order.cancellationInfo,
+          processedBy: {
+            role: 'Staff', // Default role for void receipts
+            username: order.cancellationInfo.cancelledBy && order.cancellationInfo.cancelledBy !== 'Unknown' 
+              ? order.cancellationInfo.cancelledBy 
+              : (order.processedBy?.username || currentUserName || 'Staff Member')
+          }
         } as ReceiptData & { isVoid: boolean; cancellationInfo: any };
       });
 
@@ -1173,6 +1187,20 @@ export default function ReceiptsScreen() {
     }
   };
 
+  // Handle scroll to load more receipts (lazy loading)
+  const handleLoadMore = useCallback(() => {
+    if (!receiptsLoadingMore && receiptsHasMore) {
+      console.log('🔄 handleLoadMore: Loading more receipts...');
+      loadMoreReceipts();
+    }
+  }, [receiptsLoadingMore, receiptsHasMore, loadMoreReceipts]);
+
+  // Handle refresh
+  const handleRefresh = useCallback(async () => {
+    console.log('🔄 handleRefresh: Refreshing receipts...');
+    await refreshReceipts();
+  }, [refreshReceipts]);
+
   const handlePrintReceipt = async (receipt: ReceiptData) => {
     try {
       let order = ordersById[receipt.orderId];
@@ -1238,7 +1266,9 @@ export default function ReceiptsScreen() {
     }
   };
 
-  const renderReceiptItem = ({ item }: { item: ReceiptData }) => (
+
+  // Render receipt item for FlatList
+  const renderReceiptItem = useCallback(({ item }: { item: ReceiptData }) => (
     <View
       key={item.id}
       style={{
@@ -1323,7 +1353,7 @@ export default function ReceiptsScreen() {
                 </View>
               </View>
             );
-          })(          )}
+          })()}
           {item.paymentMethod === 'Split' && item.splitBreakdown && (
             <Text style={{ color: '#ccc', fontSize: 12, marginLeft: 24 }}>
               {item.splitBreakdown.map(b => `${b.method}: Rs ${b.amount.toFixed(0)}`).join(' · ')}
@@ -1410,194 +1440,229 @@ export default function ReceiptsScreen() {
         </TouchableOpacity>
       </View>
     </View>
-  );
+  ), [selectedPaymentFilter, ordersById, handlePrintReceipt, handleViewReceipt]);
+
+  // Render loading footer for pagination
+  const renderLoadingFooter = useCallback(() => {
+    if (!receiptsLoadingMore) return null;
+    
+    return (
+      <View style={{ padding: 20, alignItems: 'center' }}>
+        <ActivityIndicator size="small" color="#FF6B35" />
+        <Text style={{ color: '#fff', marginTop: 8 }}>Loading more receipts...</Text>
+      </View>
+    );
+  }, [receiptsLoadingMore]);
+
+  // Render empty state
+  const renderEmptyState = useCallback(() => (
+    <View style={{ alignItems: "center", paddingVertical: 40 }}>
+      <MaterialCommunityIcons name="file-document" size={48} color="#555" />
+      <Text style={{ color: "#555", fontSize: 16, marginTop: 16 }}>
+        {searchQuery || selectedPaymentFilter || selectedSortOption !== 'all' ? 'No receipts found' : 'No completed orders yet'}
+      </Text>
+      {!searchQuery && !selectedPaymentFilter && selectedSortOption === 'all' && (
+        <TouchableOpacity 
+          style={{
+            backgroundColor: "#333",
+            paddingHorizontal: 20,
+            paddingVertical: 12,
+            borderRadius: 8,
+            marginTop: 16,
+          }}
+          onPress={handleViewOrders}
+        >
+          <Text style={{ color: "#fff", fontSize: 14, fontWeight: "500" }}>
+            View Orders
+          </Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  ), [searchQuery, selectedPaymentFilter, selectedSortOption, handleViewOrders]);
+
+  // Create header component for FlatList
+  const renderListHeader = useCallback(() => (
+    <View style={{ padding: 16 }}>
+      {/* Header */}
+      <View style={{ marginBottom: 16 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+          <MaterialCommunityIcons name="file-document" size={22} color="#fff" style={{ marginRight: 8 }} />
+          <Text style={{ fontSize: 20, fontWeight: "bold", color: "#fff" }}>Receipts</Text>
+        </View>
+        <Text style={{ color: "#aaa", fontSize: 13 }}>
+          View and manage today's transaction receipts.
+        </Text>
+      </View>
+
+      {/* Payment Summary */}
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <Text style={{ fontSize: 18, fontWeight: "600", color: "#fff" }}>
+          {getDateRangeLabel(selectedSortOption)} Payment Summary
+        </Text>
+        <TouchableOpacity
+          onPress={handlePrintDailySummary}
+          style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#2a2a2a', borderWidth: 1, borderColor: '#444', paddingHorizontal: 8, paddingVertical: 6, borderRadius: 8 }}
+          accessibilityLabel="Print daily summary"
+        >
+          <MaterialCommunityIcons name="printer" size={14} color="#fff" />
+          <Text style={{ color: '#fff', fontSize: 12, fontWeight: '600', marginLeft: 6 }}>Print</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Payment Method Cards Grid */}
+      <View style={{ marginBottom: 20 }}>
+        {/* First Row: Cash, Card, Bank */}
+        <View style={{ flexDirection: "row", marginBottom: 8 }}>
+          {renderSummaryCard(filteredSummary[0], 0)}
+          {renderSummaryCard(filteredSummary[1], 1)}
+          {renderSummaryCard(filteredSummary[2], 2)}
+        </View>
+        {/* Second Row: Fonepay, Credit */}
+        <View style={{ flexDirection: "row" }}>
+          {renderSummaryCard(filteredSummary[3], 3)}
+          {renderSummaryCard(filteredSummary[4], 4)}
+        </View>
+      </View>
+
+      {/* Total Payments */}
+      <View style={{
+        backgroundColor: '#1e1e1e',
+        borderRadius: 10,
+        padding: 12,
+        marginBottom: 16,
+        borderWidth: 1,
+        borderColor: '#333'
+      }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>Total Payments</Text>
+          <Text style={{ color: '#fff', fontSize: 16, fontWeight: 'bold' }}>Rs {totalPayments.toFixed(2)}</Text>
+        </View>
+      </View>
+
+      {/* Date Range Filter */}
+      <ReceiptSortingFilter
+        selectedOption={selectedSortOption}
+        onSortChange={setSelectedSortOption}
+      />
+
+      {/* Search Bar */}
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          backgroundColor: "#1e1e1e",
+          borderRadius: 10,
+          paddingHorizontal: 12,
+          marginBottom: 16,
+        }}
+      >
+        <MaterialCommunityIcons name="magnify" size={20} color="#aaa" />
+        <TextInput
+          placeholder="Search by Receipt ID or Customer..."
+          placeholderTextColor="#888"
+          style={{ flex: 1, padding: 10, color: "#fff" }}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+        />
+        {searchQuery.length > 0 && (
+          <TouchableOpacity onPress={() => setSearchQuery("")}>
+            <MaterialCommunityIcons name="close" size={20} color="#aaa" />
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {/* Results Count */}
+      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: "#aaa", fontSize: 14 }}>
+            {filteredReceipts.length} receipt{filteredReceipts.length !== 1 ? 's' : ''} found
+          </Text>
+          <Text style={{ color: "#666", fontSize: 12, marginTop: 2 }}>
+            {getDateRangeLabel(selectedSortOption)}
+          </Text>
+        </View>
+        {selectedPaymentFilter && (
+          <TouchableOpacity 
+            onPress={() => setSelectedPaymentFilter(null)}
+            style={{
+              backgroundColor: "#333",
+              paddingHorizontal: 12,
+              paddingVertical: 4,
+              borderRadius: 12,
+            }}
+          >
+            <Text style={{ color: "#fff", fontSize: 12 }}>
+              Clear filter: {selectedPaymentFilter}
+            </Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {/* Show Cancelled Orders Checkbox */}
+      <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 16 }}>
+        <TouchableOpacity
+          onPress={() => setShowCancelledOrders(!showCancelledOrders)}
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            backgroundColor: "#1e1e1e",
+            paddingHorizontal: 12,
+            paddingVertical: 8,
+            borderRadius: 8,
+            borderWidth: 1,
+            borderColor: showCancelledOrders ? "#007AFF" : "#333",
+          }}
+        >
+          <MaterialCommunityIcons
+            name={showCancelledOrders ? "checkbox-marked" : "checkbox-blank-outline"}
+            size={20}
+            color={showCancelledOrders ? "#007AFF" : "#666"}
+            style={{ marginRight: 8 }}
+          />
+          <Text style={{ color: "#fff", fontSize: 14 }}>
+            Show Cancelled Orders
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Loading State */}
+      {receiptsLoading && (
+        <View style={{ padding: 20, alignItems: 'center' }}>
+          <Text style={{ color: '#fff', fontSize: 16 }}>Loading receipts...</Text>
+        </View>
+      )}
+    </View>
+  ), [selectedSortOption, filteredSummary, totalPayments, searchQuery, selectedPaymentFilter, showCancelledOrders, receiptsLoading, handlePrintDailySummary, setSearchQuery, setSelectedPaymentFilter, setShowCancelledOrders, refreshReceipts]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "#111" }}>
-      <ScrollView 
-        style={{ flex: 1 }} 
-        contentContainerStyle={{ padding: 16 }}
-        showsVerticalScrollIndicator={false}
-      >
-          {/* Header */}
-          <View style={{ marginBottom: 16 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
-              <MaterialCommunityIcons name="file-document" size={22} color="#fff" style={{ marginRight: 8 }} />
-              <Text style={{ fontSize: 20, fontWeight: "bold", color: "#fff" }}>Receipts</Text>
-            </View>
-            <Text style={{ color: "#aaa", fontSize: 13 }}>
-              View and manage today's transaction receipts.
-            </Text>
-            
-            
-          </View>
-
-
-          {/* Payment Summary */}
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <Text style={{ fontSize: 18, fontWeight: "600", color: "#fff" }}>
-              {getDateRangeLabel(selectedSortOption)} Payment Summary
-            </Text>
-            <TouchableOpacity
-              onPress={handlePrintDailySummary}
-              style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#2a2a2a', borderWidth: 1, borderColor: '#444', paddingHorizontal: 8, paddingVertical: 6, borderRadius: 8 }}
-              accessibilityLabel="Print daily summary"
-            >
-              <MaterialCommunityIcons name="printer" size={14} color="#fff" />
-              <Text style={{ color: '#fff', fontSize: 12, fontWeight: '600', marginLeft: 6 }}>Print</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Payment Method Cards Grid */}
-          <View style={{ marginBottom: 20 }}>
-            {/* First Row: Cash, Card, Bank */}
-            <View style={{ flexDirection: "row", marginBottom: 8 }}>
-              {renderSummaryCard(filteredSummary[0], 0)}
-              {renderSummaryCard(filteredSummary[1], 1)}
-              {renderSummaryCard(filteredSummary[2], 2)}
-            </View>
-            {/* Second Row: Fonepay, Credit */}
-            <View style={{ flexDirection: "row" }}>
-              {renderSummaryCard(filteredSummary[3], 3)}
-              {renderSummaryCard(filteredSummary[4], 4)}
-            </View>
-          </View>
-
-          {/* Total Payments */}
-          <View style={{
-            backgroundColor: '#1e1e1e',
-            borderRadius: 10,
-            padding: 12,
-            marginBottom: 16,
-            borderWidth: 1,
-            borderColor: '#333'
-          }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>Total Payments</Text>
-              <Text style={{ color: '#fff', fontSize: 16, fontWeight: 'bold' }}>Rs {totalPayments.toFixed(2)}</Text>
-            </View>
-          </View>
-
-          {/* Date Range Filter */}
-          <ReceiptSortingFilter
-            selectedOption={selectedSortOption}
-            onSortChange={setSelectedSortOption}
-          />
-
-          {/* Search Bar */}
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              backgroundColor: "#1e1e1e",
-              borderRadius: 10,
-              paddingHorizontal: 12,
-              marginBottom: 16,
-            }}
-          >
-            <MaterialCommunityIcons name="magnify" size={20} color="#aaa" />
-            <TextInput
-              placeholder="Search by Receipt ID or Customer..."
-              placeholderTextColor="#888"
-              style={{ flex: 1, padding: 10, color: "#fff" }}
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-            />
-            {searchQuery.length > 0 && (
-              <TouchableOpacity onPress={() => setSearchQuery("")}>
-                <MaterialCommunityIcons name="close" size={20} color="#aaa" />
-              </TouchableOpacity>
-            )}
-          </View>
-
-          {/* Results Count */}
-          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <View style={{ flex: 1 }}>
-              <Text style={{ color: "#aaa", fontSize: 14 }}>
-                {filteredReceipts.length} receipt{filteredReceipts.length !== 1 ? 's' : ''} found
-              </Text>
-              <Text style={{ color: "#666", fontSize: 12, marginTop: 2 }}>
-                {getDateRangeLabel(selectedSortOption)}
-              </Text>
-            </View>
-            {selectedPaymentFilter && (
-              <TouchableOpacity 
-                onPress={() => setSelectedPaymentFilter(null)}
-                style={{
-                  backgroundColor: "#333",
-                  paddingHorizontal: 12,
-                  paddingVertical: 4,
-                  borderRadius: 12,
-                }}
-              >
-                <Text style={{ color: "#fff", fontSize: 12 }}>
-                  Clear filter: {selectedPaymentFilter}
-                </Text>
-              </TouchableOpacity>
-            )}
-          </View>
-
-          {/* Show Cancelled Orders Checkbox */}
-          <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 16 }}>
-            <TouchableOpacity
-              onPress={() => setShowCancelledOrders(!showCancelledOrders)}
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                backgroundColor: "#1e1e1e",
-                paddingHorizontal: 12,
-                paddingVertical: 8,
-                borderRadius: 8,
-                borderWidth: 1,
-                borderColor: showCancelledOrders ? "#007AFF" : "#333",
-              }}
-            >
-              <MaterialCommunityIcons
-                name={showCancelledOrders ? "checkbox-marked" : "checkbox-blank-outline"}
-                size={20}
-                color={showCancelledOrders ? "#007AFF" : "#666"}
-                style={{ marginRight: 8 }}
-              />
-              <Text style={{ color: "#fff", fontSize: 14 }}>
-                Show Cancelled Orders
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Receipt List */}
-          {filteredReceipts.map((item) => renderReceiptItem({ item }))}
-
-          {/* Empty State */}
-          {filteredReceipts.length === 0 && (
-            <View style={{ alignItems: "center", paddingVertical: 40 }}>
-              <MaterialCommunityIcons name="file-document" size={48} color="#555" />
-              <Text style={{ color: "#555", fontSize: 16, marginTop: 16 }}>
-                {searchQuery || selectedPaymentFilter || selectedSortOption !== 'all' ? 'No receipts found' : 'No completed orders yet'}
-              </Text>
-              {!searchQuery && !selectedPaymentFilter && selectedSortOption === 'all' && (
-                <TouchableOpacity 
-                  style={{
-                    backgroundColor: "#333",
-                    paddingHorizontal: 20,
-                    paddingVertical: 12,
-                    borderRadius: 8,
-                    marginTop: 16,
-                  }}
-                  onPress={handleViewOrders}
-                >
-                  <Text style={{ color: "#fff", fontSize: 14, fontWeight: "500" }}>
-                    View Orders
-                  </Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          )}
-        </ScrollView>
-        
-        {/* Print Summary Dialog */}
-        <PrintSummaryDialog
-          visible={showPrintDialog}
-          onClose={() => setShowPrintDialog(false)}
+      <FlatList
+        data={filteredReceipts}
+        renderItem={renderReceiptItem}
+        keyExtractor={(item) => item.id}
+        onEndReached={handleLoadMore}
+        onEndReachedThreshold={0.1}
+        ListHeaderComponent={renderListHeader}
+        ListFooterComponent={renderLoadingFooter}
+        ListEmptyComponent={renderEmptyState}
+        showsVerticalScrollIndicator={true}
+        removeClippedSubviews={true}
+        maxToRenderPerBatch={5}
+        windowSize={10}
+        initialNumToRender={10}
+        getItemLayout={(data, index) => ({
+          length: 200, // Approximate height of each receipt item
+          offset: 200 * index,
+          index,
+        })}
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingBottom: 20 }}
+      />
+      
+      {/* Print Summary Dialog */}
+      <PrintSummaryDialog
+        visible={showPrintDialog}
+        onClose={() => setShowPrintDialog(false)}
           onPrint={handlePrintSummary}
           onSaveAsExcel={handleSaveAsExcel}
           title="Export Transaction Summary"

@@ -85,7 +85,7 @@ const OrderConfirmationScreen: React.FC = () => {
   const menuItems = useSelector((state: RootState) => state.menu.itemsById);
   const allOrdersById = useSelector((state: RootState) => state.orders.ordersById);
   const { restaurantId } = useSelector((state: RootState) => state.auth);
-  const staffName = useSelector((state: RootState) => state.auth.name) || 'Unknown';
+  const staffName = useSelector((state: RootState) => state.auth.userName) || 'Unknown';
 
   const handleCancellationConfirm = (reason: 'void' | 'other', otherReason?: string) => {
     try {

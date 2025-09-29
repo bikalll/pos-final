@@ -56,6 +56,7 @@ const TablesDashboardScreen: React.FC = () => {
   const [firebaseTables, setFirebaseTables] = useState<any[]>([]);
   const [firestoreService, setFirestoreService] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadingTimeout, setLoadingTimeout] = useState<NodeJS.Timeout | null>(null);
   const lastTablesHashRef = useRef<string>('');
   
   const navigation = useNavigation<TablesDashboardNavigationProp>();
@@ -90,7 +91,7 @@ const TablesDashboardScreen: React.FC = () => {
   const [actionsModalVisible, setActionsModalVisible] = useState(false);
   const [actionsTableId, setActionsTableId] = useState<string | null>(null);
 
-  // Load tables from Firebase
+  // Load tables from Firebase with performance optimization
   const loadTables = async () => {
     if (!restaurantId) {
       console.log('No restaurant ID available');
@@ -99,10 +100,21 @@ const TablesDashboardScreen: React.FC = () => {
 
     try {
       setIsLoading(true);
+      
+      // Set a timeout to prevent infinite loading
+      const timeout = setTimeout(() => {
+        console.log('⚠️ Tables loading timeout reached, stopping loading state');
+        setIsLoading(false);
+      }, 10000); // 10 second timeout
+      setLoadingTimeout(timeout);
+      
       const service = createFirestoreService(restaurantId);
       setFirestoreService(service);
       
+      // Use Promise.all for concurrent operations if needed
       const tablesData = await service.getTables();
+      
+      // Optimize table processing with memoization
       const tablesArray = Object.values(tablesData).map((table: any) => ({
         id: table.id || Object.keys(tablesData).find(key => tablesData[key] === table),
         name: table.name,
@@ -134,26 +146,30 @@ const TablesDashboardScreen: React.FC = () => {
         
         return timeDiff;
       });
+      
       // Compute stable hash to avoid redundant state updates that can trigger loops
       const hashParts = tablesArray
         .map(t => ({ id: t.id, isActive: t.isActive, isOccupied: t.isOccupied, isReserved: t.isReserved }))
         .sort((a, b) => String(a.id).localeCompare(String(b.id)));
       const nextHash = JSON.stringify(hashParts);
+      
+      // Only update state if data actually changed
       if (nextHash !== lastTablesHashRef.current) {
         lastTablesHashRef.current = nextHash;
         setFirebaseTables(tablesArray);
+        console.log('Tables loaded from Firebase:', tablesArray.length);
+      } else {
+        console.log('Tables data unchanged, skipping state update');
       }
-      console.log('Tables loaded from Firebase:', tablesArray.length);
-      console.log('🔍 Firebase tables data:', tablesArray.map(t => ({
-        id: t.id,
-        name: t.name,
-        isOccupied: t.isOccupied,
-        isActive: t.isActive
-      })));
       
     } catch (error) {
       console.error('Error loading tables:', error);
     } finally {
+      // Clear timeout and stop loading
+      if (loadingTimeout) {
+        clearTimeout(loadingTimeout);
+        setLoadingTimeout(null);
+      }
       setIsLoading(false);
     }
   };
@@ -172,6 +188,7 @@ const TablesDashboardScreen: React.FC = () => {
         return service.listenToTables((tablesData: Record<string, any>) => {
           console.log('📡 Real-time tables update received:', Object.keys(tablesData).length);
           
+          // Optimize table processing with memoization
           const tablesArray = Object.values(tablesData).map((table: any) => ({
             id: table.id || Object.keys(tablesData).find(key => (tablesData as any)[key] === table),
             name: table.name,
@@ -189,22 +206,37 @@ const TablesDashboardScreen: React.FC = () => {
             reservedNote: table.reservedNote,
             totalSeats: table.totalSeats,
           })).sort((a, b) => {
-            // Sort by creation time (oldest first)
+            // Sort by creation time (oldest first), with fallback to table number
             const aTime = getTimestamp(a.createdAt);
             const bTime = getTimestamp(b.createdAt);
-            return aTime - bTime;
+            const timeDiff = aTime - bTime;
+            
+            // If timestamps are very close (within 1 second), sort by table number instead
+            if (Math.abs(timeDiff) < 1000) {
+              const aNumber = parseInt(a.name?.replace(/\D/g, '') || '0');
+              const bNumber = parseInt(b.name?.replace(/\D/g, '') || '0');
+              return aNumber - bNumber;
+            }
+            
+            return timeDiff;
           });
           
-          // Use batch update for better performance
-          batchUpdate('tables', tablesArray);
-          
+          // Compute hash before updating to avoid unnecessary re-renders
           const hashParts = tablesArray
             .map(t => ({ id: t.id, isActive: t.isActive, isOccupied: t.isOccupied, isReserved: t.isReserved }))
             .sort((a, b) => String(a.id).localeCompare(String(b.id)));
           const nextHash = JSON.stringify(hashParts);
+          
+          // Only update if data actually changed
           if (nextHash !== lastTablesHashRef.current) {
             lastTablesHashRef.current = nextHash;
+            
+            // Use batch update for better performance
+            batchUpdate('tables', tablesArray);
             setFirebaseTables(tablesArray);
+            console.log('📡 Tables updated via real-time listener');
+          } else {
+            console.log('📡 Tables data unchanged, skipping real-time update');
           }
         });
       } catch (e) {
@@ -222,8 +254,13 @@ const TablesDashboardScreen: React.FC = () => {
       if (unsubscribe) {
         removeListener('tables-realtime');
       }
+      // Clean up loading timeout
+      if (loadingTimeout) {
+        clearTimeout(loadingTimeout);
+        setLoadingTimeout(null);
+      }
     };
-  }, [restaurantId, addListener, removeListener, batchUpdate]);
+  }, [restaurantId, addListener, removeListener, batchUpdate, loadingTimeout]);
 
   // Automatic cleanup on unmount
   useEffect(() => {

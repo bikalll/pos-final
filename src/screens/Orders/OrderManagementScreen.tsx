@@ -245,12 +245,43 @@ const OrderManagementScreen: React.FC = () => {
                   svc.updateTable(order.tableId, { isOccupied: false });
                 }
               } catch {}
-              Alert.alert('Success', 'Receipt printed successfully!', [{ text: 'OK', onPress: () => (navigation as any).navigate('Dashboard', { screen: 'TablesDashboard' }) }]);
+              Alert.alert('Success', 'Receipt printed successfully!', [{ 
+                text: 'OK', 
+                onPress: () => {
+                  // Use reset navigation to clear the stack and prevent back button issues
+                  (navigation as any).reset({
+                    index: 0,
+                    routes: [
+                      {
+                        name: 'Dashboard',
+                        state: {
+                          routes: [{ name: 'TablesDashboard' }],
+                          index: 0,
+                        },
+                      },
+                    ],
+                  });
+                }
+              }]);
             } catch (error: any) {
               Alert.alert('Print Error', `Failed to print receipt: ${error.message}`, [
                 {
                   text: 'OK',
-                  onPress: () => (navigation as any).navigate('Dashboard', { screen: 'TablesDashboard' }),
+                  onPress: () => {
+                    // Use reset navigation to clear the stack and prevent back button issues
+                    (navigation as any).reset({
+                      index: 0,
+                      routes: [
+                        {
+                          name: 'Dashboard',
+                          state: {
+                            routes: [{ name: 'TablesDashboard' }],
+                            index: 0,
+                          },
+                        },
+                      ],
+                    });
+                  },
                 }
               ]);
             }
@@ -303,7 +334,7 @@ const OrderManagementScreen: React.FC = () => {
   };
 
   const authRole = useSelector((state: RootState) => state.auth.role);
-  const staffName = useSelector((state: RootState) => state.auth.name) || 'Unknown';
+  const staffName = useSelector((state: RootState) => state.auth.userName) || 'Unknown';
 
   const handleCancelOrder = () => {
     if (authRole !== 'Owner' && authRole !== 'Manager') {

@@ -1,224 +1,141 @@
-/**
- * Performance Monitoring Service
- * Tracks app performance metrics and provides optimization recommendations
- */
+import { performance } from 'perf_hooks';
 
 interface PerformanceMetrics {
-  listenerCount: number;
-  reduxUpdateCount: number;
-  memoryUsage: number;
   renderTime: number;
-  firebaseCallCount: number;
-  lastCleanup: number;
+  listenerCount: number;
+  memoryUsage: number;
+  updateCount: number;
+  averageRenderTime: number;
+  peakMemoryUsage: number;
+  errorCount: number;
 }
 
 class PerformanceMonitor {
   private metrics: PerformanceMetrics = {
-    listenerCount: 0,
-    reduxUpdateCount: 0,
-    memoryUsage: 0,
     renderTime: 0,
-    firebaseCallCount: 0,
-    lastCleanup: 0,
+    listenerCount: 0,
+    memoryUsage: 0,
+    updateCount: 0,
+    averageRenderTime: 0,
+    peakMemoryUsage: 0,
+    errorCount: 0
   };
-
-  private thresholds = {
-    maxListeners: 20,
-    maxReduxUpdates: 1000,
-    maxMemoryUsage: 50 * 1024 * 1024, // 50MB
-    maxRenderTime: 16, // 16ms for 60fps
-    maxFirebaseCalls: 100,
-    cleanupInterval: 5 * 60 * 1000, // 5 minutes
-  };
-
-  private callbacks: Array<(metrics: PerformanceMetrics) => void> = [];
-
-  /**
-   * Update listener count
-   */
-  updateListenerCount(count: number) {
-    this.metrics.listenerCount = count;
-    this.checkThresholds();
-  }
-
-  /**
-   * Increment Redux update count
-   */
-  incrementReduxUpdates() {
-    this.metrics.reduxUpdateCount++;
-    this.checkThresholds();
-  }
-
-  /**
-   * Update memory usage (if available)
-   */
-  updateMemoryUsage(usage: number) {
-    this.metrics.memoryUsage = usage;
-    this.checkThresholds();
-  }
-
-  /**
-   * Record render time
-   */
+  
+  private renderTimes: number[] = [];
+  private readonly maxRenderTimes = 100;
+  
   recordRenderTime(time: number) {
     this.metrics.renderTime = time;
-    this.checkThresholds();
-  }
-
-  /**
-   * Increment Firebase call count
-   */
-  incrementFirebaseCalls() {
-    this.metrics.firebaseCallCount++;
-    this.checkThresholds();
-  }
-
-  /**
-   * Check if cleanup is needed
-   */
-  needsCleanup(): boolean {
-    const now = Date.now();
-    return now - this.metrics.lastCleanup > this.thresholds.cleanupInterval;
-  }
-
-  /**
-   * Mark cleanup as completed
-   */
-  markCleanupCompleted() {
-    this.metrics.lastCleanup = Date.now();
-    this.metrics.listenerCount = 0;
-    this.metrics.reduxUpdateCount = 0;
-    this.metrics.firebaseCallCount = 0;
-  }
-
-  /**
-   * Check performance thresholds
-   */
-  private checkThresholds() {
-    const issues: string[] = [];
-
-    if (this.metrics.listenerCount > this.thresholds.maxListeners) {
-      issues.push(`Too many listeners: ${this.metrics.listenerCount}/${this.thresholds.maxListeners}`);
+    this.metrics.updateCount++;
+    
+    // Track render times for average calculation
+    this.renderTimes.push(time);
+    if (this.renderTimes.length > this.maxRenderTimes) {
+      this.renderTimes.shift();
     }
-
-    if (this.metrics.reduxUpdateCount > this.thresholds.maxReduxUpdates) {
-      issues.push(`Too many Redux updates: ${this.metrics.reduxUpdateCount}/${this.thresholds.maxReduxUpdates}`);
-    }
-
-    if (this.metrics.memoryUsage > this.thresholds.maxMemoryUsage) {
-      issues.push(`High memory usage: ${Math.round(this.metrics.memoryUsage / 1024 / 1024)}MB`);
-    }
-
-    if (this.metrics.renderTime > this.thresholds.maxRenderTime) {
-      issues.push(`Slow render time: ${this.metrics.renderTime}ms`);
-    }
-
-    if (this.metrics.firebaseCallCount > this.thresholds.maxFirebaseCalls) {
-      issues.push(`Too many Firebase calls: ${this.metrics.firebaseCallCount}/${this.thresholds.maxFirebaseCalls}`);
-    }
-
-    if (issues.length > 0) {
-      console.warn('⚠️ Performance Issues Detected:', issues);
-      this.notifyCallbacks();
+    
+    // Calculate average render time
+    this.metrics.averageRenderTime = this.renderTimes.reduce((a, b) => a + b, 0) / this.renderTimes.length;
+    
+    // Log performance every 20 updates
+    if (this.metrics.updateCount % 20 === 0) {
+      this.logPerformance();
     }
   }
-
-  /**
-   * Register callback for performance alerts
-   */
-  onPerformanceAlert(callback: (metrics: PerformanceMetrics) => void) {
-    this.callbacks.push(callback);
+  
+  updateListenerCount(count: number) {
+    this.metrics.listenerCount = count;
   }
-
-  /**
-   * Notify callbacks
-   */
-  private notifyCallbacks() {
-    this.callbacks.forEach(callback => {
-      try {
-        callback(this.metrics);
-      } catch (error) {
-        console.error('Error in performance callback:', error);
-      }
-    });
+  
+  updateMemoryUsage() {
+    if (typeof (performance as any).memory !== 'undefined') {
+      const memory = (performance as any).memory;
+      this.metrics.memoryUsage = memory.usedJSHeapSize;
+      this.metrics.peakMemoryUsage = Math.max(this.metrics.peakMemoryUsage, memory.usedJSHeapSize);
+    }
   }
-
-  /**
-   * Get current metrics
-   */
+  
+  recordError() {
+    this.metrics.errorCount++;
+  }
+  
   getMetrics(): PerformanceMetrics {
+    this.updateMemoryUsage();
     return { ...this.metrics };
   }
-
-  /**
-   * Get performance recommendations
-   */
-  getRecommendations(): string[] {
-    const recommendations: string[] = [];
-
-    if (this.metrics.listenerCount > this.thresholds.maxListeners) {
-      recommendations.push('Consider implementing listener pooling or reducing the number of active listeners');
-    }
-
-    if (this.metrics.reduxUpdateCount > this.thresholds.maxReduxUpdates) {
-      recommendations.push('Implement batch updates to reduce Redux dispatches');
-    }
-
-    if (this.metrics.memoryUsage > this.thresholds.maxMemoryUsage) {
-      recommendations.push('Implement data cleanup and memory management strategies');
-    }
-
-    if (this.metrics.renderTime > this.thresholds.maxRenderTime) {
-      recommendations.push('Optimize component rendering and consider using React.memo');
-    }
-
-    if (this.metrics.firebaseCallCount > this.thresholds.maxFirebaseCalls) {
-      recommendations.push('Implement request batching and caching strategies');
-    }
-
-    return recommendations;
+  
+  logPerformance() {
+    console.log('📊 Performance Metrics:', {
+      renderTime: this.metrics.renderTime.toFixed(2) + 'ms',
+      averageRenderTime: this.metrics.averageRenderTime.toFixed(2) + 'ms',
+      listenerCount: this.metrics.listenerCount,
+      memoryUsage: this.formatBytes(this.metrics.memoryUsage),
+      peakMemoryUsage: this.formatBytes(this.metrics.peakMemoryUsage),
+      updateCount: this.metrics.updateCount,
+      errorCount: this.metrics.errorCount
+    });
   }
-
-  /**
-   * Reset metrics
-   */
+  
+  private formatBytes(bytes: number): string {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  }
+  
   reset() {
     this.metrics = {
-      listenerCount: 0,
-      reduxUpdateCount: 0,
-      memoryUsage: 0,
       renderTime: 0,
-      firebaseCallCount: 0,
-      lastCleanup: Date.now(),
+      listenerCount: 0,
+      memoryUsage: 0,
+      updateCount: 0,
+      averageRenderTime: 0,
+      peakMemoryUsage: 0,
+      errorCount: 0
     };
+    this.renderTimes = [];
   }
-
-  /**
-   * Stop method for compatibility with AppInitializer
-   */
-  stop() {
-    this.reset();
-    console.log('🧹 PerformanceMonitor: Stopped and reset');
+  
+  // Performance thresholds
+  private readonly RENDER_TIME_WARNING = 16; // 60fps
+  private readonly RENDER_TIME_ERROR = 33; // 30fps
+  private readonly MEMORY_WARNING = 50 * 1024 * 1024; // 50MB
+  private readonly MEMORY_ERROR = 100 * 1024 * 1024; // 100MB
+  
+  checkPerformanceThresholds() {
+    const warnings: string[] = [];
+    const errors: string[] = [];
+    
+    if (this.metrics.renderTime > this.RENDER_TIME_ERROR) {
+      errors.push(`Render time too high: ${this.metrics.renderTime.toFixed(2)}ms`);
+    } else if (this.metrics.renderTime > this.RENDER_TIME_WARNING) {
+      warnings.push(`Render time high: ${this.metrics.renderTime.toFixed(2)}ms`);
+    }
+    
+    if (this.metrics.memoryUsage > this.MEMORY_ERROR) {
+      errors.push(`Memory usage too high: ${this.formatBytes(this.metrics.memoryUsage)}`);
+    } else if (this.metrics.memoryUsage > this.MEMORY_WARNING) {
+      warnings.push(`Memory usage high: ${this.formatBytes(this.metrics.memoryUsage)}`);
+    }
+    
+    if (this.metrics.listenerCount > 20) {
+      warnings.push(`Too many listeners: ${this.metrics.listenerCount}`);
+    }
+    
+    if (errors.length > 0) {
+      console.error('🚨 Performance Errors:', errors);
+    }
+    
+    if (warnings.length > 0) {
+      console.warn('⚠️ Performance Warnings:', warnings);
+    }
+    
+    return { warnings, errors };
   }
 }
 
-// Export singleton instance
-export const performanceMonitor = new PerformanceMonitor();
-
-// Helper hook for React components
-export const usePerformanceMonitor = () => {
-  return {
-    updateListenerCount: (count: number) => performanceMonitor.updateListenerCount(count),
-    incrementReduxUpdates: () => performanceMonitor.incrementReduxUpdates(),
-    updateMemoryUsage: (usage: number) => performanceMonitor.updateMemoryUsage(usage),
-    recordRenderTime: (time: number) => performanceMonitor.recordRenderTime(time),
-    incrementFirebaseCalls: () => performanceMonitor.incrementFirebaseCalls(),
-    needsCleanup: () => performanceMonitor.needsCleanup(),
-    markCleanupCompleted: () => performanceMonitor.markCleanupCompleted(),
-    getMetrics: () => performanceMonitor.getMetrics(),
-    getRecommendations: () => performanceMonitor.getRecommendations(),
-    reset: () => performanceMonitor.reset(),
-  };
-};
+// Singleton instance
+const performanceMonitor = new PerformanceMonitor();
 
 export default performanceMonitor;

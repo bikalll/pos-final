@@ -87,9 +87,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace 'com.yourcompany.rnpos'
+    namespace 'com.arbi.rnpos'
     defaultConfig {
-        applicationId 'com.yourcompany.rnpos'
+        applicationId 'com.arbi.rnpos'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

@@ -420,7 +420,19 @@ const PaymentScreen: React.FC = () => {
                 svc.updateTable(order.tableId, { isOccupied: false });
               }
             } catch {}
-            (navigation as any).navigate('Dashboard', { screen: 'TablesDashboard' });
+            // Use reset navigation to clear the stack and prevent back button issues
+            (navigation as any).reset({
+              index: 0,
+              routes: [
+                {
+                  name: 'Dashboard',
+                  state: {
+                    routes: [{ name: 'TablesDashboard' }],
+                    index: 0,
+                  },
+                },
+              ],
+            });
             setIsProcessingPayment(false);
             setHasCompletedPayment(true);
           },
@@ -437,7 +449,19 @@ const PaymentScreen: React.FC = () => {
                 svc.updateTable(order.tableId, { isOccupied: false });
               }
             } catch {}
-            (navigation as any).navigate('Dashboard', { screen: 'TablesDashboard' });
+            // Use reset navigation to clear the stack and prevent back button issues
+            (navigation as any).reset({
+              index: 0,
+              routes: [
+                {
+                  name: 'Dashboard',
+                  state: {
+                    routes: [{ name: 'TablesDashboard' }],
+                    index: 0,
+                  },
+                },
+              ],
+            });
             setIsProcessingPayment(false);
             setHasCompletedPayment(true);
           },
